@@ -10,6 +10,7 @@
 
 pub mod error;
 pub(crate) mod headers;
+pub mod transport;
 pub mod types;
 
 pub use error::{ApiError, ApiErrorBody, BuildError, Error, ErrorType, TransportError};
