@@ -85,6 +85,14 @@ impl fmt::Display for AnthropicVersion {
 /// Beta flags are opaque strings such as `prompt-caching-2024-07-31`.
 /// Validated to the charset `[a-z0-9._-]+`.
 ///
+/// The accepted charset matches every beta-flag value published in
+/// Anthropic's beta-header inventory (see
+/// <https://docs.anthropic.com/en/api/beta-headers>). Values outside the
+/// charset — uppercase letters, whitespace, commas, slashes, plus signs —
+/// are rejected at construction; commas appear only as a header-level
+/// separator when multiple flags are concatenated, never inside an
+/// individual value.
+///
 /// # Examples
 ///
 /// ```
@@ -173,16 +181,37 @@ mod tests {
 
     #[test]
     fn beta_header_validates_charset() {
+        // Known-good values drawn from Anthropic's published beta inventory.
         assert!(BetaHeader::new("prompt-caching-2024-07-31").is_ok());
-        assert_eq!(
-            BetaHeader::new("UPPER").unwrap_err(),
-            InvalidBetaHeader::BadChars
-        );
+        assert!(BetaHeader::new("message-batches-2024-09-24").is_ok());
+        assert!(BetaHeader::new("computer-use-2025-01-24").is_ok());
+        assert!(BetaHeader::new("output-128k-2025-02-19").is_ok());
+
+        // Permissive headroom: `.` and `_` accepted even though no current
+        // published header uses them.
+        assert!(BetaHeader::new("a.b").is_ok());
+        assert!(BetaHeader::new("a_b").is_ok());
+
+        // Empty input is its own error kind.
         assert_eq!(BetaHeader::new("").unwrap_err(), InvalidBetaHeader::Empty);
-        assert_eq!(
-            BetaHeader::new("with space").unwrap_err(),
-            InvalidBetaHeader::BadChars
-        );
+
+        // Out-of-charset characters are rejected as BadChars.
+        for bad in [
+            "UPPER",
+            "MiXeD-case",
+            "with space",
+            "prompt,caching",
+            "a+b",
+            "a/b",
+            "tab\there",
+            "trailing\n",
+        ] {
+            assert_eq!(
+                BetaHeader::new(bad).unwrap_err(),
+                InvalidBetaHeader::BadChars,
+                "expected BadChars for {bad:?}"
+            );
+        }
     }
 
     #[test]

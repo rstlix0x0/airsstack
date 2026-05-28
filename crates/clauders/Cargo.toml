@@ -53,6 +53,7 @@ tokio        = { workspace = true, features = ["full", "test-util"] }
 mockall      = { workspace = true }
 wiremock     = { workspace = true }
 futures-util = { workspace = true }
+trybuild     = { workspace = true }
 
 [package.metadata.docs.rs]
 all-features = true
