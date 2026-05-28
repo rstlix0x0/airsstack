@@ -15,11 +15,22 @@ categories  = ["api-bindings", "web-programming::http-client", "asynchronous"]
 [lints]
 workspace = true
 
+[features]
+# Gates `cache_control` fields on request types and cache-hit counters
+# on `Usage` responses. Off by default to keep the wire payload minimal
+# for callers that don't use prompt caching.
+messages-caching = []
+
 [dependencies]
-# Populated by Phase 2 onward as code begins to reference workspace deps.
+serde      = { workspace = true }
+serde_json = { workspace = true }
+thiserror  = { workspace = true }
+secrecy    = { workspace = true }
+tracing    = { workspace = true }
+url        = { workspace = true }
+http       = { workspace = true }
 
 [dev-dependencies]
-# Populated by Phase 2 onward.
 
 [package.metadata.docs.rs]
 all-features = true
