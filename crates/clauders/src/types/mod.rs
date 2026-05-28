@@ -6,11 +6,17 @@
 //! [`std::error::Error`].
 
 mod api_key;
+mod ids;
 mod model_id;
 mod numeric;
 mod version;
 
 pub use api_key::{ApiKey, InvalidApiKey};
+pub use ids::{
+    InvalidMessageId, InvalidOrganizationId, InvalidRequestId, InvalidStopSequence,
+    InvalidToolName, InvalidToolUseId, InvalidUserId, MessageId, OrganizationId, RequestId,
+    StopSequence, ToolName, ToolUseId, UserId,
+};
 pub use model_id::{InvalidModelId, ModelId};
 pub use numeric::{
     InvalidMaxTokens, InvalidTemperature, InvalidTopK, InvalidTopP, MaxTokens, Temperature, TopK,
