@@ -41,8 +41,9 @@ http           = { workspace = true }
 http-body      = { workspace = true }
 http-body-util = { workspace = true }
 bytes          = { workspace = true }
-futures-core   = { workspace = true }
-async-trait    = { workspace = true }
+futures-core       = { workspace = true }
+pin-project-lite   = { workspace = true }
+async-trait        = { workspace = true }
 tokio          = { workspace = true }
 reqwest        = { workspace = true, optional = true }
 mockall        = { workspace = true, optional = true }

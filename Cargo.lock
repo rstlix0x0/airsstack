@@ -126,6 +126,7 @@ dependencies = [
  "http-body",
  "http-body-util",
  "mockall",
+ "pin-project-lite",
  "reqwest",
  "secrecy",
  "serde",
