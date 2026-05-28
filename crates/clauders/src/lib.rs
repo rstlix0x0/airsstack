@@ -12,4 +12,4 @@ pub mod error;
 pub(crate) mod headers;
 pub mod types;
 
-pub use error::TransportError;
+pub use error::{ApiError, ApiErrorBody, BuildError, Error, ErrorType, TransportError};
