@@ -9,7 +9,9 @@
 //! Responsibilities:
 //! - Define [`HttpTransport`] (the user-extension seam) and [`BodyStream`]
 //!   (the incremental response body type every implementation returns).
-//! - Provide the `mockall`-generated [`MockHttpTransport`] behind the
+//! - Ship the default [`ReqwestTransport`] (a `reqwest::Client`-backed
+//!   implementation) behind the `transport-reqwest` Cargo feature.
+//! - Provide the `mockall`-generated `MockHttpTransport` behind the
 //!   private `__test-mocks` feature for downstream test code.
 //!
 //! Not responsible for:
@@ -23,6 +25,10 @@
 pub mod body;
 pub mod seam;
 
+#[cfg(feature = "transport-reqwest")]
+#[cfg_attr(docsrs, doc(cfg(feature = "transport-reqwest")))]
+pub mod reqwest_impl;
+
 #[cfg(feature = "__test-mocks")]
 #[cfg_attr(docsrs, doc(cfg(feature = "__test-mocks")))]
 pub mod mock;
@@ -31,6 +37,11 @@ pub mod mock;
 pub use body::BodyStream;
 #[doc(inline)]
 pub use seam::HttpTransport;
+
+#[cfg(feature = "transport-reqwest")]
+#[cfg_attr(docsrs, doc(cfg(feature = "transport-reqwest")))]
+#[doc(inline)]
+pub use reqwest_impl::ReqwestTransport;
 
 #[cfg(feature = "__test-mocks")]
 #[cfg_attr(docsrs, doc(cfg(feature = "__test-mocks")))]
