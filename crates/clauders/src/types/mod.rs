@@ -6,7 +6,9 @@
 //! [`std::error::Error`].
 
 mod api_key;
+mod model_id;
 mod version;
 
 pub use api_key::{ApiKey, InvalidApiKey};
+pub use model_id::{InvalidModelId, ModelId};
 pub use version::{AnthropicVersion, BetaHeader, InvalidAnthropicVersion, InvalidBetaHeader};
