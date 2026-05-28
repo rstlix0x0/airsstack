@@ -33,6 +33,7 @@ pub struct ModelId(String);
 
 /// Reasons [`ModelId::custom`] can reject input.
 #[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum InvalidModelId {
     /// Input was empty.
     #[error("model id must not be empty")]

@@ -4,10 +4,12 @@
 //! Crate-private. Caller-visible header configuration goes through the
 //! strongly-typed `AnthropicVersion` and `BetaHeader` wrappers in
 //! `crate::types`.
-#![expect(
-    dead_code,
-    reason = "consumed by sibling transport/client modules within the crate"
-)]
+// `dead_code` fires on the lib target (no production callers yet); it does NOT
+// fire on the test target (all constants appear in the test array). Because the
+// lint fires conditionally across targets, `#[expect]` would be reported
+// "unfulfilled" by the test-target pass. Per M-LINT-OVERRIDE-EXPECT, `#[allow]`
+// is the correct suppression for conditionally-firing lints.
+#![allow(dead_code)]
 #![expect(
     clippy::redundant_pub_crate,
     reason = "explicit pub(crate) documents the crate-wide visibility intent at each item"
@@ -37,14 +39,17 @@ mod tests {
             ANTHROPIC_BETA,
             CONTENT_TYPE,
             ACCEPT,
+            APPLICATION_JSON,
+            TEXT_EVENT_STREAM,
             REQUEST_ID,
             ANTHROPIC_ORG_ID,
             RETRY_AFTER,
             USER_AGENT,
         ] {
             assert!(
-                h.bytes().all(|b| b.is_ascii_lowercase() || b == b'-'),
-                "header constant must be lowercase-ASCII with optional '-': got {h:?}"
+                h.bytes()
+                    .all(|b| b.is_ascii_lowercase() || matches!(b, b'-' | b'/' | b'_')),
+                "header constant must be lowercase-ASCII with optional '-', '/', '_': got {h:?}"
             );
         }
     }

@@ -9,11 +9,6 @@ use secrecy::{ExposeSecret, SecretString};
 /// [`ApiKey::expose_secret`] to obtain the underlying value when sending
 /// it as the `x-api-key` header value.
 ///
-/// # Errors
-///
-/// [`ApiKey::new`] returns [`InvalidApiKey`] if the input is empty or
-/// contains non-ASCII / non-printable bytes.
-///
 /// # Examples
 ///
 /// ```
@@ -35,6 +30,7 @@ pub struct ApiKey(SecretString);
 
 /// Reasons [`ApiKey::new`] can reject input.
 #[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum InvalidApiKey {
     /// The provided string was empty.
     #[error("API key must not be empty")]

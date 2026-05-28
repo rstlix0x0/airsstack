@@ -26,6 +26,7 @@ enum VersionRepr {
 
 /// Reasons [`AnthropicVersion::custom`] can reject input.
 #[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum InvalidAnthropicVersion {
     /// Input was empty.
     #[error("anthropic-version must not be empty")]
@@ -96,6 +97,7 @@ pub struct BetaHeader(String);
 
 /// Reasons [`BetaHeader::new`] can reject input.
 #[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum InvalidBetaHeader {
     /// Input was empty.
     #[error("beta header value must not be empty")]

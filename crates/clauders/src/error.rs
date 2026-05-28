@@ -38,6 +38,7 @@ use http::StatusCode;
 /// assert!(e.is_retryable());
 /// ```
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum TransportError {
     /// Network-level failure (connection refused, reset, DNS, etc.).
     #[error("network failure: {0}")]
@@ -63,7 +64,9 @@ pub enum TransportError {
     Build(String),
 
     /// Catch-all for transport-layer failures the SDK cannot categorize
-    /// more specifically.
+    /// more specifically. Treated as **non-retryable** — without a known
+    /// failure category the SDK cannot prove a retry is safe; callers who
+    /// know the underlying cause is transient can retry explicitly.
     #[error("transport error: {0}")]
     Other(String),
 }
@@ -71,16 +74,14 @@ pub enum TransportError {
 impl TransportError {
     /// Whether the failure is safe to retry with the same request body.
     ///
-    /// Transient failures (`Network`, `Timeout`, `Other`) are retryable.
-    /// Failures that indicate misconfiguration or a malformed request
-    /// (`Tls`, `BodyStream`, `Build`) are not — retrying without
-    /// changing the request will produce the same error.
+    /// Retryable categories: `Network`, `Timeout` — these are transient
+    /// connectivity failures where re-issuing the request commonly
+    /// succeeds. All other variants (`Tls`, `BodyStream`, `Build`, `Other`)
+    /// indicate a request-shape or configuration issue that retrying will
+    /// not resolve.
     #[must_use]
     pub const fn is_retryable(&self) -> bool {
-        matches!(
-            self,
-            Self::Network(_) | Self::Timeout { .. } | Self::Other(_)
-        )
+        matches!(self, Self::Network(_) | Self::Timeout { .. })
     }
 }
 
@@ -97,6 +98,7 @@ impl TransportError {
 /// `Retry-After` header value is preserved on [`ApiError::retry_after`].
 #[derive(Debug, Clone, thiserror::Error)]
 #[error("API error {status} ({}): {}", body.kind, body.message)]
+#[non_exhaustive]
 pub struct ApiError {
     /// HTTP status code returned by the API.
     pub status: StatusCode,
@@ -275,7 +277,10 @@ impl Error {
         match self {
             Self::Transport(e) => e.is_retryable(),
             Self::Api(e) => e.is_retryable(),
-            _ => false,
+            Self::UndecodableApiError { .. }
+            | Self::Serde { .. }
+            | Self::InvalidRequest(_)
+            | Self::Build(_) => false,
         }
     }
 
@@ -285,7 +290,11 @@ impl Error {
     pub const fn retry_after(&self) -> Option<Duration> {
         match self {
             Self::Api(e) => e.retry_after,
-            _ => None,
+            Self::Transport(_)
+            | Self::UndecodableApiError { .. }
+            | Self::Serde { .. }
+            | Self::InvalidRequest(_)
+            | Self::Build(_) => None,
         }
     }
 
@@ -295,7 +304,23 @@ impl Error {
         match self {
             Self::Api(e) => e.request_id.as_ref(),
             Self::UndecodableApiError { request_id, .. } => request_id.as_ref(),
-            _ => None,
+            Self::Transport(_) | Self::Serde { .. } | Self::InvalidRequest(_) | Self::Build(_) => {
+                None
+            }
+        }
+    }
+
+    /// The server-supplied `anthropic-organization-id` header value
+    /// if this is an [`ApiError`] with a populated `organization_id` field.
+    #[must_use]
+    pub const fn organization_id(&self) -> Option<&OrganizationId> {
+        match self {
+            Self::Api(e) => e.organization_id.as_ref(),
+            Self::Transport(_)
+            | Self::UndecodableApiError { .. }
+            | Self::Serde { .. }
+            | Self::InvalidRequest(_)
+            | Self::Build(_) => None,
         }
     }
 }
@@ -315,8 +340,8 @@ mod tests {
             }
             .is_retryable()
         );
-        assert!(TransportError::Other(String::new()).is_retryable());
 
+        assert!(!TransportError::Other(String::new()).is_retryable());
         assert!(!TransportError::Tls(String::new()).is_retryable());
         assert!(!TransportError::BodyStream(String::new()).is_retryable());
         assert!(!TransportError::Build(String::new()).is_retryable());
@@ -418,5 +443,26 @@ mod tests {
         assert!(!e.is_retryable());
         assert!(e.retry_after().is_none());
         assert!(e.request_id().is_none());
+    }
+
+    #[test]
+    fn error_organization_id_propagates_from_api_error() {
+        use crate::types::OrganizationId;
+        let org = OrganizationId::new("org_xyz789").unwrap();
+        let e = ApiError {
+            status: StatusCode::OK,
+            body: ApiErrorBody {
+                kind: ErrorType::ApiError,
+                message: "irrelevant".into(),
+            },
+            request_id: None,
+            organization_id: Some(org),
+            retry_after: None,
+        };
+        let wrapped: Error = e.into();
+        assert_eq!(
+            wrapped.organization_id().map(OrganizationId::as_str),
+            Some("org_xyz789")
+        );
     }
 }

@@ -30,8 +30,6 @@ tracing    = { workspace = true }
 url        = { workspace = true }
 http       = { workspace = true }
 
-[dev-dependencies]
-
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]

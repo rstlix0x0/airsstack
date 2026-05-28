@@ -62,17 +62,21 @@ pub struct Temperature(f32);
 
 /// Reason [`Temperature::new`] can reject input.
 #[derive(Debug, Clone, Copy, thiserror::Error, PartialEq)]
-#[error("temperature must be in 0.0..=1.0 (got {0})")]
-pub struct InvalidTemperature(pub f32);
+#[error("temperature must be in 0.0..=1.0 (got {value})")]
+#[non_exhaustive]
+pub struct InvalidTemperature {
+    /// The rejected value.
+    pub value: f32,
+}
 
 impl Temperature {
     /// Validate and wrap an `f32` as `Temperature`.
     ///
     /// # Errors
     /// Returns [`InvalidTemperature`] when `v` is outside `0.0..=1.0` or is NaN.
-    pub fn new(v: f32) -> Result<Self, InvalidTemperature> {
-        if v.is_nan() || !(0.0..=1.0).contains(&v) {
-            return Err(InvalidTemperature(v));
+    pub const fn new(v: f32) -> Result<Self, InvalidTemperature> {
+        if v.is_nan() || v < 0.0 || v > 1.0 {
+            return Err(InvalidTemperature { value: v });
         }
         Ok(Self(v))
     }
@@ -99,17 +103,21 @@ pub struct TopP(f32);
 
 /// Reason [`TopP::new`] can reject input.
 #[derive(Debug, Clone, Copy, thiserror::Error, PartialEq)]
-#[error("top_p must be in 0.0..=1.0 (got {0})")]
-pub struct InvalidTopP(pub f32);
+#[error("top_p must be in 0.0..=1.0 (got {value})")]
+#[non_exhaustive]
+pub struct InvalidTopP {
+    /// The rejected value.
+    pub value: f32,
+}
 
 impl TopP {
     /// Validate and wrap an `f32` as `TopP`.
     ///
     /// # Errors
     /// Returns [`InvalidTopP`] when `v` is outside `0.0..=1.0` or is NaN.
-    pub fn new(v: f32) -> Result<Self, InvalidTopP> {
-        if v.is_nan() || !(0.0..=1.0).contains(&v) {
-            return Err(InvalidTopP(v));
+    pub const fn new(v: f32) -> Result<Self, InvalidTopP> {
+        if v.is_nan() || v < 0.0 || v > 1.0 {
+            return Err(InvalidTopP { value: v });
         }
         Ok(Self(v))
     }
