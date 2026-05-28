@@ -9,6 +9,7 @@ mod api_key;
 mod ids;
 mod model_id;
 mod numeric;
+mod system;
 mod version;
 
 pub use api_key::{ApiKey, InvalidApiKey};
@@ -22,4 +23,5 @@ pub use numeric::{
     InvalidMaxTokens, InvalidTemperature, InvalidTopK, InvalidTopP, MaxTokens, Temperature, TopK,
     TopP,
 };
+pub use system::{SystemPrompt, SystemSegment, SystemSegmentKind};
 pub use version::{AnthropicVersion, BetaHeader, InvalidAnthropicVersion, InvalidBetaHeader};
