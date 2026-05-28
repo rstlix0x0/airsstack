@@ -12,9 +12,11 @@ pub mod auth;
 pub mod config;
 pub mod error;
 pub(crate) mod headers;
+pub mod retry;
 pub mod transport;
 pub mod types;
 
 pub use auth::Auth;
 pub use config::Config;
 pub use error::{ApiError, ApiErrorBody, BuildError, Error, ErrorType, TransportError};
+pub use retry::{ExpBackoff, Jitter, RetryPolicy};
