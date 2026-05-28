@@ -138,6 +138,16 @@ impl<T: HttpTransport> Client<T> {
         &self.inner.retry
     }
 
+    /// Number of `Client` handles currently sharing the same internal state.
+    ///
+    /// Cloning a `Client` is a refcount bump on an internal `Arc`; this
+    /// returns the live count. Useful for diagnostics and for tests that
+    /// want to verify clones do not duplicate the underlying state.
+    #[must_use]
+    pub fn ref_count(&self) -> usize {
+        Arc::strong_count(&self.inner)
+    }
+
     /// Begin building a client with the supplied transport.
     ///
     /// Infallible; callers who already hold a configured transport
