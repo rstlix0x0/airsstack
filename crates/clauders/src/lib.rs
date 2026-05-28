@@ -1,12 +1,11 @@
 //! Unofficial Rust SDK for the Anthropic Claude Messages API.
 //!
-//! This crate is a work in progress. Phase 1 ships the workspace skeleton
-//! only — the SDK surface is added in subsequent phases. See the project
-//! README and the design spec under `.superpowers/specs/` for the full plan.
+//! Provides strongly-typed wrappers around the `POST /v1/messages` surface:
+//! request and response models, sampling parameters, system prompts, tool
+//! use, prompt caching, streaming, message batches, and structured outputs.
 //!
-//! All public items will be added behind feature flags as documented in the
-//! design spec; the Phase 1 build deliberately compiles a crate with no
-//! public items so the workspace lints, formatter, and rustdoc pipeline can
-//! be wired in cleanly before any production code lands.
+//! See [README](https://github.com/rstlix0x0/airsstack) for an overview.
 #![forbid(unsafe_code)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
+
+pub(crate) mod headers;
