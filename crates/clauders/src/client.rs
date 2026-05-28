@@ -137,4 +137,38 @@ impl<T: HttpTransport> Client<T> {
     pub fn retry(&self) -> &RetryPolicy {
         &self.inner.retry
     }
+
+    /// Begin building a client with the supplied transport.
+    ///
+    /// Infallible; callers who already hold a configured transport
+    /// (custom implementations, pre-tuned `ReqwestTransport`, test mocks)
+    /// reach for this entry point instead of [`Client::builder`].
+    #[must_use]
+    pub const fn builder_with_transport(
+        transport: T,
+    ) -> crate::builder::ClientBuilder<crate::builder::Missing, T> {
+        crate::builder::ClientBuilder::new_with_transport(transport)
+    }
+}
+
+#[cfg(feature = "transport-reqwest")]
+#[cfg_attr(docsrs, doc(cfg(feature = "transport-reqwest")))]
+impl Client<ReqwestTransport> {
+    /// Begin building a client with the default `ReqwestTransport`.
+    ///
+    /// Constructs the underlying transport via
+    /// [`ReqwestTransport::try_new`]; failures (typically TLS-backend
+    /// initialization) surface as [`crate::error::BuildError::Transport`].
+    ///
+    /// # Errors
+    /// Returns [`crate::error::BuildError`] when the underlying
+    /// `reqwest::Client` cannot be constructed.
+    pub fn builder() -> Result<
+        crate::builder::ClientBuilder<crate::builder::Missing, ReqwestTransport>,
+        crate::error::BuildError,
+    > {
+        let transport = ReqwestTransport::try_new()
+            .map_err(|e| crate::error::BuildError::Transport(e.to_string()))?;
+        Ok(crate::builder::ClientBuilder::new_with_transport(transport))
+    }
 }
