@@ -9,3 +9,4 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 pub(crate) mod headers;
+pub mod types;
