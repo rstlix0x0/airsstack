@@ -23,5 +23,4 @@ use crate::error::TransportError;
 ///
 /// Each item yields a chunk of the response body or a [`TransportError`]
 /// if the stream is interrupted mid-flight.
-pub type BodyStream =
-    Pin<Box<dyn Stream<Item = Result<Bytes, TransportError>> + Send + 'static>>;
+pub type BodyStream = Pin<Box<dyn Stream<Item = Result<Bytes, TransportError>> + Send + 'static>>;

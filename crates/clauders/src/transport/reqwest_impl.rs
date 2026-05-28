@@ -95,10 +95,7 @@ impl ReqwestTransport {
 
 #[async_trait::async_trait]
 impl HttpTransport for ReqwestTransport {
-    async fn send(
-        &self,
-        req: Request<Bytes>,
-    ) -> Result<Response<BodyStream>, TransportError> {
+    async fn send(&self, req: Request<Bytes>) -> Result<Response<BodyStream>, TransportError> {
         let (parts, body) = req.into_parts();
         let url = parts.uri.to_string();
 
@@ -135,10 +132,7 @@ impl HttpTransport for ReqwestTransport {
 /// The elapsed time is measured by the caller from just before the
 /// `send()` call so the `Timeout` variant carries a real wallclock value
 /// rather than a zero placeholder.
-fn classify_reqwest_error(
-    e: &reqwest::Error,
-    elapsed: std::time::Duration,
-) -> TransportError {
+fn classify_reqwest_error(e: &reqwest::Error, elapsed: std::time::Duration) -> TransportError {
     if e.is_timeout() {
         return TransportError::Timeout { elapsed };
     }
@@ -158,9 +152,7 @@ fn classify_reqwest_error(
 ///
 /// Each `reqwest::Error` from the body stream maps to
 /// [`TransportError::BodyStream`] so callers see a uniform error type.
-fn into_typed_stream<S>(
-    s: S,
-) -> impl Stream<Item = Result<Bytes, TransportError>> + Send + 'static
+fn into_typed_stream<S>(s: S) -> impl Stream<Item = Result<Bytes, TransportError>> + Send + 'static
 where
     S: Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
 {
@@ -174,17 +166,14 @@ where
         S: Stream<Item = Result<Bytes, reqwest::Error>> + Unpin,
     {
         type Item = Result<Bytes, TransportError>;
-        fn poll_next(
-            mut self: Pin<&mut Self>,
-            cx: &mut Context<'_>,
-        ) -> Poll<Option<Self::Item>> {
+        fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
             match Pin::new(&mut self.0).poll_next(cx) {
                 Poll::Pending => Poll::Pending,
                 Poll::Ready(None) => Poll::Ready(None),
                 Poll::Ready(Some(Ok(b))) => Poll::Ready(Some(Ok(b))),
-                Poll::Ready(Some(Err(e))) => Poll::Ready(Some(Err(
-                    TransportError::BodyStream(e.to_string()),
-                ))),
+                Poll::Ready(Some(Err(e))) => {
+                    Poll::Ready(Some(Err(TransportError::BodyStream(e.to_string()))))
+                }
             }
         }
     }

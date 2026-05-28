@@ -9,8 +9,8 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 pub mod error;
-pub mod transport;
 pub(crate) mod headers;
+pub mod transport;
 pub mod types;
 
 pub use error::{ApiError, ApiErrorBody, BuildError, Error, ErrorType, TransportError};

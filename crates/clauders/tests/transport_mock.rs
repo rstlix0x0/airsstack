@@ -20,10 +20,7 @@ fn canned_body(payload: &'static [u8]) -> BodyStream {
 
     impl Stream for Once {
         type Item = Result<Bytes, TransportError>;
-        fn poll_next(
-            mut self: Pin<&mut Self>,
-            _: &mut Context<'_>,
-        ) -> Poll<Option<Self::Item>> {
+        fn poll_next(mut self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Option<Self::Item>> {
             Poll::Ready(self.0.take().map(Ok))
         }
     }
@@ -34,14 +31,11 @@ fn canned_body(payload: &'static [u8]) -> BodyStream {
 #[tokio::test]
 async fn mock_returns_canned_response() {
     let mut transport = MockHttpTransport::new();
-    transport
-        .expect_send()
-        .times(1)
-        .returning(|_req| {
-            let mut response = Response::new(canned_body(b"hello"));
-            *response.status_mut() = StatusCode::OK;
-            Ok(response)
-        });
+    transport.expect_send().times(1).returning(|_req| {
+        let mut response = Response::new(canned_body(b"hello"));
+        *response.status_mut() = StatusCode::OK;
+        Ok(response)
+    });
 
     let req = Request::builder()
         .method("GET")
@@ -49,6 +43,9 @@ async fn mock_returns_canned_response() {
         .body(Bytes::new())
         .unwrap();
 
-    let resp = transport.send(req).await.expect("mock returned canned response");
+    let resp = transport
+        .send(req)
+        .await
+        .expect("mock returned canned response");
     assert_eq!(resp.status(), StatusCode::OK);
 }

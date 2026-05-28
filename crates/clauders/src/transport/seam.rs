@@ -39,8 +39,5 @@ pub trait HttpTransport: Send + Sync + 'static {
     /// dispatch the request, complete the TLS handshake, or surface the
     /// response headers. HTTP-level non-2xx responses are NOT errors at this
     /// layer.
-    async fn send(
-        &self,
-        req: Request<Bytes>,
-    ) -> Result<Response<BodyStream>, TransportError>;
+    async fn send(&self, req: Request<Bytes>) -> Result<Response<BodyStream>, TransportError>;
 }
