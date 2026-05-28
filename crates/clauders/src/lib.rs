@@ -8,9 +8,13 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+pub mod auth;
+pub mod config;
 pub mod error;
 pub(crate) mod headers;
 pub mod transport;
 pub mod types;
 
+pub use auth::Auth;
+pub use config::Config;
 pub use error::{ApiError, ApiErrorBody, BuildError, Error, ErrorType, TransportError};
