@@ -40,7 +40,10 @@ pub enum Jitter {
 pub struct ExpBackoff {
     /// Total number of attempts including the original request.
     pub max_attempts: NonZeroU32,
-    /// Backoff applied before the second attempt (attempt index 1).
+    /// Backoff applied before the first retry (attempt index 0).
+    ///
+    /// `RetryPolicy::backoff(0)` returns this value verbatim;
+    /// subsequent retries multiply by `multiplier` and cap at `max`.
     pub initial: Duration,
     /// Hard cap on the per-attempt backoff after exponential growth.
     pub max: Duration,
@@ -48,6 +51,58 @@ pub struct ExpBackoff {
     pub multiplier: f32,
     /// Jitter mode applied on top of the exponential value.
     pub jitter: Jitter,
+}
+
+/// Reasons [`ExpBackoff::try_new`] can reject input.
+#[derive(Debug, Clone, thiserror::Error, PartialEq)]
+#[non_exhaustive]
+pub enum InvalidExpBackoff {
+    /// `multiplier` was NaN or infinite.
+    #[error("multiplier must be finite, got {0}")]
+    NonFiniteMultiplier(f32),
+    /// `multiplier` was not strictly positive.
+    #[error("multiplier must be > 0, got {0}")]
+    NonPositiveMultiplier(f32),
+    /// `initial > max` — the cap would be exceeded by the very first attempt.
+    #[error("initial ({initial:?}) must be <= max ({max:?})")]
+    InitialExceedsMax {
+        /// Configured initial backoff.
+        initial: Duration,
+        /// Configured maximum backoff.
+        max: Duration,
+    },
+}
+
+impl ExpBackoff {
+    /// Construct a validated `ExpBackoff`.
+    ///
+    /// # Errors
+    /// Returns [`InvalidExpBackoff`] when `multiplier` is non-finite or
+    /// non-positive, or when `initial > max`.
+    pub fn try_new(
+        max_attempts: NonZeroU32,
+        initial: Duration,
+        max: Duration,
+        multiplier: f32,
+        jitter: Jitter,
+    ) -> Result<Self, InvalidExpBackoff> {
+        if !multiplier.is_finite() {
+            return Err(InvalidExpBackoff::NonFiniteMultiplier(multiplier));
+        }
+        if multiplier <= 0.0 {
+            return Err(InvalidExpBackoff::NonPositiveMultiplier(multiplier));
+        }
+        if initial > max {
+            return Err(InvalidExpBackoff::InitialExceedsMax { initial, max });
+        }
+        Ok(Self {
+            max_attempts,
+            initial,
+            max,
+            multiplier,
+            jitter,
+        })
+    }
 }
 
 impl Default for ExpBackoff {
@@ -86,15 +141,18 @@ impl Default for RetryPolicy {
 }
 
 impl RetryPolicy {
-    /// Compute the backoff for the given attempt index (0-based).
+    /// Backoff applied before retry index `attempt` (0-based).
     ///
-    /// `attempt == 0` returns the configured initial delay; subsequent
-    /// attempts multiply by [`ExpBackoff::multiplier`] and cap at
-    /// [`ExpBackoff::max`]. `Disabled` always returns [`Duration::ZERO`].
+    /// `attempt = 0` is the delay before the FIRST retry attempt and
+    /// returns [`ExpBackoff::initial`] verbatim; each subsequent retry
+    /// multiplies by [`ExpBackoff::multiplier`] and caps at
+    /// [`ExpBackoff::max`]. [`RetryPolicy::Disabled`] always returns
+    /// [`Duration::ZERO`].
     ///
-    /// Jitter is not applied here — the deterministic curve makes the
-    /// branch trivial to unit-test. The request-layer caller mixes in a
-    /// random sample according to [`ExpBackoff::jitter`].
+    /// The original (non-retry) request pays no backoff; callers do not
+    /// call this for it. Jitter is intentionally not applied here — the
+    /// deterministic curve keeps unit tests trivial; the request layer
+    /// mixes in a random sample according to [`ExpBackoff::jitter`].
     #[must_use]
     pub fn backoff(&self, attempt: u32) -> Duration {
         let (initial, max, multiplier) = match self {
@@ -106,12 +164,15 @@ impl RetryPolicy {
         let max_secs = max.as_secs_f64();
         for _ in 0..attempt {
             secs *= f64::from(multiplier);
-            if secs >= max_secs {
-                secs = max_secs;
-                break;
+            if !secs.is_finite() || secs >= max_secs {
+                return max;
             }
         }
-        Duration::from_secs_f64(secs.min(max_secs))
+        let final_secs = secs.min(max_secs);
+        if !final_secs.is_finite() || final_secs < 0.0 {
+            return max;
+        }
+        Duration::from_secs_f64(final_secs)
     }
 
     /// Total attempt count including the original request.
@@ -159,5 +220,63 @@ mod tests {
     fn exp_backoff_initial_matches_default() {
         let p = RetryPolicy::default();
         assert_eq!(p.backoff(0), Duration::from_millis(250));
+    }
+
+    #[test]
+    fn try_new_rejects_non_finite_multiplier() {
+        let r = ExpBackoff::try_new(
+            NonZeroU32::new(3).unwrap(),
+            Duration::from_millis(250),
+            Duration::from_secs(8),
+            f32::NAN,
+            Jitter::Full,
+        );
+        assert!(matches!(r, Err(InvalidExpBackoff::NonFiniteMultiplier(_))));
+    }
+
+    #[test]
+    fn try_new_rejects_non_positive_multiplier() {
+        let r = ExpBackoff::try_new(
+            NonZeroU32::new(3).unwrap(),
+            Duration::from_millis(250),
+            Duration::from_secs(8),
+            0.0,
+            Jitter::Full,
+        );
+        assert!(matches!(
+            r,
+            Err(InvalidExpBackoff::NonPositiveMultiplier(_))
+        ));
+    }
+
+    #[test]
+    fn try_new_rejects_initial_exceeds_max() {
+        let r = ExpBackoff::try_new(
+            NonZeroU32::new(3).unwrap(),
+            Duration::from_secs(10),
+            Duration::from_secs(5),
+            2.0,
+            Jitter::None,
+        );
+        assert!(matches!(
+            r,
+            Err(InvalidExpBackoff::InitialExceedsMax { .. })
+        ));
+    }
+
+    #[test]
+    fn backoff_caps_on_nan_multiplier_without_panic() {
+        // Caller bypassed `try_new` and built ExpBackoff manually with a NaN
+        // multiplier; the curve must clamp to `max` rather than panic in
+        // `Duration::from_secs_f64`.
+        let policy = RetryPolicy::ExponentialBackoff(ExpBackoff {
+            max_attempts: NonZeroU32::new(3).unwrap(),
+            initial: Duration::from_millis(100),
+            max: Duration::from_secs(2),
+            multiplier: f32::NAN,
+            jitter: Jitter::None,
+        });
+        let d = policy.backoff(2);
+        assert_eq!(d, Duration::from_secs(2));
     }
 }

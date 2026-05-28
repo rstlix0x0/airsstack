@@ -143,6 +143,11 @@ impl<T: HttpTransport> Client<T> {
     /// Cloning a `Client` is a refcount bump on an internal `Arc`; this
     /// returns the live count. Useful for diagnostics and for tests that
     /// want to verify clones do not duplicate the underlying state.
+    ///
+    /// # Notes
+    /// The count is read non-atomically: other threads may clone or drop
+    /// a `Client` between observation and use. Treat the value as a
+    /// best-effort diagnostic, not a synchronization primitive.
     #[must_use]
     pub fn ref_count(&self) -> usize {
         Arc::strong_count(&self.inner)
@@ -150,9 +155,11 @@ impl<T: HttpTransport> Client<T> {
 
     /// Begin building a client with the supplied transport.
     ///
-    /// Infallible; callers who already hold a configured transport
+    /// Infallible — callers who already hold a configured transport
     /// (custom implementations, pre-tuned `ReqwestTransport`, test mocks)
-    /// reach for this entry point instead of [`Client::builder`].
+    /// reach for this entry point instead of [`Client::builder`], which
+    /// is fallible because it materializes a default `ReqwestTransport`
+    /// and TLS-backend initialization can fail.
     #[must_use]
     pub const fn builder_with_transport(
         transport: T,

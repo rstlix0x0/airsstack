@@ -72,7 +72,7 @@ where
     T: HttpTransport,
 {
     api_key: Option<ApiKey>,
-    version: Option<AnthropicVersion>,
+    version: AnthropicVersion,
     beta: Vec<BetaHeader>,
     timeout: Option<Duration>,
     retry: Option<RetryPolicy>,
@@ -85,7 +85,7 @@ impl<T: HttpTransport> ClientBuilder<Missing, T> {
     pub(crate) const fn new_with_transport(transport: T) -> Self {
         Self {
             api_key: None,
-            version: None,
+            version: AnthropicVersion::V_2023_06_01,
             beta: Vec::new(),
             timeout: None,
             retry: None,
@@ -116,7 +116,7 @@ impl<Key: BuilderApiKeyState, T: HttpTransport> ClientBuilder<Key, T> {
     /// Override the `anthropic-version` header value.
     #[must_use]
     pub fn anthropic_version(mut self, v: AnthropicVersion) -> Self {
-        self.version = Some(v);
+        self.version = v;
         self
     }
 
@@ -174,10 +174,10 @@ impl<T: HttpTransport> ClientBuilder<Present, T> {
             .api_key
             .expect("invariant: type-state Present guarantees api_key is set");
 
-        let mut config = Config::default();
-        if let Some(v) = self.version {
-            config.anthropic_version = v;
-        }
+        let mut config = Config {
+            anthropic_version: self.version,
+            ..Config::default()
+        };
         if !self.beta.is_empty() {
             config.anthropic_beta = self.beta;
         }

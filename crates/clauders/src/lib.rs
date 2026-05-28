@@ -25,4 +25,4 @@ pub use client::Client;
 pub use client::DefaultClient;
 pub use config::Config;
 pub use error::{ApiError, ApiErrorBody, BuildError, Error, ErrorType, TransportError};
-pub use retry::{ExpBackoff, Jitter, RetryPolicy};
+pub use retry::{ExpBackoff, InvalidExpBackoff, Jitter, RetryPolicy};

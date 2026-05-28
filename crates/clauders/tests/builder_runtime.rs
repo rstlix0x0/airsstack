@@ -38,6 +38,10 @@ fn happy_path_constructs_client() {
 
 #[test]
 fn client_clone_shares_inner() {
+    // `Client::ref_count()` proxies `Arc::strong_count`, which is read
+    // non-atomically. This test relies on running in a single thread —
+    // no other Client clone exists outside this fn — so the counts are
+    // deterministic.
     let key = ApiKey::new("sk-test-abc").expect("valid key");
     let c1 = clauders::Client::builder()
         .expect("builder")
