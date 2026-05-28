@@ -39,6 +39,7 @@ secrecy            = "0.10.3"
 mockall            = "0.14.0"
 wiremock           = "0.6.5"
 insta              = "1.47.2"
+trybuild           = "1"
 
 [workspace.lints.rust]
 unsafe_code        = "forbid"
