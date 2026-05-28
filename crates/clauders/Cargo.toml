@@ -1,0 +1,26 @@
+[package]
+name        = "clauders"
+description = "Unofficial Rust SDK for the Anthropic Claude Messages API."
+version     = "0.1.0"
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+authors.workspace      = true
+publish.workspace      = true
+readme      = "README.md"
+keywords    = ["claude", "anthropic", "llm", "sdk", "ai"]
+categories  = ["api-bindings", "web-programming::http-client", "asynchronous"]
+
+[lints]
+workspace = true
+
+[dependencies]
+# Populated by Phase 2 onward as code begins to reference workspace deps.
+
+[dev-dependencies]
+# Populated by Phase 2 onward.
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
