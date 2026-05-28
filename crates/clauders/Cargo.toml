@@ -16,19 +16,41 @@ categories  = ["api-bindings", "web-programming::http-client", "asynchronous"]
 workspace = true
 
 [features]
+default = ["transport-reqwest"]
+
 # Gates `cache_control` fields on request types and cache-hit counters
 # on `Usage` responses. Off by default to keep the wire payload minimal
 # for callers that don't use prompt caching.
-messages-caching = []
+messages-caching  = []
+
+# Default HTTP transport (reqwest with rustls + http2 + stream features).
+transport-reqwest = ["dep:reqwest"]
+
+# Internal-only: exposes MockHttpTransport for downstream tests.
+# Double-underscore prefix signals not-for-public-use.
+__test-mocks      = ["dep:mockall"]
 
 [dependencies]
-serde      = { workspace = true }
-serde_json = { workspace = true }
-thiserror  = { workspace = true }
-secrecy    = { workspace = true }
-tracing    = { workspace = true }
-url        = { workspace = true }
-http       = { workspace = true }
+serde          = { workspace = true }
+serde_json     = { workspace = true }
+thiserror      = { workspace = true }
+secrecy        = { workspace = true }
+tracing        = { workspace = true }
+url            = { workspace = true }
+http           = { workspace = true }
+http-body      = { workspace = true }
+http-body-util = { workspace = true }
+bytes          = { workspace = true }
+futures-core   = { workspace = true }
+async-trait    = { workspace = true }
+tokio          = { workspace = true }
+reqwest        = { workspace = true, optional = true }
+mockall        = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio    = { workspace = true, features = ["full", "test-util"] }
+mockall  = { workspace = true }
+wiremock = { workspace = true }
 
 [package.metadata.docs.rs]
 all-features = true
