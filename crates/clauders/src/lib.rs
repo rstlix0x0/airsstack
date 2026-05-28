@@ -9,6 +9,7 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 pub mod auth;
+pub mod client;
 pub mod config;
 pub mod error;
 pub(crate) mod headers;
@@ -17,6 +18,9 @@ pub mod transport;
 pub mod types;
 
 pub use auth::Auth;
+pub use client::Client;
+#[cfg(feature = "transport-reqwest")]
+pub use client::DefaultClient;
 pub use config::Config;
 pub use error::{ApiError, ApiErrorBody, BuildError, Error, ErrorType, TransportError};
 pub use retry::{ExpBackoff, Jitter, RetryPolicy};
