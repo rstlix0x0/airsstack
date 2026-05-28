@@ -48,9 +48,10 @@ reqwest        = { workspace = true, optional = true }
 mockall        = { workspace = true, optional = true }
 
 [dev-dependencies]
-tokio    = { workspace = true, features = ["full", "test-util"] }
-mockall  = { workspace = true }
-wiremock = { workspace = true }
+tokio        = { workspace = true, features = ["full", "test-util"] }
+mockall      = { workspace = true }
+wiremock     = { workspace = true }
+futures-util = { workspace = true }
 
 [package.metadata.docs.rs]
 all-features = true
