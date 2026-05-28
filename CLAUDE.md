@@ -48,4 +48,6 @@ Topic-specific rules live in `.claude/rules/` and are auto-discovered. Path-scop
 - `.claude/rules/rust-microsoft-guidelines.md` — Microsoft Pragmatic Rust Guidelines, scoped to `**/*.rs` and Cargo manifests.
 - `.claude/rules/rust-strict-quality.md` — strict pass/fail bar for every Rust change: zero warnings (build + clippy + rustdoc), all tests green including doctests, defined Definition-of-Done command set.
 - `.claude/rules/rust-workspace.md` — workspace layout, root vs member `Cargo.toml`, centralized `[workspace.package|dependencies|lints]`, naming, publishing order. Based on the official Cargo Book ch. 14.3.
+- `.claude/rules/rust-static-dispatch.md` — prefer generics over `Box<dyn Trait>`; lists the narrow justified exceptions; clarifies that `Arc<Inner>` for cheap-`Clone` services is NOT a trait-object pattern and stays allowed (per `M-SERVICES-CLONE`).
+- `.claude/rules/rust-strong-types.md` — no primitive obsession: newtype every domain string/int/bool, validate at construction (parse-don't-validate), type-state pattern for required-field builders and ordered lifecycles, no `bool` params for semantic flags.
 - `.claude/rules/git-commits.md` — Conventional Commits v1.0.0 with workspace-aware scopes (`fix(airsstack-core/...)`, `feat(airsstack-cli/...)`, `build(workspace): ...`, `docs(repo): ...`). Loads unconditionally.
