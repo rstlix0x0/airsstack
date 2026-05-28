@@ -11,7 +11,8 @@
 //!   a shared `reqwest::Client`.
 //! - Map `reqwest::Error` cases into [`TransportError`] categories the
 //!   SDK's retry layer can act on, attaching wallclock elapsed time to
-//!   the timeout variant.
+//!   the timeout variant and inspecting the error source chain so TLS
+//!   failures surface distinctly from generic request-build failures.
 //! - Re-pin and re-type `reqwest::Response::bytes_stream()` into the
 //!   crate-wide [`BodyStream`] alias.
 //!
@@ -24,6 +25,7 @@ use std::time::Instant;
 use bytes::Bytes;
 use futures_core::Stream;
 use http::{Request, Response};
+use pin_project_lite::pin_project;
 
 use super::{BodyStream, HttpTransport};
 use crate::error::TransportError;
@@ -38,22 +40,11 @@ use crate::error::TransportError;
 /// ```
 /// use clauders::transport::ReqwestTransport;
 ///
-/// let transport = ReqwestTransport::new();
+/// let transport = ReqwestTransport::try_new().expect("transport built");
 /// ```
 #[derive(Debug, Clone)]
 pub struct ReqwestTransport {
     inner: reqwest::Client,
-}
-
-impl Default for ReqwestTransport {
-    fn default() -> Self {
-        Self {
-            inner: reqwest::Client::builder()
-                .user_agent(concat!("clauders/", env!("CARGO_PKG_VERSION")))
-                .build()
-                .unwrap_or_else(|_| reqwest::Client::new()),
-        }
-    }
 }
 
 impl ReqwestTransport {
@@ -62,22 +53,35 @@ impl ReqwestTransport {
     /// The underlying `reqwest::Client` is configured with a
     /// `User-Agent` header identifying the SDK version.
     ///
+    /// # Errors
+    /// Returns [`TransportError::Build`] when the underlying
+    /// `reqwest::Client` cannot initialize — typically because the
+    /// platform TLS backend failed to load.
+    ///
     /// # Examples
     ///
     /// ```
     /// use clauders::transport::ReqwestTransport;
     ///
-    /// let transport = ReqwestTransport::new();
+    /// let transport = ReqwestTransport::try_new().expect("transport built");
     /// ```
-    #[must_use]
-    pub fn new() -> Self {
-        Self::default()
+    pub fn try_new() -> Result<Self, TransportError> {
+        reqwest::Client::builder()
+            .user_agent(concat!("clauders/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .map(|inner| Self { inner })
+            .map_err(|e| TransportError::Build(e.to_string()))
     }
 
     /// Construct a transport from a caller-supplied `reqwest::Client`.
     ///
     /// Use this when the caller needs custom timeouts, proxies, TLS
     /// roots, or shared instrumentation across multiple SDK clients.
+    ///
+    /// The `reqwest::Client` type is part of the public contract when
+    /// the `transport-reqwest` feature is enabled — consumers enabling
+    /// this feature are expected to depend on `reqwest` themselves and
+    /// pin a compatible major version.
     ///
     /// # Examples
     ///
@@ -115,8 +119,7 @@ impl HttpTransport for ReqwestTransport {
         let version = resp.version();
         let headers = resp.headers().clone();
 
-        let byte_stream = resp.bytes_stream();
-        let mapped: BodyStream = Box::pin(into_typed_stream(byte_stream));
+        let mapped: BodyStream = Box::pin(BodyStreamAdapter::new(resp.bytes_stream()));
 
         let mut out = Response::new(mapped);
         *out.status_mut() = status;
@@ -132,12 +135,23 @@ impl HttpTransport for ReqwestTransport {
 /// The elapsed time is measured by the caller from just before the
 /// `send()` call so the `Timeout` variant carries a real wallclock value
 /// rather than a zero placeholder.
+///
+/// Order matters: more-specific classifiers must come first because
+/// `reqwest::Error::is_request` matches the catch-all `Kind::Request`
+/// wrapper that also covers timeouts, connect failures, and TLS errors
+/// at the underlying hyper layer. The TLS check walks the source chain
+/// using string heuristics on the chained error messages — `reqwest`
+/// does not expose the concrete TLS error type, so a precise downcast
+/// would require depending on the rustls crate directly.
 fn classify_reqwest_error(e: &reqwest::Error, elapsed: std::time::Duration) -> TransportError {
     if e.is_timeout() {
         return TransportError::Timeout { elapsed };
     }
     if e.is_connect() {
         return TransportError::Network(e.to_string());
+    }
+    if is_tls_error_chain(e) {
+        return TransportError::Tls(e.to_string());
     }
     if e.is_request() {
         return TransportError::Build(e.to_string());
@@ -148,35 +162,67 @@ fn classify_reqwest_error(e: &reqwest::Error, elapsed: std::time::Duration) -> T
     TransportError::Other(e.to_string())
 }
 
-/// Adapt a `reqwest` byte stream into a [`BodyStream`].
+/// Heuristic detection of TLS errors by walking the source chain.
 ///
-/// Each `reqwest::Error` from the body stream maps to
-/// [`TransportError::BodyStream`] so callers see a uniform error type.
-fn into_typed_stream<S>(s: S) -> impl Stream<Item = Result<Bytes, TransportError>> + Send + 'static
+/// Inspects each `Display` representation in the chain for tokens that
+/// reliably appear in `rustls` / `webpki` / `hyper-rustls` error
+/// messages. Returns true on the first match.
+fn is_tls_error_chain(e: &reqwest::Error) -> bool {
+    let mut current: Option<&(dyn std::error::Error + 'static)> = Some(e);
+    while let Some(err) = current {
+        let s = err.to_string();
+        if s.contains("certificate")
+            || s.contains("handshake")
+            || s.contains("TLS")
+            || s.contains("tls ")
+            || s.contains("rustls")
+            || s.contains("webpki")
+            || s.contains("invalid peer certificate")
+        {
+            return true;
+        }
+        current = err.source();
+    }
+    false
+}
+
+pin_project! {
+    /// Adapt a `reqwest` byte stream into a [`BodyStream`] by remapping
+    /// each `reqwest::Error` to [`TransportError::BodyStream`] so callers
+    /// see a uniform error type. `pin_project_lite` lets the inner stream
+    /// stay un-pinned at construction time; only the outer adapter is
+    /// boxed by the caller.
+    struct BodyStreamAdapter<S> {
+        #[pin]
+        inner: S,
+    }
+}
+
+impl<S> BodyStreamAdapter<S> {
+    const fn new(inner: S) -> Self {
+        Self { inner }
+    }
+}
+
+impl<S> Stream for BodyStreamAdapter<S>
 where
-    S: Stream<Item = Result<Bytes, reqwest::Error>> + Send + 'static,
+    S: Stream<Item = Result<Bytes, reqwest::Error>>,
 {
-    use std::pin::Pin;
-    use std::task::{Context, Poll};
+    type Item = Result<Bytes, TransportError>;
 
-    struct Wrap<S>(S);
-
-    impl<S> Stream for Wrap<S>
-    where
-        S: Stream<Item = Result<Bytes, reqwest::Error>> + Unpin,
-    {
-        type Item = Result<Bytes, TransportError>;
-        fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-            match Pin::new(&mut self.0).poll_next(cx) {
-                Poll::Pending => Poll::Pending,
-                Poll::Ready(None) => Poll::Ready(None),
-                Poll::Ready(Some(Ok(b))) => Poll::Ready(Some(Ok(b))),
-                Poll::Ready(Some(Err(e))) => {
-                    Poll::Ready(Some(Err(TransportError::BodyStream(e.to_string()))))
-                }
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        use std::task::Poll;
+        let this = self.project();
+        match this.inner.poll_next(cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Ready(Some(Ok(b))) => Poll::Ready(Some(Ok(b))),
+            Poll::Ready(Some(Err(e))) => {
+                Poll::Ready(Some(Err(TransportError::BodyStream(e.to_string()))))
             }
         }
     }
-
-    Wrap(Box::pin(s))
 }

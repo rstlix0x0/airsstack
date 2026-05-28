@@ -23,4 +23,18 @@ use crate::error::TransportError;
 ///
 /// Each item yields a chunk of the response body or a [`TransportError`]
 /// if the stream is interrupted mid-flight.
+///
+/// # Examples
+///
+/// `BodyStream` is the response body type returned by every
+/// [`HttpTransport::send`](super::HttpTransport::send) call. Drain it
+/// with `futures_util::StreamExt::next()` or `futures::TryStreamExt`:
+///
+/// ```no_run
+/// use clauders::transport::BodyStream;
+///
+/// fn takes_stream(_s: BodyStream) {
+///     // dispatch through HttpTransport::send to obtain one
+/// }
+/// ```
 pub type BodyStream = Pin<Box<dyn Stream<Item = Result<Bytes, TransportError>> + Send + 'static>>;

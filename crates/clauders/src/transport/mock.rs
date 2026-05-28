@@ -26,6 +26,25 @@ mockall::mock! {
     ///
     /// Set expectations with `expect_send()`; see the `mockall` crate
     /// docs for the full expectation API.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # #[cfg(feature = "__test-mocks")]
+    /// # {
+    /// use bytes::Bytes;
+    /// use http::{Request, Response, StatusCode};
+    /// use clauders::transport::{HttpTransport, MockHttpTransport};
+    ///
+    /// # async fn demo() {
+    /// let mut transport = MockHttpTransport::new();
+    /// transport.expect_send().returning(|_req| {
+    ///     // build a real Response<BodyStream> here in real tests
+    ///     unimplemented!()
+    /// });
+    /// # }
+    /// # }
+    /// ```
     pub HttpTransport {}
 
     #[async_trait::async_trait]

@@ -41,7 +41,7 @@ async fn round_trips_200_with_body() {
         .mount(&server)
         .await;
 
-    let transport = ReqwestTransport::default();
+    let transport = ReqwestTransport::try_new().expect("transport built");
     let url = format!("{}/echo", server.uri());
 
     let req = Request::builder()
@@ -70,7 +70,7 @@ async fn surfaces_404_as_ok_response() {
         .mount(&server)
         .await;
 
-    let transport = ReqwestTransport::default();
+    let transport = ReqwestTransport::try_new().expect("transport built");
     let url = format!("{}/missing", server.uri());
     let req = Request::builder()
         .method("GET")
