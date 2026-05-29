@@ -86,6 +86,22 @@ futures-util = { workspace = true }
 trybuild     = { workspace = true }
 insta        = { workspace = true }
 
+[[example]]
+name             = "01_hello"
+required-features = ["messages", "transport-reqwest"]
+
+[[example]]
+name             = "02_streaming"
+required-features = ["messages-streaming", "transport-reqwest"]
+
+[[example]]
+name             = "03_tools"
+required-features = ["messages-tools", "transport-reqwest"]
+
+[[example]]
+name             = "04_caching"
+required-features = ["messages-caching", "transport-reqwest"]
+
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
