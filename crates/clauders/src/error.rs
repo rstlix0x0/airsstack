@@ -118,7 +118,7 @@ pub struct ApiError {
 /// This struct represents the inner object — the outer `type: "error"`
 /// discriminator is consumed by the transport layer before constructing
 /// the error.
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 pub struct ApiErrorBody {
     /// Anthropic error category — see [`ErrorType`].
     #[serde(rename = "type")]
@@ -220,6 +220,8 @@ pub enum BuildError {
 /// - [`Error::InvalidRequest`] — client-side rejection of a request the
 ///   SDK can detect without round-tripping to the API.
 /// - [`Error::Build`] — wraps [`BuildError`] from client construction.
+/// - [`Error::Stream`] — SSE protocol-level error encountered while
+///   consuming a streaming response (`messages-streaming` feature).
 ///
 /// Use [`Error::is_retryable`], [`Error::retry_after`], and
 /// [`Error::request_id`] to inspect retry policy and correlation
@@ -264,6 +266,16 @@ pub enum Error {
     /// Client construction failed at build time.
     #[error(transparent)]
     Build(#[from] BuildError),
+
+    /// SSE protocol-level error while consuming a streaming response.
+    ///
+    /// Returned when the SSE transport layer cannot parse a frame or
+    /// the underlying byte stream fails. Non-retryable: the stream is
+    /// already consumed and cannot be rewound.
+    #[cfg(feature = "messages-streaming")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "messages-streaming")))]
+    #[error("stream protocol error: {0}")]
+    Stream(String),
 }
 
 impl Error {
@@ -271,7 +283,7 @@ impl Error {
     ///
     /// Delegates to the underlying transport / API retry classification.
     /// Non-retryable: serde failures, undecodable responses, invalid
-    /// requests, build errors.
+    /// requests, build errors, and stream protocol errors.
     #[must_use]
     pub const fn is_retryable(&self) -> bool {
         match self {
@@ -281,6 +293,8 @@ impl Error {
             | Self::Serde { .. }
             | Self::InvalidRequest(_)
             | Self::Build(_) => false,
+            #[cfg(feature = "messages-streaming")]
+            Self::Stream(_) => false,
         }
     }
 
@@ -295,6 +309,8 @@ impl Error {
             | Self::Serde { .. }
             | Self::InvalidRequest(_)
             | Self::Build(_) => None,
+            #[cfg(feature = "messages-streaming")]
+            Self::Stream(_) => None,
         }
     }
 
@@ -307,6 +323,8 @@ impl Error {
             Self::Transport(_) | Self::Serde { .. } | Self::InvalidRequest(_) | Self::Build(_) => {
                 None
             }
+            #[cfg(feature = "messages-streaming")]
+            Self::Stream(_) => None,
         }
     }
 
@@ -321,6 +339,8 @@ impl Error {
             | Self::Serde { .. }
             | Self::InvalidRequest(_)
             | Self::Build(_) => None,
+            #[cfg(feature = "messages-streaming")]
+            Self::Stream(_) => None,
         }
     }
 }
