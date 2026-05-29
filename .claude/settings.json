@@ -21,5 +21,20 @@
         ]
       }
     ]
-  }
+  },
+  "companyAnnouncements": [
+    "airsstack is a custom AI-SDK for personal AI stacks.",
+    "Utilizing Claude API and open-source models through OpenRouter"
+  ],
+  "availableModels": [
+    "sonnet",
+    "opus"
+  ],
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "disableWorkflows": true,
+  "editorMode": "vim",
+  "feedbackSurveyRate": 0
 }

@@ -1,3 +1,5 @@
+# airsstack
+
 The original motivation behind this project actually is because there are so many AI application's solution today which scattered. I've been built this project to provides my own personal AI technology stacks.
 
 This project inspired from multiple solutions today:
@@ -19,26 +21,3 @@ Previously, I've been doing lot of experiments with multiple models, and then I 
 - `DeepSeek`
 - `Kimi K2`
 - `Qwen`
-
-I'm also need to build my own agentic tools for my personal usages, with the primary objective is to suppress token usages but still to maintain accuracy, reliability and maintainability output, especially for the software engineering.
-
-## Sub Crates
-
-`airsstack` will be developed using Rust, with currently I had several sub _crates_ in my minds:
-
-- `airsstack/airstack-cli`
-- `airsstack/airstack-core`
-- `airsstack/provider-claude`
-- `airsstack/provider-openrouter`
-- `airsstack/airsdsp`
-
-### airsstack/airsstack
-
-For now, there will be only two possible crates:
-
-- `airsstack-cli`
-  - It's my personal CLI tool as a replacement of :
-    - `Claude Code`
-    - `OpenCode`
-- `airsstack-core`
-  - It's a core agentic framework
