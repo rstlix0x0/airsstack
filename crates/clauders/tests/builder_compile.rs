@@ -12,4 +12,6 @@ fn type_state_compile_contracts() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/compile_fail/builder_missing_api_key.rs");
     t.pass("tests/compile_pass/full_builder.rs");
+    t.compile_fail("tests/compile_fail/request_missing_model.rs");
+    t.compile_fail("tests/compile_fail/request_missing_max_tokens.rs");
 }

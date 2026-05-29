@@ -1,0 +1,23 @@
+---
+source: crates/clauders/tests/messages_snapshot.rs
+expression: json
+---
+{
+  "model": "claude-sonnet-4-5",
+  "max_tokens": 256,
+  "messages": [
+    {
+      "role": "user",
+      "content": "Hello"
+    },
+    {
+      "role": "assistant",
+      "content": "Hi there."
+    }
+  ],
+  "system": "You are terse.",
+  "temperature": 0.7,
+  "stop_sequences": [
+    "STOP"
+  ]
+}
