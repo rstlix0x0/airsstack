@@ -12,6 +12,10 @@
 #[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
 pub mod messages;
 
+#[cfg(feature = "models")]
+#[cfg_attr(docsrs, doc(cfg(feature = "models")))]
+pub mod models;
+
 pub mod auth;
 pub mod builder;
 pub mod client;
@@ -21,6 +25,8 @@ pub(crate) mod headers;
 pub mod retry;
 pub mod transport;
 pub mod types;
+#[cfg(any(feature = "messages", feature = "models"))]
+pub(crate) mod wire_helpers;
 
 pub use auth::Auth;
 pub use builder::{BuilderApiKeyState, ClientBuilder, Missing, Present};

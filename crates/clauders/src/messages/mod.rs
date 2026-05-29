@@ -30,6 +30,10 @@ pub mod streaming;
 #[cfg_attr(docsrs, doc(cfg(feature = "messages-tools")))]
 pub mod tools;
 
+#[cfg(feature = "messages-token-counting")]
+#[cfg_attr(docsrs, doc(cfg(feature = "messages-token-counting")))]
+pub mod token_counting;
+
 #[doc(inline)]
 pub use content::{ContentBlock, TextBlock, ThinkingBlock};
 #[doc(inline)]
@@ -50,3 +54,8 @@ pub use streaming::{ContentDelta, MessageMetaDelta, MessageStream, StreamEvent, 
 #[cfg_attr(docsrs, doc(cfg(feature = "messages-tools")))]
 #[doc(inline)]
 pub use tools::{Tool, ToolChoice, ToolResultBlock, ToolResultContent, ToolUseBlock};
+
+#[cfg(feature = "messages-token-counting")]
+#[cfg_attr(docsrs, doc(cfg(feature = "messages-token-counting")))]
+#[doc(inline)]
+pub use token_counting::TokenCount;

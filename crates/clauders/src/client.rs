@@ -173,6 +173,17 @@ impl<T: HttpTransport> Client<T> {
         crate::messages::MessagesResource { client: self }
     }
 
+    /// Return a resource handle for the Models API.
+    ///
+    /// The returned handle borrows `self` for its lifetime, so it is
+    /// typically created inline at the call site rather than stored.
+    #[cfg(feature = "models")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "models")))]
+    #[must_use]
+    pub const fn models(&self) -> crate::models::ModelsResource<'_, T> {
+        crate::models::ModelsResource { client: self }
+    }
+
     /// Begin building a client with the supplied transport.
     ///
     /// Infallible — callers who already hold a configured transport
