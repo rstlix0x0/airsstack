@@ -16,7 +16,12 @@ categories  = ["api-bindings", "web-programming::http-client", "asynchronous"]
 workspace = true
 
 [features]
-default = ["transport-reqwest"]
+default = ["messages", "transport-reqwest"]
+
+# Messages API surface: request/response types and the MessagesResource
+# entry point. Enabled by default; callers who only need types may disable
+# it to trim unused code.
+messages = []
 
 # Gates `cache_control` fields on request types and cache-hit counters
 # on `Usage` responses. Off by default to keep the wire payload minimal
@@ -54,6 +59,7 @@ mockall      = { workspace = true }
 wiremock     = { workspace = true }
 futures-util = { workspace = true }
 trybuild     = { workspace = true }
+insta        = { workspace = true }
 
 [package.metadata.docs.rs]
 all-features = true
