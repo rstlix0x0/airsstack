@@ -199,16 +199,12 @@ impl MessageRequest {
 
 // ── MessageRequestBuilder ─────────────────────────────────────────────────────
 
-/// Type-state builder for [`MessageRequest`].
-///
-/// `M` encodes whether `model` has been supplied; `Mt` encodes whether
-/// `max_tokens` has been supplied. `build()` is only callable once both
-/// are `Present`.
-pub struct MessageRequestBuilder<M, Mt>
-where
-    M: sealed::BuilderModelState,
-    Mt: sealed::BuilderMaxTokensState,
-{
+// All mutable data fields live in one private struct so that type-state
+// transitions (`model`, `max_tokens`) move this whole value without
+// enumerating individual fields. Adding a new field here requires edits
+// only to: this struct definition, its `const fn new()`, the relevant
+// setter, and `build()`.
+struct MessageRequestFields {
     model: Option<ModelId>,
     max_tokens: Option<MaxTokens>,
     messages: Vec<InputMessage>,
@@ -224,11 +220,9 @@ where
     tool_choice: Option<crate::messages::tools::ToolChoice>,
     #[cfg(feature = "messages-structured-outputs")]
     output_config: Option<crate::messages::structured_outputs::OutputConfig>,
-    _m: PhantomData<M>,
-    _mt: PhantomData<Mt>,
 }
 
-impl MessageRequestBuilder<Missing, Missing> {
+impl MessageRequestFields {
     const fn new() -> Self {
         Self {
             model: None,
@@ -246,6 +240,29 @@ impl MessageRequestBuilder<Missing, Missing> {
             tool_choice: None,
             #[cfg(feature = "messages-structured-outputs")]
             output_config: None,
+        }
+    }
+}
+
+/// Type-state builder for [`MessageRequest`].
+///
+/// `M` encodes whether `model` has been supplied; `Mt` encodes whether
+/// `max_tokens` has been supplied. `build()` is only callable once both
+/// are `Present`.
+pub struct MessageRequestBuilder<M, Mt>
+where
+    M: sealed::BuilderModelState,
+    Mt: sealed::BuilderMaxTokensState,
+{
+    fields: MessageRequestFields,
+    _m: PhantomData<M>,
+    _mt: PhantomData<Mt>,
+}
+
+impl MessageRequestBuilder<Missing, Missing> {
+    const fn new() -> Self {
+        Self {
+            fields: MessageRequestFields::new(),
             _m: PhantomData,
             _mt: PhantomData,
         }
@@ -257,22 +274,10 @@ impl<Mt: sealed::BuilderMaxTokensState> MessageRequestBuilder<Missing, Mt> {
     /// to `Present`.
     #[must_use]
     pub fn model(self, model: ModelId) -> MessageRequestBuilder<Present, Mt> {
+        let mut fields = self.fields;
+        fields.model = Some(model);
         MessageRequestBuilder {
-            model: Some(model),
-            max_tokens: self.max_tokens,
-            messages: self.messages,
-            system: self.system,
-            temperature: self.temperature,
-            top_p: self.top_p,
-            top_k: self.top_k,
-            stop_sequences: self.stop_sequences,
-            metadata: self.metadata,
-            #[cfg(feature = "messages-tools")]
-            tools: self.tools,
-            #[cfg(feature = "messages-tools")]
-            tool_choice: self.tool_choice,
-            #[cfg(feature = "messages-structured-outputs")]
-            output_config: self.output_config,
+            fields,
             _m: PhantomData,
             _mt: self._mt,
         }
@@ -284,22 +289,10 @@ impl<M: sealed::BuilderModelState> MessageRequestBuilder<M, Missing> {
     /// `Missing` to `Present`.
     #[must_use]
     pub fn max_tokens(self, max_tokens: MaxTokens) -> MessageRequestBuilder<M, Present> {
+        let mut fields = self.fields;
+        fields.max_tokens = Some(max_tokens);
         MessageRequestBuilder {
-            model: self.model,
-            max_tokens: Some(max_tokens),
-            messages: self.messages,
-            system: self.system,
-            temperature: self.temperature,
-            top_p: self.top_p,
-            top_k: self.top_k,
-            stop_sequences: self.stop_sequences,
-            metadata: self.metadata,
-            #[cfg(feature = "messages-tools")]
-            tools: self.tools,
-            #[cfg(feature = "messages-tools")]
-            tool_choice: self.tool_choice,
-            #[cfg(feature = "messages-structured-outputs")]
-            output_config: self.output_config,
+            fields,
             _m: self._m,
             _mt: PhantomData,
         }
@@ -310,7 +303,7 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
     /// Append a user-role plain-text message.
     #[must_use]
     pub fn add_user_text(mut self, text: impl Into<String>) -> Self {
-        self.messages.push(InputMessage {
+        self.fields.messages.push(InputMessage {
             role: Role::User,
             content: MessageContent::Text(text.into()),
         });
@@ -320,7 +313,7 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
     /// Append an assistant-role plain-text message.
     #[must_use]
     pub fn add_assistant_text(mut self, text: impl Into<String>) -> Self {
-        self.messages.push(InputMessage {
+        self.fields.messages.push(InputMessage {
             role: Role::Assistant,
             content: MessageContent::Text(text.into()),
         });
@@ -330,35 +323,35 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
     /// Append a message with an explicit role and content.
     #[must_use]
     pub fn add_message(mut self, role: Role, content: MessageContent) -> Self {
-        self.messages.push(InputMessage { role, content });
+        self.fields.messages.push(InputMessage { role, content });
         self
     }
 
     /// Set a system prompt.
     #[must_use]
     pub fn system(mut self, system: SystemPrompt) -> Self {
-        self.system = Some(system);
+        self.fields.system = Some(system);
         self
     }
 
     /// Set the sampling temperature.
     #[must_use]
     pub const fn temperature(mut self, temperature: Temperature) -> Self {
-        self.temperature = Some(temperature);
+        self.fields.temperature = Some(temperature);
         self
     }
 
     /// Set the top-p nucleus sampling probability.
     #[must_use]
     pub const fn top_p(mut self, top_p: TopP) -> Self {
-        self.top_p = Some(top_p);
+        self.fields.top_p = Some(top_p);
         self
     }
 
     /// Set the top-k sampling parameter.
     #[must_use]
     pub const fn top_k(mut self, top_k: TopK) -> Self {
-        self.top_k = Some(top_k);
+        self.fields.top_k = Some(top_k);
         self
     }
 
@@ -369,14 +362,14 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
     /// set value.
     #[must_use]
     pub fn stop_sequences(mut self, ss: impl IntoIterator<Item = StopSequence>) -> Self {
-        self.stop_sequences = ss.into_iter().collect();
+        self.fields.stop_sequences = ss.into_iter().collect();
         self
     }
 
     /// Set per-request metadata.
     #[must_use]
     pub fn metadata(mut self, metadata: Metadata) -> Self {
-        self.metadata = Some(metadata);
+        self.fields.metadata = Some(metadata);
         self
     }
 
@@ -387,7 +380,7 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
     #[cfg(feature = "messages-tools")]
     #[must_use]
     pub fn tools(mut self, tools: impl IntoIterator<Item = crate::messages::tools::Tool>) -> Self {
-        self.tools = tools.into_iter().collect();
+        self.fields.tools = tools.into_iter().collect();
         self
     }
 
@@ -395,7 +388,7 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
     #[cfg(feature = "messages-tools")]
     #[must_use]
     pub fn tool_choice(mut self, c: crate::messages::tools::ToolChoice) -> Self {
-        self.tool_choice = Some(c);
+        self.fields.tool_choice = Some(c);
         self
     }
 
@@ -403,7 +396,7 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
     #[cfg(feature = "messages-structured-outputs")]
     #[must_use]
     pub fn output_config(mut self, c: crate::messages::structured_outputs::OutputConfig) -> Self {
-        self.output_config = Some(c);
+        self.fields.output_config = Some(c);
         self
     }
 }
@@ -424,6 +417,7 @@ impl MessageRequestBuilder<Present, Present> {
             reason = "type-state Present guarantees model is set; this branch is unreachable"
         )]
         let model = self
+            .fields
             .model
             .expect("invariant: type-state Present guarantees model is set");
         #[expect(
@@ -431,25 +425,26 @@ impl MessageRequestBuilder<Present, Present> {
             reason = "type-state Present guarantees max_tokens is set; this branch is unreachable"
         )]
         let max_tokens = self
+            .fields
             .max_tokens
             .expect("invariant: type-state Present guarantees max_tokens is set");
 
         MessageRequest {
             model,
             max_tokens,
-            messages: self.messages,
-            system: self.system,
-            temperature: self.temperature,
-            top_p: self.top_p,
-            top_k: self.top_k,
-            stop_sequences: self.stop_sequences,
-            metadata: self.metadata,
+            messages: self.fields.messages,
+            system: self.fields.system,
+            temperature: self.fields.temperature,
+            top_p: self.fields.top_p,
+            top_k: self.fields.top_k,
+            stop_sequences: self.fields.stop_sequences,
+            metadata: self.fields.metadata,
             #[cfg(feature = "messages-tools")]
-            tools: self.tools,
+            tools: self.fields.tools,
             #[cfg(feature = "messages-tools")]
-            tool_choice: self.tool_choice,
+            tool_choice: self.fields.tool_choice,
             #[cfg(feature = "messages-structured-outputs")]
-            output_config: self.output_config,
+            output_config: self.fields.output_config,
             stream: false,
         }
     }
