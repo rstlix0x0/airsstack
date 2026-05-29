@@ -1,7 +1,10 @@
-//! Cached system prompt using prompt caching.
+//! Prompt caching across two calls — writes a cache block on the first
+//! request, then reads it back on the second.
 //!
-//! Uses the crate README as a stand-in for a long, stable system prompt.
-//! On the second call the prompt should be served from the cache.
+//! The server only stores a cache block once the cached prefix exceeds a
+//! minimum length (about 1024 tokens for Sonnet). The crate README alone is
+//! below that, so it is repeated to clear the threshold. A real application
+//! would cache a genuinely large, stable system prompt or document corpus.
 //!
 //! Run:
 //!
@@ -12,43 +15,44 @@
 use clauders::prelude::*;
 use clauders::types::{CacheControl, SystemPrompt, SystemSegment};
 
-// Stand-in for a long, stable system prompt that benefits from caching.
-const LONG_SYSTEM: &str = include_str!("../README.md");
+// Stand-in for a long, stable system prompt.
+const BASE_SYSTEM: &str = include_str!("../README.md");
+// Repeat count chosen so the cached prefix clears the server's ~1024-token
+// minimum; the README is a few hundred tokens, so four copies is ample.
+const SYSTEM_REPEATS: usize = 4;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_key = ApiKey::new(std::env::var("ANTHROPIC_API_KEY")?)?;
     let client = Client::builder()?.api_key(api_key).build()?;
-    let max_tokens = MaxTokens::new(256)?;
+    let max_tokens = MaxTokens::new(64)?;
+    let system_text = BASE_SYSTEM.repeat(SYSTEM_REPEATS);
 
-    let seg = SystemSegment::text(LONG_SYSTEM).with_cache(CacheControl::ephemeral());
-    let system = SystemPrompt::segments(vec![seg]);
+    // The system prefix is identical on both requests, so the second call
+    // reads the cache block the first call wrote.
+    for label in [
+        "first call (expect cache write)",
+        "second call (expect cache read)",
+    ] {
+        let segment = SystemSegment::text(system_text.clone()).with_cache(CacheControl::ephemeral());
+        let req = MessageRequest::builder()
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(max_tokens)
+            .system(SystemPrompt::segments(vec![segment]))
+            .add_user_text("Reply with the single word: ok.")
+            .build();
 
-    let req = MessageRequest::builder()
-        .model(ModelId::claude_sonnet_4_5())
-        .max_tokens(max_tokens)
-        .system(system)
-        .add_user_text("Summarize what you know about this crate in one sentence.")
-        .build();
+        let msg = client.messages().create(req).await?;
 
-    let msg = client.messages().create(req).await?;
-
-    for block in &msg.content {
-        if let clauders::messages::ContentBlock::Text(t) = block {
-            println!("{}", t.text);
-        }
+        println!("--- {label} ---");
+        println!("input_tokens:        {}", msg.usage.input_tokens);
+        println!(
+            "cache_creation:      {:?}",
+            msg.usage.cache_creation_input_tokens
+        );
+        println!("cache_read:          {:?}", msg.usage.cache_read_input_tokens);
+        println!("total_input_tokens:  {}", msg.usage.total_input_tokens());
     }
-
-    println!("input_tokens:        {}", msg.usage.input_tokens);
-    println!(
-        "cache_creation:      {:?}",
-        msg.usage.cache_creation_input_tokens
-    );
-    println!(
-        "cache_read:          {:?}",
-        msg.usage.cache_read_input_tokens
-    );
-    println!("total_input_tokens:  {}", msg.usage.total_input_tokens());
 
     Ok(())
 }
