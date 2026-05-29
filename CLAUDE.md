@@ -54,3 +54,15 @@ Topic-specific rules live in `.claude/rules/` and are auto-discovered. Path-scop
 - `.claude/rules/rust-doc-comment-discipline.md` — rustdoc and `//` comments target downstream engineers; no `.claude/` / `.superpowers/` paths, no plan/phase/task identifiers, no workflow vocabulary, no AI/agent names in source. Internal artifact references belong in commit messages and PR descriptions, not in shipped code.
 - `.claude/rules/rust-unit-test-mandate.md` — every logic-bearing `src/*.rs` ships colocated `#[cfg(test)] mod tests`. Five structural exemptions (export-only / pure typedef / pure trait def / mockall-generated / build.rs+const-tables) must be cited inline. Integration tests under `tests/` complement but do not substitute. Deferrals require both an inline reason and a tracking reference.
 - `.claude/rules/git-commits.md` — Conventional Commits v1.0.0 with workspace-aware scopes (`fix(airsstack-core/...)`, `feat(airsstack-cli/...)`, `build(workspace): ...`, `docs(repo): ...`). Loads unconditionally.
+- `.claude/rules/ai-model-routing.md` — model tier for delegated agents: Sonnet=execution/coding, Opus=think/analyze/review/debug/design, Haiku=narrow non-coding trivia only. Explicit `model:` mandatory on code/review/think agents (agentType/workflow defaults inherit a cheap tier). Governs `Agent` spawns + workflow `agent()`/`meta.phases[].model`; does not control the main loop. Loads unconditionally. (`ai-*` prefix = rules about how AI/agents operate, vs `rust-*` for code.)
+- `.claude/rules/ai-agent-orchestration.md` — binding flow for delegated agents: agents are leaves (no Agent→Agent), the coder→code-reviewer→spec-reviewer→user-approval pipeline, findings route through the orchestrator, no agent commits, selective delegation, validate-before-trust. Loads unconditionally. Sibling to `ai-model-routing.md` (routing = which model; orchestration = how they chain).
+
+## Repo agents
+
+Three repo-owned subagents live in `.claude/agents/` (governed by `ai-agent-orchestration.md` + `ai-model-routing.md`):
+
+- `airsstack-coder` (sonnet) — implements one scoped task with strict TDD, runs the DoD, never commits.
+- `airsstack-code-reviewer` (opus) — re-runs the DoD and reviews the diff against `.claude/rules/`; report-only.
+- `airsstack-spec-reviewer` (opus) — reviews implementation against `.superpowers/` spec/plan intent; report-only.
+
+Prefer these over the generic `caveman:cavecrew-*` agents for Rust work — the cavecrew agents pin Haiku for review and cannot run the DoD. Spawn by name via `Agent` `subagent_type`, pinning `model:` per the routing rule. A newly-added agent file under `.claude/agents/` is only spawnable in a session that started with it present.
