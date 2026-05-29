@@ -72,6 +72,14 @@ pub type DefaultTransportPlaceholder = ReqwestTransport;
 /// is configured. The struct exists so the default type parameter on
 /// [`Client`] resolves to a concrete `HttpTransport` impl regardless of
 /// feature configuration.
+///
+/// Keeping a single default type parameter across both feature
+/// configurations — rather than removing it when `transport-reqwest` is
+/// off — keeps `Client<T>`'s signature stable for rustdoc, IDE tooling,
+/// and generic downstream code. Callers that build without a transport
+/// feature must supply their own transport via
+/// [`Client::builder_with_transport`]; the clear `send`-time error guides
+/// anyone who reaches this stand-in by mistake.
 #[cfg(not(feature = "transport-reqwest"))]
 pub struct DefaultTransportPlaceholder;
 
