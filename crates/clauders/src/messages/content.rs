@@ -53,13 +53,46 @@ pub enum ContentBlock {
 pub struct TextBlock {
     /// The text content of this block.
     pub text: String,
+    /// Optional cache breakpoint for this block.
+    ///
+    /// When set, this block marks a prompt-caching boundary.
+    /// Requires the `messages-caching` feature.
+    #[cfg(feature = "messages-caching")]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub cache_control: Option<crate::types::CacheControl>,
 }
 
 impl TextBlock {
     /// Construct a `TextBlock` from any string-like value.
     #[must_use]
     pub fn new(s: impl Into<String>) -> Self {
-        Self { text: s.into() }
+        Self {
+            text: s.into(),
+            #[cfg(feature = "messages-caching")]
+            cache_control: None,
+        }
+    }
+
+    /// Attach a cache breakpoint to this block.
+    ///
+    /// Marks this text block as a prompt-caching boundary.
+    ///
+    /// Requires the `messages-caching` feature.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use clauders::messages::TextBlock;
+    /// use clauders::types::CacheControl;
+    /// let b = TextBlock::new("You are terse.").with_cache(CacheControl::ephemeral());
+    /// let j = serde_json::to_string(&b).unwrap();
+    /// assert!(j.contains("\"cache_control\":{\"type\":\"ephemeral\"}"));
+    /// ```
+    #[cfg(feature = "messages-caching")]
+    #[must_use]
+    pub const fn with_cache(mut self, cc: crate::types::CacheControl) -> Self {
+        self.cache_control = Some(cc);
+        self
     }
 }
 
@@ -115,6 +148,33 @@ mod tests {
         let original = ContentBlock::Text(TextBlock::new("hello"));
         let j = serde_json::to_string(&original).unwrap();
         let back: ContentBlock = serde_json::from_str(&j).unwrap();
+        assert_eq!(back, original);
+    }
+
+    #[cfg(feature = "messages-caching")]
+    #[test]
+    fn text_block_with_cache_serializes_field() {
+        use crate::types::CacheControl;
+        let b = TextBlock::new("hi").with_cache(CacheControl::ephemeral());
+        let j = serde_json::to_string(&b).unwrap();
+        assert_eq!(j, r#"{"text":"hi","cache_control":{"type":"ephemeral"}}"#);
+    }
+
+    #[cfg(feature = "messages-caching")]
+    #[test]
+    fn text_block_without_cache_omits_field() {
+        let b = TextBlock::new("hi");
+        let j = serde_json::to_string(&b).unwrap();
+        assert_eq!(j, r#"{"text":"hi"}"#);
+    }
+
+    #[cfg(feature = "messages-caching")]
+    #[test]
+    fn text_block_with_cache_round_trips() {
+        use crate::types::CacheControl;
+        let original = TextBlock::new("hello").with_cache(CacheControl::ephemeral());
+        let j = serde_json::to_string(&original).unwrap();
+        let back: TextBlock = serde_json::from_str(&j).unwrap();
         assert_eq!(back, original);
     }
 }

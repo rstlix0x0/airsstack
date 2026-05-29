@@ -7,6 +7,9 @@
 
 mod api_key;
 mod base_url;
+#[cfg(feature = "messages-caching")]
+#[cfg_attr(docsrs, doc(cfg(feature = "messages-caching")))]
+pub mod caching;
 mod ids;
 mod model_id;
 mod numeric;
@@ -15,6 +18,9 @@ mod version;
 
 pub use api_key::{ApiKey, InvalidApiKey};
 pub use base_url::{BaseUrl, InvalidBaseUrl};
+#[cfg(feature = "messages-caching")]
+#[cfg_attr(docsrs, doc(cfg(feature = "messages-caching")))]
+pub use caching::{CacheControl, CacheTtl};
 pub use ids::{
     InvalidMessageId, InvalidOrganizationId, InvalidRequestId, InvalidStopSequence,
     InvalidToolName, InvalidToolUseId, InvalidUserId, MessageId, OrganizationId, RequestId,
