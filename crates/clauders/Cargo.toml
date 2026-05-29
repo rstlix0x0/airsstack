@@ -16,7 +16,7 @@ categories  = ["api-bindings", "web-programming::http-client", "asynchronous"]
 workspace = true
 
 [features]
-default = ["messages", "messages-streaming", "transport-reqwest"]
+default = ["messages", "messages-streaming", "messages-tools", "transport-reqwest"]
 
 # Messages API surface: request/response types and the MessagesResource
 # entry point. Enabled by default; callers who only need types may disable
@@ -26,6 +26,9 @@ messages = []
 # SSE streaming for the Messages API. Depends on `messages` and pulls in
 # the `eventsource-stream` SSE parser.
 messages-streaming = ["messages", "dep:eventsource-stream"]
+
+# Tool (function calling) types for the Messages API. Depends on `messages`.
+messages-tools = ["messages"]
 
 # Gates `cache_control` fields on request types and cache-hit counters
 # on `Usage` responses. Off by default to keep the wire payload minimal

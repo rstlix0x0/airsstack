@@ -125,6 +125,13 @@ pub enum ContentDelta {
         /// The signature fragment.
         signature: String,
     },
+    /// An incremental fragment of the JSON arguments being assembled for a
+    /// tool invocation.
+    #[cfg(feature = "messages-tools")]
+    InputJsonDelta {
+        /// The partial JSON string to append to the tool input buffer.
+        partial_json: String,
+    },
 }
 
 /// Stop-reason and stop-sequence fields carried by [`StreamEvent::MessageDelta`].

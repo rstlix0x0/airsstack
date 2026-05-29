@@ -11,7 +11,6 @@
 //! Not responsible for:
 //! - Request construction or response decoding — those live in `request.rs`
 //!   and `response.rs` respectively.
-//! - Tool-use blocks — a separate type in a future extension.
 
 /// Tagged union of content block shapes returned or accepted by the Messages API.
 ///
@@ -33,6 +32,12 @@ pub enum ContentBlock {
     Text(TextBlock),
     /// Extended thinking output, optionally carrying a verification signature.
     Thinking(ThinkingBlock),
+    /// A tool invocation produced by the model.
+    #[cfg(feature = "messages-tools")]
+    ToolUse(crate::messages::tools::ToolUseBlock),
+    /// A tool result supplied by the caller in response to a tool invocation.
+    #[cfg(feature = "messages-tools")]
+    ToolResult(crate::messages::tools::ToolResultBlock),
 }
 
 /// Plain-text content block.

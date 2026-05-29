@@ -26,6 +26,10 @@ pub mod response;
 #[cfg_attr(docsrs, doc(cfg(feature = "messages-streaming")))]
 pub mod streaming;
 
+#[cfg(feature = "messages-tools")]
+#[cfg_attr(docsrs, doc(cfg(feature = "messages-tools")))]
+pub mod tools;
+
 #[doc(inline)]
 pub use content::{ContentBlock, TextBlock, ThinkingBlock};
 #[doc(inline)]
@@ -41,3 +45,8 @@ pub use response::{Message, MessageKind, StopReason, Usage};
 #[cfg_attr(docsrs, doc(cfg(feature = "messages-streaming")))]
 #[doc(inline)]
 pub use streaming::{ContentDelta, MessageMetaDelta, MessageStream, StreamEvent, UsageDelta};
+
+#[cfg(feature = "messages-tools")]
+#[cfg_attr(docsrs, doc(cfg(feature = "messages-tools")))]
+#[doc(inline)]
+pub use tools::{Tool, ToolChoice, ToolResultBlock, ToolResultContent, ToolUseBlock};

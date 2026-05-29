@@ -167,6 +167,14 @@ pub struct MessageRequest {
     /// Optional per-request metadata.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Metadata>,
+    /// Tools the model may call during generation.
+    #[cfg(feature = "messages-tools")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tools: Vec<crate::messages::tools::Tool>,
+    /// Controls which tool, if any, the model must call.
+    #[cfg(feature = "messages-tools")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_choice: Option<crate::messages::tools::ToolChoice>,
     /// Whether to stream the response. Managed by the resource layer;
     /// callers should not set this directly.
     #[doc(hidden)]
@@ -206,6 +214,10 @@ where
     top_k: Option<TopK>,
     stop_sequences: Vec<StopSequence>,
     metadata: Option<Metadata>,
+    #[cfg(feature = "messages-tools")]
+    tools: Vec<crate::messages::tools::Tool>,
+    #[cfg(feature = "messages-tools")]
+    tool_choice: Option<crate::messages::tools::ToolChoice>,
     _m: PhantomData<M>,
     _mt: PhantomData<Mt>,
 }
@@ -222,6 +234,10 @@ impl MessageRequestBuilder<Missing, Missing> {
             top_k: None,
             stop_sequences: Vec::new(),
             metadata: None,
+            #[cfg(feature = "messages-tools")]
+            tools: Vec::new(),
+            #[cfg(feature = "messages-tools")]
+            tool_choice: None,
             _m: PhantomData,
             _mt: PhantomData,
         }
@@ -243,6 +259,10 @@ impl<Mt: sealed::BuilderMaxTokensState> MessageRequestBuilder<Missing, Mt> {
             top_k: self.top_k,
             stop_sequences: self.stop_sequences,
             metadata: self.metadata,
+            #[cfg(feature = "messages-tools")]
+            tools: self.tools,
+            #[cfg(feature = "messages-tools")]
+            tool_choice: self.tool_choice,
             _m: PhantomData,
             _mt: self._mt,
         }
@@ -264,6 +284,10 @@ impl<M: sealed::BuilderModelState> MessageRequestBuilder<M, Missing> {
             top_k: self.top_k,
             stop_sequences: self.stop_sequences,
             metadata: self.metadata,
+            #[cfg(feature = "messages-tools")]
+            tools: self.tools,
+            #[cfg(feature = "messages-tools")]
+            tool_choice: self.tool_choice,
             _m: self._m,
             _mt: PhantomData,
         }
@@ -343,6 +367,25 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
         self.metadata = Some(metadata);
         self
     }
+
+    /// Set the tools available to the model.
+    ///
+    /// Accepts any iterable of [`crate::messages::tools::Tool`] values.
+    /// The collected tools replace any previously set value.
+    #[cfg(feature = "messages-tools")]
+    #[must_use]
+    pub fn tools(mut self, tools: impl IntoIterator<Item = crate::messages::tools::Tool>) -> Self {
+        self.tools = tools.into_iter().collect();
+        self
+    }
+
+    /// Set the tool-choice policy for this request.
+    #[cfg(feature = "messages-tools")]
+    #[must_use]
+    pub fn tool_choice(mut self, c: crate::messages::tools::ToolChoice) -> Self {
+        self.tool_choice = Some(c);
+        self
+    }
 }
 
 impl MessageRequestBuilder<Present, Present> {
@@ -381,6 +424,10 @@ impl MessageRequestBuilder<Present, Present> {
             top_k: self.top_k,
             stop_sequences: self.stop_sequences,
             metadata: self.metadata,
+            #[cfg(feature = "messages-tools")]
+            tools: self.tools,
+            #[cfg(feature = "messages-tools")]
+            tool_choice: self.tool_choice,
             stream: false,
         }
     }

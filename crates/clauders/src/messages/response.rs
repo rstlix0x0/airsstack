@@ -65,6 +65,9 @@ pub enum StopReason {
     MaxTokens,
     /// Generation stopped because a stop sequence was matched.
     StopSequence,
+    /// Model stopped to call one or more tools.
+    #[cfg(feature = "messages-tools")]
+    ToolUse,
 }
 
 /// Input and output token counts for a request-response pair.
