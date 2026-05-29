@@ -16,12 +16,16 @@ categories  = ["api-bindings", "web-programming::http-client", "asynchronous"]
 workspace = true
 
 [features]
-default = ["messages", "transport-reqwest"]
+default = ["messages", "messages-streaming", "transport-reqwest"]
 
 # Messages API surface: request/response types and the MessagesResource
 # entry point. Enabled by default; callers who only need types may disable
 # it to trim unused code.
 messages = []
+
+# SSE streaming for the Messages API. Depends on `messages` and pulls in
+# the `eventsource-stream` SSE parser.
+messages-streaming = ["messages", "dep:eventsource-stream"]
 
 # Gates `cache_control` fields on request types and cache-hit counters
 # on `Usage` responses. Off by default to keep the wire payload minimal
@@ -50,8 +54,9 @@ futures-core       = { workspace = true }
 pin-project-lite   = { workspace = true }
 async-trait        = { workspace = true }
 tokio          = { workspace = true }
-reqwest        = { workspace = true, optional = true }
-mockall        = { workspace = true, optional = true }
+reqwest              = { workspace = true, optional = true }
+eventsource-stream   = { workspace = true, optional = true }
+mockall              = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio        = { workspace = true, features = ["full", "test-util"] }

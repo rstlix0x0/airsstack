@@ -22,6 +22,10 @@ pub mod request;
 pub mod resource;
 pub mod response;
 
+#[cfg(feature = "messages-streaming")]
+#[cfg_attr(docsrs, doc(cfg(feature = "messages-streaming")))]
+pub mod streaming;
+
 #[doc(inline)]
 pub use content::{ContentBlock, TextBlock, ThinkingBlock};
 #[doc(inline)]
@@ -32,3 +36,8 @@ pub use request::{
 pub use resource::MessagesResource;
 #[doc(inline)]
 pub use response::{Message, MessageKind, StopReason, Usage};
+
+#[cfg(feature = "messages-streaming")]
+#[cfg_attr(docsrs, doc(cfg(feature = "messages-streaming")))]
+#[doc(inline)]
+pub use streaming::{ContentDelta, MessageMetaDelta, MessageStream, StreamEvent, UsageDelta};
