@@ -244,6 +244,12 @@ impl MessageStream {
                         m.usage = Usage {
                             input_tokens: m.usage.input_tokens,
                             output_tokens: usage.output_tokens,
+                            #[cfg(feature = "messages-caching")]
+                            cache_creation_input_tokens: m.usage.cache_creation_input_tokens,
+                            #[cfg(feature = "messages-caching")]
+                            cache_read_input_tokens: m.usage.cache_read_input_tokens,
+                            #[cfg(feature = "messages-caching")]
+                            cache_creation: m.usage.cache_creation,
                         };
                     }
                 }

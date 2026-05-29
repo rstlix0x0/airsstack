@@ -70,7 +70,29 @@ pub enum StopReason {
     ToolUse,
 }
 
+/// Breakdown of tokens created in the cache during a caching-enabled request.
+///
+/// The sum `ephemeral_5m_input_tokens + ephemeral_1h_input_tokens` equals
+/// `Usage::cache_creation_input_tokens`.
+///
+/// Requires the `messages-caching` feature.
+#[cfg(feature = "messages-caching")]
+#[cfg_attr(docsrs, doc(cfg(feature = "messages-caching")))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
+pub struct CacheCreation {
+    /// Tokens written into the 5-minute ephemeral cache tier.
+    pub ephemeral_5m_input_tokens: u32,
+    /// Tokens written into the 1-hour ephemeral cache tier.
+    pub ephemeral_1h_input_tokens: u32,
+}
+
 /// Input and output token counts for a request-response pair.
+///
+/// When the `messages-caching` feature is enabled, the additional
+/// `cache_creation_input_tokens`, `cache_read_input_tokens`, and
+/// `cache_creation` fields are populated from caching-aware responses.
+/// Use [`Usage::total_input_tokens`] to obtain the full input-side total
+/// (regular + cache creation + cache read).
 ///
 /// # Examples
 ///
@@ -84,6 +106,56 @@ pub struct Usage {
     pub input_tokens: u32,
     /// Number of tokens generated in the response.
     pub output_tokens: u32,
+    /// Tokens written into the cache during this request.
+    ///
+    /// Requires the `messages-caching` feature.
+    #[cfg(feature = "messages-caching")]
+    #[serde(default)]
+    pub cache_creation_input_tokens: Option<u32>,
+    /// Tokens read from the cache during this request.
+    ///
+    /// Requires the `messages-caching` feature.
+    #[cfg(feature = "messages-caching")]
+    #[serde(default)]
+    pub cache_read_input_tokens: Option<u32>,
+    /// Per-tier breakdown of cache-creation token counts.
+    ///
+    /// Requires the `messages-caching` feature.
+    #[cfg(feature = "messages-caching")]
+    #[serde(default)]
+    pub cache_creation: Option<CacheCreation>,
+}
+
+impl Usage {
+    /// Total input-side tokens: regular input + cache-creation + cache-read.
+    ///
+    /// Returns `input_tokens` when no cache fields are present (all count as 0).
+    /// Addition is saturating to guard against malformed server values.
+    ///
+    /// Requires the `messages-caching` feature.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// # #[cfg(feature = "messages-caching")] {
+    /// use clauders::messages::response::Usage;
+    /// let u: Usage = serde_json::from_str(r#"{
+    ///     "input_tokens": 100,
+    ///     "output_tokens": 5,
+    ///     "cache_creation_input_tokens": 200,
+    ///     "cache_read_input_tokens": 50
+    /// }"#).unwrap();
+    /// assert_eq!(u.total_input_tokens(), 350);
+    /// # }
+    /// ```
+    #[cfg(feature = "messages-caching")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "messages-caching")))]
+    #[must_use]
+    pub fn total_input_tokens(&self) -> u32 {
+        self.input_tokens
+            .saturating_add(self.cache_creation_input_tokens.unwrap_or(0))
+            .saturating_add(self.cache_read_input_tokens.unwrap_or(0))
+    }
 }
 
 #[cfg(test)]
@@ -115,5 +187,56 @@ mod tests {
         assert_eq!(msg.usage.input_tokens, 25);
         assert_eq!(msg.usage.output_tokens, 5);
         assert_eq!(msg.content.len(), 1);
+    }
+
+    #[cfg(feature = "messages-caching")]
+    #[test]
+    fn usage_decodes_cache_fields() {
+        let j = r#"{"input_tokens":100,"output_tokens":5,"cache_creation_input_tokens":200,"cache_read_input_tokens":50}"#;
+        let u: Usage = serde_json::from_str(j).unwrap();
+        assert_eq!(u.cache_creation_input_tokens, Some(200));
+        assert_eq!(u.cache_read_input_tokens, Some(50));
+    }
+
+    #[cfg(feature = "messages-caching")]
+    #[test]
+    fn usage_without_cache_fields_defaults_to_none() {
+        let j = r#"{"input_tokens":10,"output_tokens":5}"#;
+        let u: Usage = serde_json::from_str(j).unwrap();
+        assert_eq!(u.cache_creation_input_tokens, None);
+        assert_eq!(u.cache_read_input_tokens, None);
+        assert_eq!(u.cache_creation, None);
+    }
+
+    #[cfg(feature = "messages-caching")]
+    #[test]
+    fn total_input_tokens_sums_all_input_counts() {
+        let j = r#"{"input_tokens":100,"output_tokens":5,"cache_creation_input_tokens":200,"cache_read_input_tokens":50}"#;
+        let u: Usage = serde_json::from_str(j).unwrap();
+        assert_eq!(u.total_input_tokens(), 350);
+    }
+
+    #[cfg(feature = "messages-caching")]
+    #[test]
+    fn total_input_tokens_without_cache_equals_input_tokens() {
+        let j = r#"{"input_tokens":42,"output_tokens":5}"#;
+        let u: Usage = serde_json::from_str(j).unwrap();
+        assert_eq!(u.total_input_tokens(), 42);
+    }
+
+    #[cfg(feature = "messages-caching")]
+    #[test]
+    fn cache_creation_breakdown_decodes() {
+        let j = r#"{
+            "input_tokens":10,
+            "output_tokens":2,
+            "cache_creation_input_tokens":300,
+            "cache_read_input_tokens":0,
+            "cache_creation":{"ephemeral_5m_input_tokens":100,"ephemeral_1h_input_tokens":200}
+        }"#;
+        let u: Usage = serde_json::from_str(j).unwrap();
+        let cc = u.cache_creation.unwrap();
+        assert_eq!(cc.ephemeral_5m_input_tokens, 100);
+        assert_eq!(cc.ephemeral_1h_input_tokens, 200);
     }
 }
