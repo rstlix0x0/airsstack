@@ -22,6 +22,10 @@ pub mod request;
 pub mod resource;
 pub mod response;
 
+#[cfg(feature = "messages-batches")]
+#[cfg_attr(docsrs, doc(cfg(feature = "messages-batches")))]
+pub mod batches;
+
 #[cfg(feature = "messages-streaming")]
 #[cfg_attr(docsrs, doc(cfg(feature = "messages-streaming")))]
 pub mod streaming;
@@ -59,3 +63,12 @@ pub use tools::{Tool, ToolChoice, ToolResultBlock, ToolResultContent, ToolUseBlo
 #[cfg_attr(docsrs, doc(cfg(feature = "messages-token-counting")))]
 #[doc(inline)]
 pub use token_counting::TokenCount;
+
+#[cfg(feature = "messages-batches")]
+#[cfg_attr(docsrs, doc(cfg(feature = "messages-batches")))]
+#[doc(inline)]
+pub use batches::{
+    Batch, BatchKind, BatchList, BatchRequest, BatchRequestBuilder, BatchResult, BatchResultRow,
+    BatchResultStream, BatchStatus, BatchedMessageRequest, BatchesResource, DeletedBatchKind,
+    DeletedMessageBatch, RequestCounts,
+};

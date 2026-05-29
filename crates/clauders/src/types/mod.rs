@@ -7,9 +7,15 @@
 
 mod api_key;
 mod base_url;
+#[cfg(feature = "messages-batches")]
+#[cfg_attr(docsrs, doc(cfg(feature = "messages-batches")))]
+mod batch_id;
 #[cfg(feature = "messages-caching")]
 #[cfg_attr(docsrs, doc(cfg(feature = "messages-caching")))]
 pub mod caching;
+#[cfg(feature = "messages-batches")]
+#[cfg_attr(docsrs, doc(cfg(feature = "messages-batches")))]
+mod custom_request_id;
 mod ids;
 mod model_id;
 mod numeric;
@@ -18,9 +24,15 @@ mod version;
 
 pub use api_key::{ApiKey, InvalidApiKey};
 pub use base_url::{BaseUrl, InvalidBaseUrl};
+#[cfg(feature = "messages-batches")]
+#[cfg_attr(docsrs, doc(cfg(feature = "messages-batches")))]
+pub use batch_id::{BatchId, InvalidBatchId};
 #[cfg(feature = "messages-caching")]
 #[cfg_attr(docsrs, doc(cfg(feature = "messages-caching")))]
 pub use caching::{CacheControl, CacheTtl};
+#[cfg(feature = "messages-batches")]
+#[cfg_attr(docsrs, doc(cfg(feature = "messages-batches")))]
+pub use custom_request_id::{CustomRequestId, InvalidCustomRequestId};
 pub use ids::{
     InvalidMessageId, InvalidOrganizationId, InvalidRequestId, InvalidStopSequence,
     InvalidToolName, InvalidToolUseId, InvalidUserId, MessageId, OrganizationId, RequestId,

@@ -25,7 +25,7 @@ pub(crate) mod headers;
 pub mod retry;
 pub mod transport;
 pub mod types;
-#[cfg(any(feature = "messages", feature = "models"))]
+#[cfg(any(feature = "messages", feature = "models", feature = "messages-batches"))]
 pub(crate) mod wire_helpers;
 
 pub use auth::Auth;

@@ -276,6 +276,16 @@ pub enum Error {
     #[cfg_attr(docsrs, doc(cfg(feature = "messages-streaming")))]
     #[error("stream protocol error: {0}")]
     Stream(String),
+
+    /// JSONL parse error while consuming a batch results stream.
+    ///
+    /// Returned when a line in the batch results body cannot be decoded as
+    /// a [`crate::messages::BatchResultRow`]. Non-retryable: the stream
+    /// position is already advanced.
+    #[cfg(feature = "messages-batches")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "messages-batches")))]
+    #[error("JSONL stream parser error: {0}")]
+    JsonLines(String),
 }
 
 impl Error {
@@ -295,6 +305,8 @@ impl Error {
             | Self::Build(_) => false,
             #[cfg(feature = "messages-streaming")]
             Self::Stream(_) => false,
+            #[cfg(feature = "messages-batches")]
+            Self::JsonLines(_) => false,
         }
     }
 
@@ -311,6 +323,8 @@ impl Error {
             | Self::Build(_) => None,
             #[cfg(feature = "messages-streaming")]
             Self::Stream(_) => None,
+            #[cfg(feature = "messages-batches")]
+            Self::JsonLines(_) => None,
         }
     }
 
@@ -325,6 +339,8 @@ impl Error {
             }
             #[cfg(feature = "messages-streaming")]
             Self::Stream(_) => None,
+            #[cfg(feature = "messages-batches")]
+            Self::JsonLines(_) => None,
         }
     }
 
@@ -341,6 +357,8 @@ impl Error {
             | Self::Build(_) => None,
             #[cfg(feature = "messages-streaming")]
             Self::Stream(_) => None,
+            #[cfg(feature = "messages-batches")]
+            Self::JsonLines(_) => None,
         }
     }
 }
