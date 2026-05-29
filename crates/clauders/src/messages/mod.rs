@@ -38,6 +38,10 @@ pub mod tools;
 #[cfg_attr(docsrs, doc(cfg(feature = "messages-token-counting")))]
 pub mod token_counting;
 
+#[cfg(feature = "messages-structured-outputs")]
+#[cfg_attr(docsrs, doc(cfg(feature = "messages-structured-outputs")))]
+pub mod structured_outputs;
+
 #[doc(inline)]
 pub use content::{ContentBlock, TextBlock, ThinkingBlock};
 #[doc(inline)]
@@ -63,6 +67,11 @@ pub use tools::{Tool, ToolChoice, ToolResultBlock, ToolResultContent, ToolUseBlo
 #[cfg_attr(docsrs, doc(cfg(feature = "messages-token-counting")))]
 #[doc(inline)]
 pub use token_counting::TokenCount;
+
+#[cfg(feature = "messages-structured-outputs")]
+#[cfg_attr(docsrs, doc(cfg(feature = "messages-structured-outputs")))]
+#[doc(inline)]
+pub use structured_outputs::{OutputConfig, OutputFormat};
 
 #[cfg(feature = "messages-batches")]
 #[cfg_attr(docsrs, doc(cfg(feature = "messages-batches")))]
