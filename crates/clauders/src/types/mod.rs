@@ -6,6 +6,7 @@
 //! [`std::error::Error`].
 
 mod api_key;
+mod base_url;
 mod ids;
 mod model_id;
 mod numeric;
@@ -13,6 +14,7 @@ mod system;
 mod version;
 
 pub use api_key::{ApiKey, InvalidApiKey};
+pub use base_url::{BaseUrl, InvalidBaseUrl};
 pub use ids::{
     InvalidMessageId, InvalidOrganizationId, InvalidRequestId, InvalidStopSequence,
     InvalidToolName, InvalidToolUseId, InvalidUserId, MessageId, OrganizationId, RequestId,

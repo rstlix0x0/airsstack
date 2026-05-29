@@ -36,21 +36,54 @@ pub enum Jitter {
 }
 
 /// Tunable parameters for the exponential-backoff retry strategy.
+///
+/// Fields are crate-private so the validated [`ExpBackoff::try_new`]
+/// constructor is the only public way to build one — a struct literal
+/// cannot bypass its `multiplier` and `initial <= max` checks. Read the
+/// parameters back through the accessor methods.
 #[derive(Clone, Debug)]
 pub struct ExpBackoff {
+    pub(crate) max_attempts: NonZeroU32,
+    pub(crate) initial: Duration,
+    pub(crate) max: Duration,
+    pub(crate) multiplier: f32,
+    pub(crate) jitter: Jitter,
+}
+
+impl ExpBackoff {
     /// Total number of attempts including the original request.
-    pub max_attempts: NonZeroU32,
+    #[must_use]
+    pub const fn max_attempts(&self) -> NonZeroU32 {
+        self.max_attempts
+    }
+
     /// Backoff applied before the first retry (attempt index 0).
     ///
-    /// `RetryPolicy::backoff(0)` returns this value verbatim;
-    /// subsequent retries multiply by `multiplier` and cap at `max`.
-    pub initial: Duration,
+    /// [`RetryPolicy::backoff(0)`](RetryPolicy::backoff) returns this value
+    /// verbatim; subsequent retries multiply by [`ExpBackoff::multiplier`]
+    /// and cap at [`ExpBackoff::max`].
+    #[must_use]
+    pub const fn initial(&self) -> Duration {
+        self.initial
+    }
+
     /// Hard cap on the per-attempt backoff after exponential growth.
-    pub max: Duration,
+    #[must_use]
+    pub const fn max(&self) -> Duration {
+        self.max
+    }
+
     /// Factor applied at each attempt: `initial * multiplier.pow(attempt)`.
-    pub multiplier: f32,
+    #[must_use]
+    pub const fn multiplier(&self) -> f32 {
+        self.multiplier
+    }
+
     /// Jitter mode applied on top of the exponential value.
-    pub jitter: Jitter,
+    #[must_use]
+    pub const fn jitter(&self) -> Jitter {
+        self.jitter
+    }
 }
 
 /// Reasons [`ExpBackoff::try_new`] can reject input.
@@ -189,7 +222,10 @@ impl RetryPolicy {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used)]
+    #![expect(
+        clippy::unwrap_used,
+        reason = "tests unwrap known-valid fixtures; a panic is the intended failure signal"
+    )]
 
     use super::*;
 
@@ -262,6 +298,23 @@ mod tests {
             r,
             Err(InvalidExpBackoff::InitialExceedsMax { .. })
         ));
+    }
+
+    #[test]
+    fn accessors_round_trip_try_new_inputs() {
+        let b = ExpBackoff::try_new(
+            NonZeroU32::new(5).unwrap(),
+            Duration::from_millis(100),
+            Duration::from_secs(4),
+            1.5,
+            Jitter::Equal,
+        )
+        .unwrap();
+        assert_eq!(b.max_attempts().get(), 5);
+        assert_eq!(b.initial(), Duration::from_millis(100));
+        assert_eq!(b.max(), Duration::from_secs(4));
+        assert!((b.multiplier() - 1.5).abs() < f32::EPSILON);
+        assert_eq!(b.jitter(), Jitter::Equal);
     }
 
     #[test]

@@ -19,39 +19,62 @@
 
 use std::time::Duration;
 
-use crate::types::{AnthropicVersion, BetaHeader};
+use crate::types::{AnthropicVersion, BaseUrl, BetaHeader};
 
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com/";
 const DEFAULT_TIMEOUT_SECS: u64 = 60;
 
 /// Static request configuration.
 ///
-/// All fields are public so the builder layer can populate them directly
-/// without going through setters. Construct via [`Config::default`] and
-/// override the fields you care about, or use the client builder.
+/// Fields are crate-private so the only ways to set them are
+/// [`Config::default`] and the client builder; this prevents a caller from
+/// mutating a live `Config` out from under the builder's validation. Read
+/// them back through the accessor methods.
 #[derive(Clone, Debug)]
 pub struct Config {
+    pub(crate) base_url: BaseUrl,
+    pub(crate) anthropic_version: AnthropicVersion,
+    pub(crate) anthropic_beta: Vec<BetaHeader>,
+    pub(crate) timeout: Duration,
+}
+
+impl Config {
     /// Base URL every request is built against. Defaults to
     /// `https://api.anthropic.com/`.
-    pub base_url: url::Url,
+    #[must_use]
+    pub const fn base_url(&self) -> &BaseUrl {
+        &self.base_url
+    }
+
     /// Value of the `anthropic-version` request header.
-    pub anthropic_version: AnthropicVersion,
-    /// Values joined into the `anthropic-beta` request header. Empty
-    /// vector means the header is omitted entirely.
-    pub anthropic_beta: Vec<BetaHeader>,
+    #[must_use]
+    pub const fn anthropic_version(&self) -> &AnthropicVersion {
+        &self.anthropic_version
+    }
+
+    /// Values joined into the `anthropic-beta` request header. An empty
+    /// slice means the header is omitted entirely.
+    #[must_use]
+    pub fn anthropic_beta(&self) -> &[BetaHeader] {
+        &self.anthropic_beta
+    }
+
     /// Per-request wall-clock timeout applied by the transport layer.
-    pub timeout: Duration,
+    #[must_use]
+    pub const fn timeout(&self) -> Duration {
+        self.timeout
+    }
 }
 
 impl Default for Config {
     #[expect(
         clippy::expect_used,
-        reason = "DEFAULT_BASE_URL is a compile-time constant that is always a valid absolute URL"
+        reason = "DEFAULT_BASE_URL is a compile-time constant that is always a valid http(s) URL"
     )]
     fn default() -> Self {
         Self {
-            base_url: url::Url::parse(DEFAULT_BASE_URL)
-                .expect("invariant: DEFAULT_BASE_URL is a valid absolute URL"),
+            base_url: BaseUrl::parse(DEFAULT_BASE_URL)
+                .expect("invariant: DEFAULT_BASE_URL is a valid http(s) URL"),
             anthropic_version: AnthropicVersion::default(),
             anthropic_beta: Vec::new(),
             timeout: Duration::from_secs(DEFAULT_TIMEOUT_SECS),
@@ -61,16 +84,14 @@ impl Default for Config {
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used, clippy::expect_used)]
-
     use super::*;
 
     #[test]
     fn default_points_at_anthropic() {
         let c = Config::default();
-        assert_eq!(c.base_url.as_str(), DEFAULT_BASE_URL);
-        assert_eq!(c.anthropic_version, AnthropicVersion::default());
-        assert!(c.anthropic_beta.is_empty());
-        assert_eq!(c.timeout, Duration::from_secs(DEFAULT_TIMEOUT_SECS));
+        assert_eq!(c.base_url().as_str(), DEFAULT_BASE_URL);
+        assert_eq!(c.anthropic_version(), &AnthropicVersion::default());
+        assert!(c.anthropic_beta().is_empty());
+        assert_eq!(c.timeout(), Duration::from_secs(DEFAULT_TIMEOUT_SECS));
     }
 }
