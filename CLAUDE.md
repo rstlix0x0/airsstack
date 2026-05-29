@@ -59,10 +59,20 @@ Topic-specific rules live in `.claude/rules/` and are auto-discovered. Path-scop
 
 ## Repo agents
 
-Three repo-owned subagents live in `.claude/agents/` (governed by `ai-agent-orchestration.md` + `ai-model-routing.md`):
+Four repo-owned subagents live in `.claude/agents/` (governed by `ai-agent-orchestration.md` + `ai-model-routing.md`):
 
 - `airsstack-coder` (sonnet) — implements one scoped task with strict TDD, runs the DoD, never commits.
 - `airsstack-code-reviewer` (opus) — re-runs the DoD and reviews the diff against `.claude/rules/`; report-only.
 - `airsstack-spec-reviewer` (opus) — reviews implementation against `.superpowers/` spec/plan intent; report-only.
+- `airsstack-verifier` (opus) — audits the phase's accumulated claims (coder + reviewer receipts) against ground truth at the final gate; emits a VERIFIED/REFUTED/UNCONFIRMED ledger for the user. Report-only leaf, runs once per phase.
 
 Prefer these over the generic `caveman:cavecrew-*` agents for Rust work — the cavecrew agents pin Haiku for review and cannot run the DoD. Spawn by name via `Agent` `subagent_type`, pinning `model:` per the routing rule. A newly-added agent file under `.claude/agents/` is only spawnable in a session that started with it present.
+
+## Repo skills
+
+Repo-local skills live under `.claude/skills/<name>/SKILL.md` (auto-discovered, `/`-invocable):
+
+- `snapshot-save` — codifies the memory-save ceremony: judges durable session facts, writes/updates one file per fact under the existing memory schema (`user`/`feedback`/`project`/`reference`), updates `MEMORY.md`. Has a mandatory durability gate (thin session → writes nothing). "Snapshot" is just the author's term for the existing memory; it is NOT a new format.
+- `snapshot-load [topic]` — codifies the memory-load ceremony: reads `MEMORY.md`, fully reads files relevant to the current git branch + optional topic arg, reports the rehydrated state.
+
+Session-boundary hooks in `.claude/settings.json` nudge these automatically: `SessionStart` → `/snapshot-load`, `SessionEnd` → `/snapshot-save`. Hooks only nudge; the model (running the skill) does the judgment, including the durability gate. A skill/hook registers only in a session that starts with the file present.

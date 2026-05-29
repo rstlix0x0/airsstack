@@ -8,19 +8,20 @@ Delegation without a fixed flow drifts: a coder's diff reaches a commit unreview
 
 ## The agents
 
-Three repo-owned agents under `.claude/agents/airsstack-*`:
+Four repo-owned agents under `.claude/agents/airsstack-*`:
 
 | Agent | Model | Role |
 | --- | --- | --- |
 | `airsstack-coder` | sonnet | Executes one scoped task: writes code + tests (strict TDD), runs the DoD, leaves changes in the working tree. Never commits. |
 | `airsstack-code-reviewer` | opus | Re-runs the DoD, reviews the diff against `.claude/rules/` + for correctness. Report-only. |
 | `airsstack-spec-reviewer` | opus | Reviews the implementation against spec/plan intent. Report-only. |
+| `airsstack-verifier` | opus | Audits the phase's accumulated claims against ground truth (cargo/git/Read); emits a VERIFIED/REFUTED/UNCONFIRMED ledger. Report-only, runs once at the final gate. |
 
 Model tiers are fixed by `ai-model-routing.md`. This rule fixes how the agents connect.
 
 ## Agents are leaves
 
-- A spawned agent does NOT spawn another agent. None of the three carry the `Agent` tool.
+- A spawned agent does NOT spawn another agent. None of the four carry the `Agent` tool.
 - All chaining lives in the orchestrator: the main thread, or a one-level `Workflow` script.
 - A reviewer never calls a coder. The orchestrator takes the reviewer's findings and spawns a fresh coder. Every result passes through the orchestrator, so the approval gate is never bypassed.
 
@@ -30,7 +31,8 @@ Model tiers are fixed by `ai-model-routing.md`. This rule fixes how the agents c
 2. Coder returns its change receipt → orchestrator spawns `airsstack-code-reviewer` on the diff.
 3. Phase boundary → orchestrator spawns `airsstack-spec-reviewer` for the intent check. code-reviewer and spec-reviewer have independent inputs and MAY run in parallel.
 4. Findings route back through the orchestrator to a fresh coder spawn for fixes. Repeat 2–4 until clean.
-5. Commit gate → orchestrator shows the diff + findings to the USER and waits for explicit approval. No agent commits. (See `git-commits.md` and the dev-rule: no commit without approval.)
+5. Reviews clean → orchestrator spawns `airsstack-verifier` ONCE on the phase's accumulated receipts (coder + both reviewers). It re-checks each claim against ground truth and returns a VERIFIED/REFUTED/UNCONFIRMED ledger. A REFUTED claim routes back through the orchestrator to a fresh coder (return to step 2); the verifier never fixes.
+6. Commit gate → orchestrator shows the USER the diff + reviewer findings + the verifier ledger and waits for explicit approval. No agent commits. (See `git-commits.md` and the dev-rule: no commit without approval.)
 
 ## Selective delegation
 
@@ -58,11 +60,14 @@ Before a new or changed agent gates real work, dry-run it on known-good material
 - A reviewer that edits files or proposes large refactors instead of reporting findings. Reviewers are report-only.
 - Any agent running `git commit`. The user is the commit gate.
 - Blanket-delegating trivia to "keep main context clean" — it raises total token spend for no real gain.
+- Reaching the commit gate without running `airsstack-verifier` over the phase's claims — the user then has only the agents' word that the work is real. Forbidden for phase-boundary work.
+- The verifier marking an unverifiable claim VERIFIED to be agreeable, or proposing fixes instead of reporting. It audits; it does not edit.
 
 ## Definition of Done (rule additions)
 
 - Every delegated change passed through `airsstack-code-reviewer` before reaching the user.
 - Phase-boundary work passed through `airsstack-spec-reviewer`.
+- The phase's claims passed through `airsstack-verifier` before the commit gate; any REFUTED claim was resolved (re-coded + re-reviewed), not waved through.
 - No agent committed; the user approved the diff before commit.
 - The flow ran flat — no agent-to-agent spawn.
 
