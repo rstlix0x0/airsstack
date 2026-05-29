@@ -5,7 +5,7 @@
 //! `Client::builder()` plus the type-state transition via `api_key`)
 //! compiles end-to-end.
 
-#![cfg(feature = "transport-reqwest")]
+#![cfg(all(feature = "transport-reqwest", feature = "messages"))]
 
 #[test]
 fn type_state_compile_contracts() {
