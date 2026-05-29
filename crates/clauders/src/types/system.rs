@@ -142,6 +142,13 @@ pub struct SystemSegment {
     pub kind: SystemSegmentKind,
     /// Segment text content.
     pub text: String,
+    /// Optional cache breakpoint for this segment.
+    ///
+    /// When set, this segment marks a prompt-caching boundary. Requires the
+    /// `messages-caching` feature.
+    #[cfg(feature = "messages-caching")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_control: Option<crate::types::caching::CacheControl>,
 }
 
 /// Wire-format type tag for a [`SystemSegment`].
@@ -163,7 +170,31 @@ impl SystemSegment {
         Self {
             kind: SystemSegmentKind::Text,
             text: s.into(),
+            #[cfg(feature = "messages-caching")]
+            cache_control: None,
         }
+    }
+
+    /// Attach a cache breakpoint to this segment.
+    ///
+    /// Marks this segment as a prompt-caching boundary. The segment and all
+    /// content before it will be eligible for caching.
+    ///
+    /// Requires the `messages-caching` feature.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use clauders::types::{CacheControl, SystemSegment};
+    /// let s = SystemSegment::text("You are terse.").with_cache(CacheControl::ephemeral());
+    /// let j = serde_json::to_string(&s).unwrap();
+    /// assert!(j.contains("\"cache_control\":{\"type\":\"ephemeral\"}"));
+    /// ```
+    #[cfg(feature = "messages-caching")]
+    #[must_use]
+    pub const fn with_cache(mut self, cc: crate::types::caching::CacheControl) -> Self {
+        self.cache_control = Some(cc);
+        self
     }
 }
 
@@ -202,5 +233,25 @@ mod tests {
         let k = SystemSegmentKind::Text;
         let j = serde_json::to_string(&k).unwrap();
         assert_eq!(j, "\"text\"");
+    }
+
+    #[cfg(feature = "messages-caching")]
+    #[test]
+    fn segment_with_cache_control_serializes_field() {
+        use crate::types::CacheControl;
+        let s = SystemSegment::text("hi").with_cache(CacheControl::ephemeral());
+        let j = serde_json::to_string(&s).unwrap();
+        assert_eq!(
+            j,
+            r#"{"type":"text","text":"hi","cache_control":{"type":"ephemeral"}}"#
+        );
+    }
+
+    #[cfg(feature = "messages-caching")]
+    #[test]
+    fn segment_without_cache_control_omits_field() {
+        let s = SystemSegment::text("hi");
+        let j = serde_json::to_string(&s).unwrap();
+        assert_eq!(j, r#"{"type":"text","text":"hi"}"#);
     }
 }

@@ -69,6 +69,8 @@ async fn tool_round_trip() {
         input_schema: serde_json::json!({
             "type":"object","properties":{"city":{"type":"string"}},"required":["city"]
         }),
+        #[cfg(feature = "messages-caching")]
+        cache_control: None,
     };
 
     let req1 = MessageRequest::builder()
