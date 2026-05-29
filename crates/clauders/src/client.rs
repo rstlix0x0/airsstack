@@ -98,10 +98,11 @@ impl HttpTransport for DefaultTransportPlaceholder {
 
 pub(crate) struct ClientInner<T: HttpTransport> {
     pub(crate) config: Config,
-    #[expect(
-        dead_code,
-        reason = "transport field is read by request-dispatch methods that live outside this module"
-    )]
+    // `dead_code` fires on `--no-default-features` builds (no `messages` feature, no callers)
+    // but NOT on the default build (resource.rs reads this field). Per M-LINT-OVERRIDE-EXPECT,
+    // `#[allow]` is correct for conditionally-firing lints where `#[expect]` would warn on the
+    // passing configuration.
+    #[allow(dead_code)]
     pub(crate) transport: T,
     pub(crate) auth: Auth,
     pub(crate) retry: RetryPolicy,
@@ -159,6 +160,17 @@ impl<T: HttpTransport> Client<T> {
     #[must_use]
     pub fn ref_count(&self) -> usize {
         Arc::strong_count(&self.inner)
+    }
+
+    /// Return a resource handle for the Messages API.
+    ///
+    /// The returned handle borrows `self` for its lifetime, so it is
+    /// typically created inline at the call site rather than stored.
+    #[cfg(feature = "messages")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
+    #[must_use]
+    pub const fn messages(&self) -> crate::messages::MessagesResource<'_, T> {
+        crate::messages::MessagesResource { client: self }
     }
 
     /// Begin building a client with the supplied transport.

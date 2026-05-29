@@ -1,8 +1,8 @@
-error[E0599]: no method named `build` found for struct `ClientBuilder<Missing, ReqwestTransport>` in the current scope
+error[E0599]: no method named `build` found for struct `ClientBuilder<clauders::Missing, ReqwestTransport>` in the current scope
  --> tests/compile_fail/builder_missing_api_key.rs:5:50
   |
 5 |     let _ = clauders::Client::builder().unwrap().build();
-  |                                                  ^^^^^ method not found in `ClientBuilder<Missing, ReqwestTransport>`
+  |                                                  ^^^^^ method not found in `ClientBuilder<clauders::Missing, ReqwestTransport>`
   |
   = note: the method was found for
-          - `ClientBuilder<Present, T>`
+          - `ClientBuilder<clauders::Present, T>`

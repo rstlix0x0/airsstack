@@ -8,6 +8,10 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+#[cfg(feature = "messages")]
+#[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
+pub mod messages;
+
 pub mod auth;
 pub mod builder;
 pub mod client;

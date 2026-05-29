@@ -76,6 +76,36 @@ impl BaseUrl {
     pub fn as_str(&self) -> &str {
         self.0.as_str()
     }
+
+    // `dead_code` fires when the `messages` feature is disabled (no callers without it),
+    // but NOT on the default build. `#[allow]` is correct for conditionally-firing lints
+    // where `#[expect]` would warn on the passing configuration.
+    #[allow(dead_code)]
+    /// Join a relative path onto this base URL.
+    ///
+    /// Wraps [`url::Url::join`], keeping the inner `url::Url` private.
+    ///
+    /// # Segment-replacement behaviour
+    ///
+    /// `url::Url::join` follows the RFC 3986 resolution rules: when the base
+    /// URL has a non-root path that does **not** end with `/`, the final
+    /// segment is treated as a file and replaced by the relative reference.
+    /// For example:
+    ///
+    /// - `"http://host"` + `"v1/messages"` → `"http://host/v1/messages"` ✓
+    /// - `"http://host/foo"` + `"v1/messages"` → `"http://host/v1/messages"` ✗ drops `foo`
+    /// - `"http://host/foo/"` + `"v1/messages"` → `"http://host/foo/v1/messages"` ✓
+    ///
+    /// Callers that configure a base URL with a path prefix should ensure
+    /// the path ends with `/` so the join is additive.
+    ///
+    /// # Errors
+    /// Returns [`url::ParseError`] if `path` is not a valid relative URL
+    /// reference (e.g. contains a leading `/` that resolves against root
+    /// in an unexpected way, or is malformed).
+    pub(crate) fn join(&self, path: &str) -> Result<url::Url, url::ParseError> {
+        self.0.join(path)
+    }
 }
 
 impl fmt::Display for BaseUrl {
@@ -136,5 +166,34 @@ mod tests {
     fn display_matches_as_str() {
         let base = BaseUrl::parse("https://api.anthropic.com").unwrap();
         assert_eq!(format!("{base}"), base.as_str());
+    }
+
+    #[test]
+    fn join_produces_exact_url_for_host_only_base() {
+        // Host-only bases (no explicit path) behave like an implicit `/` root,
+        // so joining a relative path appends after the root.
+        let base = BaseUrl::parse("https://api.anthropic.com").unwrap();
+        let url = base.join("v1/messages").unwrap();
+        assert_eq!(url.as_str(), "https://api.anthropic.com/v1/messages");
+    }
+
+    #[test]
+    fn join_replaces_last_segment_when_base_has_path() {
+        // `url::Url::join` replaces the final path segment when the base URL
+        // does not end with `/`. `http://host/foo` + `"v1/messages"` yields
+        // `http://host/v1/messages` (drops `foo`). Callers that set a base
+        // URL with a non-root path should ensure it ends with `/` to get
+        // additive behaviour.
+        let base = BaseUrl::parse("http://127.0.0.1:8080/foo").unwrap();
+        let url = base.join("v1/messages").unwrap();
+        assert_eq!(url.as_str(), "http://127.0.0.1:8080/v1/messages");
+    }
+
+    #[test]
+    fn join_loopback_host_only_base() {
+        // The wiremock test-server URI is `http://127.0.0.1:PORT` — no path.
+        let base = BaseUrl::parse("http://127.0.0.1:8080").unwrap();
+        let url = base.join("v1/messages").unwrap();
+        assert_eq!(url.as_str(), "http://127.0.0.1:8080/v1/messages");
     }
 }
