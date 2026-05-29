@@ -38,6 +38,14 @@ messages-caching  = []
 # Default HTTP transport (reqwest with rustls + http2 + stream features).
 transport-reqwest = ["dep:reqwest"]
 
+# Token-counting helper (`POST /v1/messages/count_tokens`).
+# Depends on `messages`; not enabled by default.
+messages-token-counting = ["messages"]
+
+# Models resource (`GET /v1/models`, `GET /v1/models/{id}`).
+# Standalone feature; not enabled by default.
+models = []
+
 # Internal-only: exposes MockHttpTransport for downstream tests.
 # Double-underscore prefix signals not-for-public-use.
 __test-mocks      = ["dep:mockall"]
