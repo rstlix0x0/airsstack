@@ -23,6 +23,9 @@ target
 # Claude Code per-user local settings (permission grants, env, etc.). Machine-local.
 .claude/settings.local.json
 
+# Claude Code scheduled-task lock (per-session runtime mutex). Ephemeral, machine-local.
+.claude/scheduled_tasks.lock
+
 # Superpowers-generated artifacts (specs from brainstorming, plans from writing-plans).
 # Kept local-only; not shared via VCS. Re-generate as needed.
 .superpowers/

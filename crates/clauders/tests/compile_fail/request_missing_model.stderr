@@ -1,0 +1,13 @@
+error[E0599]: no method named `build` found for struct `MessageRequestBuilder<clauders::messages::request::Missing, clauders::messages::request::Present>` in the current scope
+ --> tests/compile_fail/request_missing_model.rs:4:10
+  |
+2 |       let _req = clauders::messages::MessageRequest::builder()
+  |  ________________-
+3 | |         .max_tokens(clauders::types::MaxTokens::new(1).unwrap())
+4 | |         .build();
+  | |         -^^^^^ method not found in `MessageRequestBuilder<clauders::messages::request::Missing, clauders::messages::request::Present>`
+  | |_________|
+  |
+  |
+  = note: the method was found for
+          - `MessageRequestBuilder<clauders::messages::request::Present, clauders::messages::request::Present>`

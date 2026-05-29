@@ -21,18 +21,18 @@ fn happy_path_constructs_client() {
         .expect("builder")
         .api_key(key)
         .anthropic_version(AnthropicVersion::V_2023_06_01)
-        .anthropic_beta([beta])
+        .set_anthropic_beta([beta])
         .timeout(Duration::from_secs(30))
         .retry(RetryPolicy::Disabled)
         .build()
         .expect("happy path");
 
-    assert_eq!(client.config().timeout, Duration::from_secs(30));
+    assert_eq!(client.config().timeout(), Duration::from_secs(30));
     assert_eq!(
-        client.config().anthropic_version,
-        AnthropicVersion::V_2023_06_01
+        client.config().anthropic_version(),
+        &AnthropicVersion::V_2023_06_01
     );
-    assert_eq!(client.config().anthropic_beta.len(), 1);
+    assert_eq!(client.config().anthropic_beta().len(), 1);
     assert!(matches!(client.retry(), RetryPolicy::Disabled));
 }
 

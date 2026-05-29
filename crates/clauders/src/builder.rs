@@ -31,7 +31,7 @@ use crate::client::{Client, ClientInner};
 use crate::config::Config;
 use crate::retry::RetryPolicy;
 use crate::transport::HttpTransport;
-use crate::types::{AnthropicVersion, ApiKey, BetaHeader};
+use crate::types::{AnthropicVersion, ApiKey, BaseUrl, BetaHeader};
 
 mod sealed {
     pub trait Sealed {}
@@ -40,7 +40,10 @@ mod sealed {
 /// Closed set of builder api-key states.
 ///
 /// Sealed so downstream crates cannot invent new states; the only
-/// inhabitants are [`Missing`] and [`Present`].
+/// inhabitants are [`Missing`] and [`Present`]. These marker names are
+/// scoped to this builder — other builders in the crate declare their own
+/// state markers under the same sealed-trait pattern, so the generic names
+/// never collide across builder types.
 pub trait BuilderApiKeyState: sealed::Sealed {}
 
 /// Builder state indicating no API key has been supplied yet.
@@ -76,7 +79,7 @@ where
     beta: Vec<BetaHeader>,
     timeout: Option<Duration>,
     retry: Option<RetryPolicy>,
-    base_url: Option<url::Url>,
+    base_url: Option<BaseUrl>,
     transport: T,
     _key: PhantomData<Key>,
 }
@@ -120,12 +123,22 @@ impl<Key: BuilderApiKeyState, T: HttpTransport> ClientBuilder<Key, T> {
         self
     }
 
-    /// Set the `anthropic-beta` header values.
+    /// Set the `anthropic-beta` header values, replacing any previously
+    /// configured list.
     ///
-    /// Replaces any previously set list.
+    /// Use [`ClientBuilder::add_anthropic_beta`] to append to the existing
+    /// list instead of replacing it.
     #[must_use]
-    pub fn anthropic_beta(mut self, hs: impl IntoIterator<Item = BetaHeader>) -> Self {
+    pub fn set_anthropic_beta(mut self, hs: impl IntoIterator<Item = BetaHeader>) -> Self {
         self.beta = hs.into_iter().collect();
+        self
+    }
+
+    /// Append a single value to the `anthropic-beta` header list, keeping
+    /// any previously configured values.
+    #[must_use]
+    pub fn add_anthropic_beta(mut self, h: BetaHeader) -> Self {
+        self.beta.push(h);
         self
     }
 
@@ -144,9 +157,12 @@ impl<Key: BuilderApiKeyState, T: HttpTransport> ClientBuilder<Key, T> {
     }
 
     /// Override the base URL.
+    ///
+    /// Construct the [`BaseUrl`] via [`BaseUrl::parse`], which validates the
+    /// scheme up front; the builder therefore never has to reject it.
     #[must_use]
-    pub fn base_url(mut self, u: url::Url) -> Self {
-        self.base_url = Some(u);
+    pub fn base_url(mut self, base_url: BaseUrl) -> Self {
+        self.base_url = Some(base_url);
         self
     }
 }
