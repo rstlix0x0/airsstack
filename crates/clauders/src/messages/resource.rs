@@ -242,6 +242,34 @@ impl<T: HttpTransport> MessagesResource<'_, T> {
         Ok(super::streaming::MessageStream::new(body_stream))
     }
 
+    /// Return a handle for the Message Batches API.
+    ///
+    /// The returned [`super::batches::resource::BatchesResource`] borrows
+    /// from `self`; create it close to use and drop it after.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// # use clauders::Client;
+    /// # use clauders::messages::{BatchRequest, MessageRequest};
+    /// # use clauders::types::{ApiKey, CustomRequestId, MaxTokens, ModelId};
+    /// # async fn example() -> Result<(), clauders::error::Error> {
+    /// let client = Client::builder()?
+    ///     .api_key(ApiKey::new("sk-ant-…").unwrap())
+    ///     .build()?;
+    /// let batches = client.messages().batches();
+    /// # Ok(())
+    /// # }
+    /// ```
+    #[cfg(feature = "messages-batches")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "messages-batches")))]
+    #[must_use]
+    pub const fn batches(&self) -> super::batches::resource::BatchesResource<'_, T> {
+        super::batches::resource::BatchesResource {
+            client: self.client,
+        }
+    }
+
     /// Count the tokens a request would consume without generating a response.
     ///
     /// Sends `POST /v1/messages/count_tokens` with the subset of fields the
