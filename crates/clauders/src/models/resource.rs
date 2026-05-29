@@ -34,9 +34,10 @@ use super::types::{ModelInfo, ModelList};
 /// # Examples
 ///
 /// ```no_run
+/// # #[cfg(feature = "transport-reqwest")]
+/// # async fn example() -> Result<(), clauders::error::Error> {
 /// # use clauders::Client;
 /// # use clauders::types::{ApiKey, ModelId};
-/// # async fn example() -> Result<(), clauders::error::Error> {
 /// let client = Client::builder()?
 ///     .api_key(ApiKey::new("sk-ant-…").unwrap())
 ///     .build()?;

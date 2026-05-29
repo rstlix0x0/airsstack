@@ -44,10 +44,11 @@ const MESSAGES_PATH: &str = "v1/messages";
 /// # Examples
 ///
 /// ```no_run
+/// # #[cfg(feature = "transport-reqwest")]
+/// # async fn example() -> Result<(), clauders::error::Error> {
 /// # use clauders::Client;
 /// # use clauders::messages::MessageRequest;
 /// # use clauders::types::{ApiKey, MaxTokens, ModelId};
-/// # async fn example() -> Result<(), clauders::error::Error> {
 /// let client = Client::builder()?
 ///     .api_key(ApiKey::new("sk-ant-…").unwrap())
 ///     .build()?;
@@ -250,10 +251,11 @@ impl<T: HttpTransport> MessagesResource<'_, T> {
     /// # Examples
     ///
     /// ```no_run
+    /// # #[cfg(feature = "transport-reqwest")]
+    /// # async fn example() -> Result<(), clauders::error::Error> {
     /// # use clauders::Client;
     /// # use clauders::messages::{BatchRequest, MessageRequest};
     /// # use clauders::types::{ApiKey, CustomRequestId, MaxTokens, ModelId};
-    /// # async fn example() -> Result<(), clauders::error::Error> {
     /// let client = Client::builder()?
     ///     .api_key(ApiKey::new("sk-ant-…").unwrap())
     ///     .build()?;
