@@ -175,6 +175,10 @@ pub struct MessageRequest {
     #[cfg(feature = "messages-tools")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_choice: Option<crate::messages::tools::ToolChoice>,
+    /// Output-shape constraint applied to the response.
+    #[cfg(feature = "messages-structured-outputs")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_config: Option<crate::messages::structured_outputs::OutputConfig>,
     /// Whether to stream the response. Managed by the resource layer;
     /// callers should not set this directly.
     #[doc(hidden)]
@@ -218,6 +222,8 @@ where
     tools: Vec<crate::messages::tools::Tool>,
     #[cfg(feature = "messages-tools")]
     tool_choice: Option<crate::messages::tools::ToolChoice>,
+    #[cfg(feature = "messages-structured-outputs")]
+    output_config: Option<crate::messages::structured_outputs::OutputConfig>,
     _m: PhantomData<M>,
     _mt: PhantomData<Mt>,
 }
@@ -238,6 +244,8 @@ impl MessageRequestBuilder<Missing, Missing> {
             tools: Vec::new(),
             #[cfg(feature = "messages-tools")]
             tool_choice: None,
+            #[cfg(feature = "messages-structured-outputs")]
+            output_config: None,
             _m: PhantomData,
             _mt: PhantomData,
         }
@@ -263,6 +271,8 @@ impl<Mt: sealed::BuilderMaxTokensState> MessageRequestBuilder<Missing, Mt> {
             tools: self.tools,
             #[cfg(feature = "messages-tools")]
             tool_choice: self.tool_choice,
+            #[cfg(feature = "messages-structured-outputs")]
+            output_config: self.output_config,
             _m: PhantomData,
             _mt: self._mt,
         }
@@ -288,6 +298,8 @@ impl<M: sealed::BuilderModelState> MessageRequestBuilder<M, Missing> {
             tools: self.tools,
             #[cfg(feature = "messages-tools")]
             tool_choice: self.tool_choice,
+            #[cfg(feature = "messages-structured-outputs")]
+            output_config: self.output_config,
             _m: self._m,
             _mt: PhantomData,
         }
@@ -386,6 +398,14 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
         self.tool_choice = Some(c);
         self
     }
+
+    /// Constrain the response to a JSON Schema.
+    #[cfg(feature = "messages-structured-outputs")]
+    #[must_use]
+    pub fn output_config(mut self, c: crate::messages::structured_outputs::OutputConfig) -> Self {
+        self.output_config = Some(c);
+        self
+    }
 }
 
 impl MessageRequestBuilder<Present, Present> {
@@ -428,6 +448,8 @@ impl MessageRequestBuilder<Present, Present> {
             tools: self.tools,
             #[cfg(feature = "messages-tools")]
             tool_choice: self.tool_choice,
+            #[cfg(feature = "messages-structured-outputs")]
+            output_config: self.output_config,
             stream: false,
         }
     }
@@ -550,6 +572,73 @@ mod tests {
 
         let j: serde_json::Value = serde_json::to_value(&req).unwrap();
         assert_eq!(j["stop_sequences"], serde_json::json!(["STOP"]));
+    }
+
+    #[cfg(feature = "messages-structured-outputs")]
+    #[test]
+    fn output_config_serializes_when_set() {
+        use crate::messages::structured_outputs::OutputConfig;
+
+        let schema = serde_json::json!({"type": "object"});
+        let req = MessageRequest::builder()
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(MaxTokens::new(64).unwrap())
+            .output_config(OutputConfig::json_schema(schema.clone()))
+            .add_user_text("Hi")
+            .build();
+
+        let j: serde_json::Value = serde_json::to_value(&req).unwrap();
+        assert_eq!(
+            j["output_config"]["format"]["type"], "json_schema",
+            "output_config.format.type must be 'json_schema'"
+        );
+        assert_eq!(
+            j["output_config"]["format"]["schema"], schema,
+            "output_config.format.schema must carry the schema verbatim"
+        );
+    }
+
+    #[cfg(feature = "messages-structured-outputs")]
+    #[test]
+    fn output_config_omitted_when_unset() {
+        let req = MessageRequest::builder()
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(MaxTokens::new(64).unwrap())
+            .add_user_text("Hi")
+            .build();
+
+        let j: serde_json::Value = serde_json::to_value(&req).unwrap();
+        assert!(
+            j.get("output_config").is_none(),
+            "output_config must be absent when not set"
+        );
+    }
+
+    #[cfg(feature = "messages-structured-outputs")]
+    #[test]
+    fn output_config_survives_model_and_max_tokens_transitions() {
+        // Regression guard: setting output_config before .model() and
+        // .max_tokens() must not lose the value through the type-state
+        // transitions.
+        use crate::messages::structured_outputs::OutputConfig;
+
+        let schema = serde_json::json!({"type": "object", "properties": {}});
+        let req = MessageRequest::builder()
+            .output_config(OutputConfig::json_schema(schema.clone()))
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(MaxTokens::new(64).unwrap())
+            .add_user_text("Hi")
+            .build();
+
+        let j: serde_json::Value = serde_json::to_value(&req).unwrap();
+        assert_eq!(
+            j["output_config"]["format"]["type"], "json_schema",
+            "output_config must survive model() and max_tokens() transitions"
+        );
+        assert_eq!(
+            j["output_config"]["format"]["schema"], schema,
+            "output_config schema must survive transitions unchanged"
+        );
     }
 
     #[test]

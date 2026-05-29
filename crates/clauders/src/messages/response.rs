@@ -68,6 +68,9 @@ pub enum StopReason {
     /// Model stopped to call one or more tools.
     #[cfg(feature = "messages-tools")]
     ToolUse,
+    /// Model declined to produce the constrained output.
+    #[cfg(feature = "messages-structured-outputs")]
+    Refusal,
 }
 
 /// Breakdown of tokens created in the cache during a caching-enabled request.
@@ -222,6 +225,23 @@ mod tests {
         let j = r#"{"input_tokens":42,"output_tokens":5}"#;
         let u: Usage = serde_json::from_str(j).unwrap();
         assert_eq!(u.total_input_tokens(), 42);
+    }
+
+    #[cfg(feature = "messages-structured-outputs")]
+    #[test]
+    fn refusal_stop_reason_decodes() {
+        let j = r#"{
+            "id": "msg_01XFDUDYJgAACzvnptvVoYEL",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-5",
+            "content": [],
+            "stop_reason": "refusal",
+            "stop_sequence": null,
+            "usage": {"input_tokens": 10, "output_tokens": 0}
+        }"#;
+        let msg: Message = serde_json::from_str(j).unwrap();
+        assert_eq!(msg.stop_reason, Some(StopReason::Refusal));
     }
 
     #[cfg(feature = "messages-caching")]

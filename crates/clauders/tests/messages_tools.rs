@@ -71,6 +71,8 @@ async fn tool_round_trip() {
         }),
         #[cfg(feature = "messages-caching")]
         cache_control: None,
+        #[cfg(all(feature = "messages-tools", feature = "messages-structured-outputs"))]
+        strict: None,
     };
 
     let req1 = MessageRequest::builder()

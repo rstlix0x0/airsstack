@@ -50,6 +50,11 @@ models = []
 # not enabled by default.
 messages-batches = ["messages"]
 
+# Structured Outputs: constrain responses to a JSON Schema (output_config) and
+# tool inputs to their declared schema (Tool.strict). Depends on `messages`;
+# not enabled by default.
+messages-structured-outputs = ["messages"]
+
 # Internal-only: exposes MockHttpTransport for downstream tests.
 # Double-underscore prefix signals not-for-public-use.
 __test-mocks      = ["dep:mockall"]

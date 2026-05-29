@@ -39,6 +39,8 @@ use crate::types::{ToolName, ToolUseId};
 ///     }),
 ///     #[cfg(feature = "messages-caching")]
 ///     cache_control: None,
+///     #[cfg(all(feature = "messages-tools", feature = "messages-structured-outputs"))]
+///     strict: None,
 /// };
 /// let j = serde_json::to_value(&tool).unwrap();
 /// assert_eq!(j["name"], "get_weather");
@@ -58,6 +60,12 @@ pub struct Tool {
     #[cfg(feature = "messages-caching")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<crate::types::CacheControl>,
+    /// Constrain the model's tool input to this tool's `input_schema`.
+    ///
+    /// Wire-format boolean; serialized only when set.
+    #[cfg(all(feature = "messages-tools", feature = "messages-structured-outputs"))]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strict: Option<bool>,
 }
 
 /// Controls which tool, if any, the model must call.
@@ -213,6 +221,8 @@ mod tests {
             input_schema: serde_json::json!({"type":"object","properties":{"city":{"type":"string"}}}),
             #[cfg(feature = "messages-caching")]
             cache_control: None,
+            #[cfg(all(feature = "messages-tools", feature = "messages-structured-outputs"))]
+            strict: None,
         };
         let j = serde_json::to_value(&t).unwrap();
         assert_eq!(j["name"], "get_weather");
@@ -274,6 +284,8 @@ mod tests {
             description: "Search".into(),
             input_schema: serde_json::json!({"type":"object"}),
             cache_control: Some(CacheControl::ephemeral()),
+            #[cfg(all(feature = "messages-tools", feature = "messages-structured-outputs"))]
+            strict: None,
         };
         let j = serde_json::to_value(&t).unwrap();
         assert_eq!(j["cache_control"]["type"], "ephemeral");
@@ -288,9 +300,47 @@ mod tests {
             description: "Search".into(),
             input_schema: serde_json::json!({"type":"object"}),
             cache_control: None,
+            #[cfg(all(feature = "messages-tools", feature = "messages-structured-outputs"))]
+            strict: None,
         };
         let j = serde_json::to_value(&t).unwrap();
         assert!(j.get("cache_control").is_none());
+    }
+
+    #[cfg(all(feature = "messages-tools", feature = "messages-structured-outputs"))]
+    #[test]
+    fn tool_strict_true_serializes_field() {
+        let t = Tool {
+            name: ToolName::new("strict_tool").unwrap(),
+            description: "A strictly-typed tool.".into(),
+            input_schema: serde_json::json!({"type":"object"}),
+            #[cfg(feature = "messages-caching")]
+            cache_control: None,
+            strict: Some(true),
+        };
+        let j = serde_json::to_value(&t).unwrap();
+        assert_eq!(
+            j["strict"], true,
+            "strict: Some(true) must serialize as true"
+        );
+    }
+
+    #[cfg(all(feature = "messages-tools", feature = "messages-structured-outputs"))]
+    #[test]
+    fn tool_strict_none_omits_field() {
+        let t = Tool {
+            name: ToolName::new("lax_tool").unwrap(),
+            description: "A non-strict tool.".into(),
+            input_schema: serde_json::json!({"type":"object"}),
+            #[cfg(feature = "messages-caching")]
+            cache_control: None,
+            strict: None,
+        };
+        let j = serde_json::to_value(&t).unwrap();
+        assert!(
+            j.get("strict").is_none(),
+            "strict: None must omit the field from the wire payload"
+        );
     }
 
     #[cfg(feature = "messages-caching")]
