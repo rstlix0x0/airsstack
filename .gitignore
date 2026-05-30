@@ -31,3 +31,6 @@ target
 # Superpowers-generated artifacts (specs from brainstorming, plans from writing-plans).
 # Kept local-only; not shared via VCS. Re-generate as needed.
 .superpowers/
+
+# engineering rfcs
+.rfcs
