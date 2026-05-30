@@ -55,10 +55,11 @@ Suppression of any lint requires `#[expect(lint_name, reason = "...")]` (per `M-
 
 Every PR MUST pass:
 
-- `cargo test --workspace --all-targets --all-features` — unit, integration, examples, benches as tests.
+- `cargo test --workspace --all-targets --all-features` — unit, integration, examples, benches as tests. One all-features run exercises every feature's *logic* (including non-default features) without the combinatoric cost of testing each feature set separately.
 - `cargo test --workspace --all-features --doc` — doctests. `--all-targets` does NOT include doctests; they must be invoked explicitly.
-- `cargo test --workspace --no-default-features` — confirm default-feature off still compiles and tests.
-- Each non-trivial feature combination via `cargo hack test --feature-powerset` once feature surface exists.
+- `cargo hack check --each-feature --no-dev-deps` — **compile-only** isolation guard. Linear (one compile per feature, plus the no-default cell), no link, no test-run. Catches the bug class that per-feature-set *testing* used to catch — under-gated items, default-feature leakage, a feature broken in isolation — because those are compile errors, not test failures.
+
+**Feature-combination *testing* is deliberately NOT required.** Do not run `cargo test --no-default-features`, `cargo hack test --each-feature`, or `cargo hack test --feature-powerset` as a gate — they re-run the whole suite under every feature set and the wall-clock cost (a full rebuild + link + run per set) is not worth the marginal signal over the single all-features test run plus the cheap `--each-feature` *check*. The check compiles each cell; it does not execute tests per cell.
 
 Skipped or ignored tests need a `// reason: ...` comment and a tracking issue link. `#[ignore]` without justification fails review.
 
@@ -76,16 +77,20 @@ A Rust change is complete when ALL of these pass on a clean checkout (no cached 
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
-cargo test --workspace --all-targets --all-features
-cargo test --workspace --all-features --doc
-cargo test --workspace --no-default-features
+cargo test  --workspace --all-targets --all-features   # single all-on test run
+cargo test  --workspace --all-features --doc           # doctests
+cargo hack check --each-feature --no-dev-deps          # compile-only isolation guard (NOT a test)
 ```
+
+Scope note: when a change touches a single crate, scope the test runs to it
+(`-p <crate>`) instead of `--workspace` — there is no value re-testing an
+untouched member. Reserve the `--workspace` form for changes that actually
+cross crates.
 
 Optional but recommended before merging significant changes:
 
 ```bash
 cargo audit                                   # known-vuln deps
-cargo hack check --feature-powerset --no-dev-deps  # feature combinatorics
 cargo +nightly udeps --workspace              # unused deps
 cargo +nightly miri test --workspace          # if any unsafe touched
 ```
