@@ -14,15 +14,17 @@ Both trees are sub-divided by the **same tier vocabulary as commit scopes** (see
 .superpowers/
 ├── specs/
 │   ├── clauders/      # spec for the clauders crate
+│   ├── openrouter-rs/ # spec for the openrouter-rs crate
 │   ├── workspace/     # spec spanning root config / bootstrap
 │   └── repo/          # spec for repo tooling (.claude/ agents, skills, rules)
 └── plans/
     ├── clauders/
+    ├── openrouter-rs/
     ├── workspace/
     └── repo/
 ```
 
-- **Tier** is the workspace member name (`clauders` today), or `workspace` (root Cargo files / multi-crate bootstrap), or `repo` (`.claude/`, `.github/`, docs). Add a new tier directory only when a new workspace member exists — keep it in sync with the [[git-commits]] scope vocabulary.
+- **Tier** is the workspace member name (`clauders` or `openrouter-rs` today), or `workspace` (root Cargo files / multi-crate bootstrap), or `repo` (`.claude/`, `.github/`, docs). Add a new tier directory only when a new workspace member exists — keep it in sync with the [[git-commits]] scope vocabulary.
 - **Filename** is `YYYY-MM-DD-<topic>.md`. The tier lives in the directory, so do NOT repeat it in the filename (`plans/clauders/2026-05-28-phase-1-workspace.md`, not `…-clauders-phase-1-…`).
 - **Tiebreak** when an artifact spans tiers: file it under its dominant subject, same rule as a multi-crate commit scope. A "workspace bootstrap for clauders" spec is dominantly about clauders → `specs/clauders/`.
 

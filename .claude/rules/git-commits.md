@@ -43,7 +43,7 @@ Scope is **required** for any change that touches a specific crate. Format:
 <crate-name>[/<area>]
 ```
 
-- `<crate-name>` is the workspace member name verbatim (kebab-case, matches the directory under `crates/`). Today there is one member: `clauders`. New members extend this list (and the [[rust-workspace]] + [[ai-superpowers-artifacts]] vocabularies) when they are created.
+- `<crate-name>` is the workspace member name verbatim (kebab-case, matches the directory under `crates/`). Today there are two members: `clauders` and `openrouter-rs`. New members extend this list (and the [[rust-workspace]] + [[ai-superpowers-artifacts]] vocabularies) when they are created.
 - `<area>` is optional, kebab-case, identifies the sub-module / feature / file group inside the crate. Pick something a reader will recognize without grep.
 
 Examples:
@@ -122,6 +122,7 @@ Refs: #<issue>
 
 Scope vocabulary (kept in sync with workspace members per [[rust-workspace]] and the `.superpowers` tiers per [[ai-superpowers-artifacts]]):
 
-- `clauders` — the only crate today; extend this list when a new member is created
+- `clauders` — the Claude SDK crate
+- `openrouter-rs` — the OpenRouter SDK crate; extend this list when a new member is created
 - `workspace` — root `Cargo.toml`, `Cargo.lock`, top-level Rust config
 - `repo` — `.claude/`, `.github/`, `docs/`, top-level non-Rust files

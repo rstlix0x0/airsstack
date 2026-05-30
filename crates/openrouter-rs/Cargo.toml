@@ -1,0 +1,16 @@
+[package]
+name        = "openrouter-rs"
+description = "Unofficial Rust SDK for the OpenRouter API."
+version     = "0.1.0"
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+authors.workspace      = true
+publish.workspace      = true
+readme      = "README.md"
+keywords    = ["openrouter", "llm", "sdk", "ai", "openai"]
+categories  = ["api-bindings", "web-programming::http-client", "asynchronous"]
+
+[lints]
+workspace = true

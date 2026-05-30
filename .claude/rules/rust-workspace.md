@@ -12,7 +12,7 @@ Workspace structure follows the official [Cargo Book ch. 14.3](https://doc.rust-
 
 ## Why a workspace
 
-`airsstack` is a Cargo workspace. It currently has **one member, `clauders`**, but stays a workspace so new members can be added without restructuring. A workspace gives:
+`airsstack` is a Cargo workspace. It currently has **two members, `clauders` and `openrouter-rs`**, and stays a workspace so new members can be added without restructuring. A workspace gives:
 
 - **One `Cargo.lock`** → every member compiles against the same dep versions. No version skew between members.
 - **Shared `target/`** at the workspace root → inter-crate deps build once, not per-crate. Big disk + time savings.
@@ -122,7 +122,11 @@ airsstack/
 ├── Cargo.lock              # one lockfile, committed
 ├── target/                 # shared build output (gitignored)
 ├── crates/
-│   └── clauders/           # the only member today
+│   ├── clauders/           # Claude SDK member
+│   │   ├── Cargo.toml
+│   │   ├── README.md
+│   │   └── src/lib.rs
+│   └── openrouter-rs/      # OpenRouter SDK member (scaffold)
 │       ├── Cargo.toml
 │       ├── README.md
 │       └── src/lib.rs

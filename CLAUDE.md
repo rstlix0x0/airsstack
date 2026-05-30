@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-The Cargo workspace exists (root `Cargo.toml`, `resolver = "3"`, Edition 2024). It currently has **one member: `crates/clauders`** — a Claude SDK crate. Add new members under `crates/` per [[rust-workspace]] only when there is concrete work for them; do not pre-create speculative crates.
+The Cargo workspace exists (root `Cargo.toml`, `resolver = "3"`, Edition 2024). It has **two members**: `crates/clauders` (a Claude SDK crate) and `crates/openrouter-rs` (an OpenRouter SDK crate, scaffold only — no public API surface yet). Add new members under `crates/` per [[rust-workspace]] only when there is concrete work for them; do not pre-create speculative crates.
 
 ## Project intent
 
@@ -17,7 +17,7 @@ Inspirations called out in the README: LangChain, CrewAI, DSPy, DeepEval, BeeAI 
 
 ## Scope discipline
 
-Be pragmatic; do not build for an imagined future. The repo deliberately ships **only what there is concrete work for** — today that is the `clauders` crate. Earlier planning named a fleet of crates (`airsstack-cli`, `airsstack-core`, `provider-claude`, `provider-openrouter`, `airsdsp`); those are **obsolete — do not reintroduce, design, or reference them**. If the author decides to add a crate, it gets named and scoped at that point, and the workspace + commit-scope + `.superpowers` tier vocabulary are updated together (see [[rust-workspace]], [[git-commits]], [[ai-superpowers-artifacts]]).
+Be pragmatic; do not build for an imagined future. The repo deliberately ships **only what there is concrete work for** — today that is the `clauders` crate and the `openrouter-rs` scaffold. Earlier planning named a fleet of crates (`airsstack-cli`, `airsstack-core`, `provider-claude`, `provider-openrouter`, `airsdsp`); those names are **obsolete — do not reintroduce, design, or reference them**. (The OpenRouter provider now lives in the `openrouter-rs` member, which supersedes the old `provider-openrouter` name; its surface is still to be scoped.) If the author decides to add a crate, it gets named and scoped at that point, and the workspace + commit-scope + `.superpowers` tier vocabulary are updated together (see [[rust-workspace]], [[git-commits]], [[ai-superpowers-artifacts]]).
 
 ## Commands
 

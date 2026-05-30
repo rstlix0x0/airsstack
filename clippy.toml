@@ -1,0 +1,3 @@
+# Proper nouns that legitimately appear in crate documentation prose without
+# backticks. `..` preserves clippy's built-in allowlist (GitHub, OAuth, etc.).
+doc-valid-idents = ["OpenRouter", "OpenAI", ".."]
