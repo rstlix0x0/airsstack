@@ -12,9 +12,9 @@ Workspace structure follows the official [Cargo Book ch. 14.3](https://doc.rust-
 
 ## Why a workspace
 
-`airsstack` ships multiple crates (`airsstack-cli`, `airsstack-core`, `provider-claude`, `provider-openrouter`, `airsdsp`) that evolve together. A single workspace gives:
+`airsstack` is a Cargo workspace. It currently has **one member, `clauders`**, but stays a workspace so new members can be added without restructuring. A workspace gives:
 
-- **One `Cargo.lock`** → every crate compiles against the same dep versions. No skew between `core` and `provider-*`.
+- **One `Cargo.lock`** → every member compiles against the same dep versions. No version skew between members.
 - **Shared `target/`** at the workspace root → inter-crate deps build once, not per-crate. Big disk + time savings.
 - **Centralized metadata, deps, and lints** via `[workspace.*]` tables → bumping `serde` or `tokio` is a one-line change.
 - **Atomic refactors** across crates land in one PR.
@@ -27,24 +27,21 @@ The workspace root has **no `[package]` section**. Use this template:
 [workspace]
 resolver = "3"
 members = [
-    "crates/airsstack-cli",
-    "crates/airsstack-core",
-    "crates/provider-claude",
-    "crates/provider-openrouter",
-    "crates/airsdsp",
+    "crates/clauders",
+    # add new members here as they are created
 ]
 # Optional: exclude scratch crates from the workspace
 # exclude = ["scratch/*"]
 # Optional: limit `cargo build` / `cargo test` when run without -p
-default-members = ["crates/airsstack-cli"]
+# default-members = ["crates/clauders"]
 
 [workspace.package]
-version      = "0.1.0"
 edition      = "2024"
 rust-version = "1.85"   # bump in lockstep across all crates
 license      = "Apache-2.0"
 repository   = "https://github.com/rstlix0x0/airsstack"
 authors      = ["rstlix0x0 <rstlix.dev@gmail.com>"]
+publish      = false    # flip per-crate when a member is ready for crates.io
 
 [workspace.dependencies]
 # Pin once, reuse everywhere via `dep.workspace = true`
@@ -56,11 +53,9 @@ anyhow      = "1"
 tracing     = "0.1"
 reqwest     = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 
-# Internal crates referenced by other workspace members
-airsstack-core      = { version = "0.1.0", path = "crates/airsstack-core" }
-provider-claude     = { version = "0.1.0", path = "crates/provider-claude" }
-provider-openrouter = { version = "0.1.0", path = "crates/provider-openrouter" }
-airsdsp             = { version = "0.1.0", path = "crates/airsdsp" }
+# Internal crates referenced by other workspace members (none today —
+# clauders is standalone). When a member depends on another, declare it here:
+#   some-lib = { version = "0.1.0", path = "crates/some-lib" }
 
 [workspace.lints.rust]
 unsafe_code        = "deny"
@@ -89,14 +84,14 @@ Every member crate inherits metadata and deps from the root:
 
 ```toml
 [package]
-name         = "airsstack-core"
-version.workspace      = true
+name         = "clauders"
+version      = "0.1.0"   # members version independently; no workspace version key
 edition.workspace      = true
 rust-version.workspace = true
 license.workspace      = true
 repository.workspace   = true
 authors.workspace      = true
-description = "Core agentic framework for airsstack."
+description = "A Claude SDK crate."
 readme      = "README.md"
 
 [dependencies]
@@ -127,20 +122,10 @@ airsstack/
 ├── Cargo.lock              # one lockfile, committed
 ├── target/                 # shared build output (gitignored)
 ├── crates/
-│   ├── airsstack-cli/
-│   │   ├── Cargo.toml
-│   │   ├── README.md
-│   │   └── src/main.rs
-│   ├── airsstack-core/
-│   │   ├── Cargo.toml
-│   │   ├── README.md
-│   │   └── src/lib.rs
-│   ├── provider-claude/
-│   │   └── ...
-│   ├── provider-openrouter/
-│   │   └── ...
-│   └── airsdsp/
-│       └── ...
+│   └── clauders/           # the only member today
+│       ├── Cargo.toml
+│       ├── README.md
+│       └── src/lib.rs
 └── ...
 ```
 
@@ -152,28 +137,25 @@ Put all members under `crates/`. Reasons:
 
 ## Naming convention
 
-- CLI / app binaries: `airsstack-<thing>` (e.g. `airsstack-cli`).
-- Library framework crates: `airsstack-<thing>` (e.g. `airsstack-core`).
-- Provider implementations: `provider-<service>` (e.g. `provider-claude`, `provider-openrouter`).
-- Experiments / specialized: short distinct names (`airsdsp`).
+- Pick a name that says what the crate *is*; a short standalone name is fine (`clauders`). An `airsstack-<thing>` umbrella prefix is available if a future crate reads better grouped, but is not required.
 - Directory name MUST equal crate `name`. No `crates/foo-bar/` with `name = "fooBar"`.
-- Crate names use kebab-case; the corresponding Rust import is snake_case (`provider-claude` → `use provider_claude;`).
+- Crate names use kebab-case; the corresponding Rust import is snake_case (`some-lib` → `use some_lib;`).
 
 ## Inter-crate dependencies
 
-Two valid styles. **Prefer the workspace-deps style** because it pins the version once:
+Not applicable yet — `clauders` is standalone. Once a member depends on another, two valid styles exist. **Prefer the workspace-deps style** because it pins the version once:
 
 ```toml
 # Member Cargo.toml — preferred
 [dependencies]
-airsstack-core = { workspace = true }
+some-lib = { workspace = true }
 ```
 
 vs the bare path dep (acceptable for early prototyping; convert to workspace-deps before publishing):
 
 ```toml
 [dependencies]
-airsstack-core = { path = "../airsstack-core" }
+some-lib = { path = "../some-lib" }
 ```
 
 For `crates.io`-publishable members, the workspace-deps form must include both `version` and `path` (Cargo uses `path` for local builds, `version` for the published crate). Already shown in the root template above.
@@ -186,31 +168,25 @@ cargo build
 cargo check --workspace --all-targets --all-features
 
 # Build / test one crate
-cargo build -p airsstack-core
-cargo test  -p airsstack-core
+cargo build -p clauders
+cargo test  -p clauders
 
-# Run a binary crate
-cargo run -p airsstack-cli -- <args>
+# Run a binary crate (none today — clauders is a library)
+# cargo run -p <bin-crate> -- <args>
 
 # Apply lint / format policy uniformly
 cargo fmt --all
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 # Publish (one crate at a time; dependents first)
-cargo publish -p airsstack-core
-cargo publish -p provider-claude
-cargo publish -p airsstack-cli
+cargo publish -p clauders
 ```
 
 `cargo` commands without `-p` operate on `default-members` (if set) or the whole workspace.
 
 ## Publishing order
 
-Publishing a crate that depends on another workspace crate requires the dependency to already be on `crates.io`. Order:
-
-1. Leaf libraries first: `airsstack-core`, `airsdsp`.
-2. Providers next: `provider-claude`, `provider-openrouter`.
-3. Binaries last: `airsstack-cli`.
+Publishing a crate that depends on another workspace crate requires the dependency to already be on `crates.io`. With one member there is no ordering constraint; `clauders` currently sets `publish = false`. Once multiple members exist, publish dependency-first: leaf libraries → crates that depend on them → binaries last.
 
 Use `cargo release` or `cargo workspaces publish` to automate version bumps + ordered publish.
 
@@ -218,7 +194,7 @@ Use `cargo release` or `cargo workspaces publish` to automate version bumps + or
 
 - **Per-crate `Cargo.lock`** — members must not commit their own lockfile. The workspace root owns it.
 - **`[workspace]` table inside a member** — only the root has it. Cargo errors otherwise, but agents sometimes paste it in by accident.
-- **Mixing `path` and `version` mismatches** — if `airsstack-core` is `0.2.0` at root but a sibling lists `version = "0.1"`, `cargo publish` fails. Inherit via `workspace = true`.
+- **Mixing `path` and `version` mismatches** — if a dependency crate is `0.2.0` but a sibling lists `version = "0.1"` for it, `cargo publish` fails. Keep the workspace-dep version in sync with the dependency's actual version.
 - **Duplicating dep versions** — every `serde = "1.0.X"` re-declaration is a future divergence bug. Always `{ workspace = true }`.
 - **Putting `[profile.*]` in a member** — silently ignored. Edit the workspace root.
 - **Globbing in `members` without an `exclude`** — `members = ["*"]` will pick up `docs/`, `.claude/`, etc. Use `crates/*` instead.

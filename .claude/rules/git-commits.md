@@ -43,19 +43,19 @@ Scope is **required** for any change that touches a specific crate. Format:
 <crate-name>[/<area>]
 ```
 
-- `<crate-name>` is the workspace member name verbatim (kebab-case, matches the directory under `crates/`): `airsstack-cli`, `airsstack-core`, `provider-claude`, `provider-openrouter`, `airsdsp`.
+- `<crate-name>` is the workspace member name verbatim (kebab-case, matches the directory under `crates/`). Today there is one member: `clauders`. New members extend this list (and the [[rust-workspace]] + [[ai-superpowers-artifacts]] vocabularies) when they are created.
 - `<area>` is optional, kebab-case, identifies the sub-module / feature / file group inside the crate. Pick something a reader will recognize without grep.
 
 Examples:
 
 ```
-fix(airsstack-core/error-handling): map provider timeouts to Retryable
-feat(airsstack-cli/repl): add /clear command
-perf(provider-claude/streaming): reuse SSE parser allocation across events
-refactor(provider-openrouter/auth): extract bearer-token builder
-docs(airsstack-core/api): document Provider trait associated types
-test(airsdsp/tokenizer): add property tests for BPE round-trip
-build(workspace): bump tokio to 1.42 in workspace.dependencies
+fix(clauders/messages): map provider timeouts to Retryable
+feat(clauders/streaming): emit Error event on mid-stream API failure
+perf(clauders/streaming): reuse SSE parser allocation across events
+refactor(clauders/auth): extract bearer-token builder
+docs(clauders/api): document MessageRequest associated types
+test(clauders/tools): add round-trip tests for tool-use blocks
+build(workspace): bump tokio to 1.52 in workspace.dependencies
 ci(github): run cargo hack on PRs touching crates/**
 chore(deps): cargo update — non-breaking patch bumps
 ```
@@ -64,9 +64,9 @@ chore(deps): cargo update — non-breaking patch bumps
 
 In priority order:
 
-1. **Single crate touched** → use that crate's scope: `fix(airsstack-core/...)`.
+1. **Single crate touched** → use that crate's scope: `fix(clauders/...)`.
 2. **Workspace-level files only** (`Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml`, root configs) → scope = `workspace`. Example: `build(workspace): enable resolver v3`.
-3. **Two or three crates touched for one logical change** → list them joined with `+` (no spaces): `refactor(airsstack-core+provider-claude): rename Provider::request to invoke`. Cap at three; beyond that, split the commit or use the broader scope below.
+3. **Two or three crates touched for one logical change** → list them joined with `+` (no spaces), e.g. `refactor(clauders+<crate-b>): rename Transport::request to invoke` once a second member exists. Cap at three; beyond that, split the commit or use the broader scope below.
 4. **Sweeping change across all/most crates** → scope = `workspace` and explain breadth in the body.
 5. **Tooling / repo meta** (`.claude/rules/`, `.gitignore`, `.github/`, docs at repo root) → scope = `repo`. Example: `docs(repo): add rust-workspace rule`.
 
@@ -78,7 +78,7 @@ Only for changes with no meaningful scope: initial commit, license file, top-lev
 
 Two ways, either is accepted; if both apply, use both:
 
-1. `!` after type/scope: `feat(airsstack-core/api)!: rename Provider::send to invoke`
+1. `!` after type/scope: `feat(clauders/messages)!: rename MessageRequest::send to invoke`
 2. Footer: `BREAKING CHANGE: <description and migration note>`
 
 The footer body MUST explain how a downstream consumer migrates. Breaking changes during pre-`1.0.0` are still flagged — version policy will be looser, but consumers (and `cargo` semver checks) still need the signal.
@@ -95,7 +95,7 @@ The footer body MUST explain how a downstream consumer migrates. Breaking change
 
 - `update code`, `fix stuff`, `wip` — not Conventional, not informative.
 - `feat: lots of changes` — missing scope, vague subject.
-- `fix(core): ...` — `core` is not a crate name in this repo; use `airsstack-core`.
+- `fix(claude): ...` — `claude` is not a crate name in this repo; use the full member name `clauders`.
 - `Feat(...)` — type is lowercase.
 - Subject lines over 72 chars.
 - Mixing unrelated changes in one commit ("feat + drive-by refactor + rename").
@@ -120,8 +120,8 @@ BREAKING CHANGE: <only if applicable>
 Refs: #<issue>
 ```
 
-Scope vocabulary (kept in sync with workspace members per [[rust-workspace]]):
+Scope vocabulary (kept in sync with workspace members per [[rust-workspace]] and the `.superpowers` tiers per [[ai-superpowers-artifacts]]):
 
-- `airsstack-cli`, `airsstack-core`, `provider-claude`, `provider-openrouter`, `airsdsp`
+- `clauders` — the only crate today; extend this list when a new member is created
 - `workspace` — root `Cargo.toml`, `Cargo.lock`, top-level Rust config
 - `repo` — `.claude/`, `.github/`, `docs/`, top-level non-Rust files

@@ -27,7 +27,7 @@ External sources align on the same recommendation:
 - **Rust API Guidelines**: `C-GENERIC` (generics give zero-cost abstraction) is preferred over erased dispatch unless the API needs heterogeneous storage.
 - **`M-SIMPLE-ABSTRACTIONS`**: nested-generic *signatures* are unreadable, but a single `<T: Trait>` parameter on a `Client<T>` does not nest; it is one bound at one level. Reach for type aliases (`pub type DefaultClient = Client<ReqwestTransport>;`) to keep call sites short.
 
-For an SDK that runs inside larger applications (the `airsstack-cli` is one of many consumers), monomorphization pays back: the application binary gets one optimized copy of the hot path; clones of the SDK client share an `Arc`-pooled state without going through a vtable on every request.
+For an SDK that runs inside larger applications (a CLI or service built on it is one consumer), monomorphization pays back: the application binary gets one optimized copy of the hot path; clones of the SDK client share an `Arc`-pooled state without going through a vtable on every request.
 
 ## `Box<dyn Trait>` vs `Arc<Inner>` — different patterns, do not conflate
 
