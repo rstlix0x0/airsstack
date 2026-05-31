@@ -8,6 +8,13 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+mod auth;
+mod config;
+mod headers;
+
+pub use auth::Auth;
+pub use config::Config;
+
 pub mod error;
 pub mod transport;
 pub mod types;
