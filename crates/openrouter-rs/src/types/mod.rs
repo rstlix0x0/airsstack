@@ -1,0 +1,26 @@
+//! Validated domain newtypes shared across the SDK surface.
+//!
+//! Each type parses-and-validates at construction, so request-building code
+//! downstream trusts the invariant without re-checking it (parse, don't
+//! validate). Identifiers and secrets are distinct types the compiler refuses
+//! to swap; bounded numerics enforce their ranges in the constructor.
+//!
+//! Responsibilities:
+//! - Re-export the secret [`ApiKey`], the validated [`BaseUrl`], the
+//!   [`ModelId`] slug, and the bounded sampling-parameter numerics.
+//!
+//! Each newtype's construction-failure reason is exported alongside it.
+
+pub mod api_key;
+pub mod base_url;
+pub mod model_id;
+pub mod numeric;
+
+pub use api_key::{ApiKey, InvalidApiKey};
+pub use base_url::{BaseUrl, InvalidBaseUrl};
+pub use model_id::{InvalidModelId, ModelId};
+pub use numeric::{
+    FrequencyPenalty, InvalidFrequencyPenalty, InvalidMaxTokens, InvalidPresencePenalty,
+    InvalidRepetitionPenalty, InvalidTemperature, InvalidTopP, MaxTokens, PresencePenalty,
+    RepetitionPenalty, Seed, Temperature, TopK, TopP,
+};
