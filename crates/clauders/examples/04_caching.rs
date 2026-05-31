@@ -34,7 +34,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "first call (expect cache write)",
         "second call (expect cache read)",
     ] {
-        let segment = SystemSegment::text(system_text.clone()).with_cache(CacheControl::ephemeral());
+        let segment =
+            SystemSegment::text(system_text.clone()).with_cache(CacheControl::ephemeral());
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
             .max_tokens(max_tokens)
@@ -50,7 +51,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "cache_creation:      {:?}",
             msg.usage.cache_creation_input_tokens
         );
-        println!("cache_read:          {:?}", msg.usage.cache_read_input_tokens);
+        println!(
+            "cache_read:          {:?}",
+            msg.usage.cache_read_input_tokens
+        );
         println!("total_input_tokens:  {}", msg.usage.total_input_tokens());
     }
 
