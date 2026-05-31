@@ -12,12 +12,31 @@ readme      = "README.md"
 keywords    = ["openrouter", "llm", "sdk", "ai", "openai"]
 categories  = ["api-bindings", "web-programming::http-client", "asynchronous"]
 
+[features]
+# Default HTTP backend (reqwest + rustls + http2 + stream, per workspace pin).
+default           = ["transport-reqwest"]
+transport-reqwest = ["dep:reqwest"]
+# Internal-only: exposes MockHttpTransport for downstream tests.
+__test-mocks      = ["dep:mockall"]
+
 [dependencies]
-serde      = { workspace = true }
-serde_json = { workspace = true }
-thiserror  = { workspace = true }
-secrecy    = { workspace = true }
-url        = { workspace = true }
+serde            = { workspace = true }
+serde_json       = { workspace = true }
+thiserror        = { workspace = true }
+secrecy          = { workspace = true }
+url              = { workspace = true }
+http             = { workspace = true }
+bytes            = { workspace = true }
+futures-core     = { workspace = true }
+pin-project-lite = { workspace = true }
+async-trait      = { workspace = true }
+reqwest          = { workspace = true, optional = true }
+mockall          = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio        = { workspace = true, features = ["full", "test-util"] }
+futures-util = { workspace = true }
+mockall      = { workspace = true }
 
 [lints]
 workspace = true

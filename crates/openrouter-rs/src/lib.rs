@@ -9,4 +9,5 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 pub mod error;
+pub mod transport;
 pub mod types;
