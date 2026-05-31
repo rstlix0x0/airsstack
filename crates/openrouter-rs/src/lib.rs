@@ -9,12 +9,19 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod auth;
+pub mod client;
 mod config;
 mod headers;
 
 pub use auth::Auth;
+pub use client::Client;
 pub use config::Config;
 
+#[cfg(feature = "transport-reqwest")]
+#[cfg_attr(docsrs, doc(cfg(feature = "transport-reqwest")))]
+pub use client::DefaultClient;
+
+pub mod builder;
 pub mod error;
 pub mod transport;
 pub mod types;

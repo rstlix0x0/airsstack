@@ -904,6 +904,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
+ "trybuild",
  "url",
 ]
 

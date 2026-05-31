@@ -37,6 +37,7 @@ mockall          = { workspace = true, optional = true }
 tokio        = { workspace = true, features = ["full", "test-util"] }
 futures-util = { workspace = true }
 mockall      = { workspace = true }
+trybuild     = { workspace = true }
 
 [lints]
 workspace = true
