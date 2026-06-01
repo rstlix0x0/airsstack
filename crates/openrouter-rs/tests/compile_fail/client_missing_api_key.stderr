@@ -1,8 +1,8 @@
-error[E0599]: no method named `build` found for struct `ClientBuilder<Missing, ReqwestTransport>` in the current scope
+error[E0599]: no method named `build` found for struct `ClientBuilder<openrouter_rs::builder::Missing, ReqwestTransport>` in the current scope
  --> tests/compile_fail/client_missing_api_key.rs:7:76
   |
 7 |     let _client = openrouter_rs::Client::builder_with_transport(transport).build();
-  |                                                                            ^^^^^ method not found in `ClientBuilder<Missing, ReqwestTransport>`
+  |                                                                            ^^^^^ method not found in `ClientBuilder<openrouter_rs::builder::Missing, ReqwestTransport>`
   |
   = note: the method was found for
-          - `ClientBuilder<Present, T>`
+          - `ClientBuilder<openrouter_rs::builder::Present, T>`

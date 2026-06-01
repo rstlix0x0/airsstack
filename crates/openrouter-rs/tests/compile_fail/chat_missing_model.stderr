@@ -1,0 +1,13 @@
+error[E0599]: no method named `build` found for struct `ChatRequestBuilder<openrouter_rs::chat::Missing, openrouter_rs::chat::Present>` in the current scope
+ --> tests/compile_fail/chat_missing_model.rs:7:10
+  |
+5 |       let _ = ChatRequest::builder()
+  |  _____________-
+6 | |         .messages(vec![Message::user("hi")])
+7 | |         .build();
+  | |         -^^^^^ method not found in `ChatRequestBuilder<openrouter_rs::chat::Missing, openrouter_rs::chat::Present>`
+  | |_________|
+  |
+  |
+  = note: the method was found for
+          - `ChatRequestBuilder<openrouter_rs::chat::Present, openrouter_rs::chat::Present>`

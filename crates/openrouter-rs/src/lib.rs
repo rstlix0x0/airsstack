@@ -9,11 +9,13 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod auth;
+pub mod chat;
 pub mod client;
 mod config;
 mod headers;
 
 pub use auth::Auth;
+pub use chat::{ChatCompletion, ChatRequest, Message, Role};
 pub use client::Client;
 pub use config::Config;
 

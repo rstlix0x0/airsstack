@@ -1,0 +1,13 @@
+error[E0599]: no method named `build` found for struct `ChatRequestBuilder<openrouter_rs::chat::Present, openrouter_rs::chat::Missing>` in the current scope
+ --> tests/compile_fail/chat_missing_messages.rs:8:10
+  |
+6 |       let _ = ChatRequest::builder()
+  |  _____________-
+7 | |         .model(ModelId::custom("openai/gpt-4o").unwrap())
+8 | |         .build();
+  | |         -^^^^^ method not found in `ChatRequestBuilder<openrouter_rs::chat::Present, openrouter_rs::chat::Missing>`
+  | |_________|
+  |
+  |
+  = note: the method was found for
+          - `ChatRequestBuilder<openrouter_rs::chat::Present, openrouter_rs::chat::Present>`
