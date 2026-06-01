@@ -76,6 +76,29 @@ impl BaseUrl {
     pub fn as_str(&self) -> &str {
         self.0.as_str()
     }
+
+    /// Join a relative path onto this base URL.
+    ///
+    /// Wraps [`url::Url::join`], keeping the inner `url::Url` private so the
+    /// crate never exposes the `url` type on its surface.
+    ///
+    /// # Segment-replacement behaviour
+    ///
+    /// `url::Url::join` follows RFC 3986 resolution: when the base URL has a
+    /// non-root path that does **not** end with `/`, the final segment is
+    /// treated as a file and replaced by the relative reference. Configure a
+    /// base whose path ends with `/` so the join is additive:
+    ///
+    /// - `"https://host"` + `"chat/completions"` → `"https://host/chat/completions"`
+    /// - `"https://host/api/v1/"` + `"chat/completions"` → `"https://host/api/v1/chat/completions"`
+    /// - `"https://host/api/v1"` + `"chat/completions"` → `"https://host/api/chat/completions"` (drops `v1`)
+    ///
+    /// # Errors
+    /// Returns [`url::ParseError`] when `path` is not a valid relative URL
+    /// reference.
+    pub(crate) fn join(&self, path: &str) -> Result<url::Url, url::ParseError> {
+        self.0.join(path)
+    }
 }
 
 impl fmt::Display for BaseUrl {
@@ -134,5 +157,30 @@ mod tests {
     fn display_matches_as_str() {
         let base = BaseUrl::parse("https://openrouter.ai/api/v1").unwrap();
         assert_eq!(format!("{base}"), base.as_str());
+    }
+
+    #[test]
+    fn join_appends_path_to_host_only_base() {
+        let base = BaseUrl::parse("https://openrouter.ai").unwrap();
+        let url = base.join("chat/completions").unwrap();
+        assert_eq!(url.as_str(), "https://openrouter.ai/chat/completions");
+    }
+
+    #[test]
+    fn join_is_additive_when_base_path_ends_with_slash() {
+        let base = BaseUrl::parse("https://openrouter.ai/api/v1/").unwrap();
+        let url = base.join("chat/completions").unwrap();
+        assert_eq!(
+            url.as_str(),
+            "https://openrouter.ai/api/v1/chat/completions"
+        );
+    }
+
+    #[test]
+    fn join_replaces_last_segment_when_base_path_has_no_trailing_slash() {
+        let base = BaseUrl::parse("https://openrouter.ai/api/v1").unwrap();
+        let url = base.join("chat/completions").unwrap();
+        // No trailing slash → RFC 3986 replaces the final segment.
+        assert_eq!(url.as_str(), "https://openrouter.ai/api/chat/completions");
     }
 }

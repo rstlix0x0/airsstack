@@ -80,12 +80,7 @@ impl HttpTransport for DefaultTransportPlaceholder {
 
 pub(crate) struct ClientInner<T: HttpTransport> {
     pub(crate) config: Config,
-    // The transport is held so request methods can dispatch through it; no
-    // caller reads this field in the current build.
-    #[expect(
-        dead_code,
-        reason = "held for request dispatch; no reader exists in this build"
-    )]
+    // Dispatch target for resource request methods (e.g. the chat resource).
     pub(crate) transport: T,
     pub(crate) auth: Auth,
 }
@@ -141,6 +136,15 @@ impl<T: HttpTransport> Client<T> {
         transport: T,
     ) -> crate::builder::ClientBuilder<crate::builder::Missing, T> {
         crate::builder::ClientBuilder::new_with_transport(transport)
+    }
+
+    /// Begin a chat-completions call.
+    ///
+    /// Returns a short-lived [`crate::chat::ChatResource`] borrowing this
+    /// client; create it at the call site and drop it after the call.
+    #[must_use]
+    pub const fn chat(&self) -> crate::chat::ChatResource<'_, T> {
+        crate::chat::ChatResource { client: self }
     }
 }
 

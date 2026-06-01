@@ -16,11 +16,13 @@
 pub mod builder;
 pub mod message;
 pub mod request;
+pub mod resource;
 pub mod response;
 pub mod usage;
 
 pub use builder::{ChatRequestBuilder, FieldState, Missing, Present};
 pub use message::{ContentPart, Message, MessageContent, Role};
 pub use request::ChatRequest;
+pub use resource::ChatResource;
 pub use response::{ChatCompletion, Choice, FinishReason, ResponseMessage};
 pub use usage::Usage;
