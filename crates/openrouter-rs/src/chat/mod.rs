@@ -14,12 +14,15 @@
 //!   replay and response decode.
 //! - Structured outputs: [`ResponseFormat`] / [`JsonSchemaConfig`] /
 //!   [`SchemaStrictness`] for requesting a constrained response shape.
+//! - Provider routing: [`ProviderPreferences`] / [`ProviderPreferencesBuilder`]
+//!   and the supporting enums and newtypes for steering request dispatch.
 //!
 //! Not responsible for sending requests — the resource/transport layer dispatches
 //! a built [`ChatRequest`].
 
 pub mod builder;
 pub mod message;
+pub mod provider;
 pub mod request;
 pub mod resource;
 pub mod response;
@@ -37,6 +40,11 @@ pub mod stream_chunk;
 
 pub use builder::{ChatRequestBuilder, FieldState, Missing, Present};
 pub use message::{ContentPart, Message, MessageContent, Role};
+pub use provider::{
+    DataCollection, FallbackPolicy, InvalidLatencyCeiling, InvalidThroughputFloor, LatencyCeiling,
+    MaxPrice, ParameterRequirement, ProviderPreferences, ProviderPreferencesBuilder, ProviderSort,
+    Quantization, ThroughputFloor, ZeroDataRetention,
+};
 pub use request::ChatRequest;
 pub use resource::ChatResource;
 pub use response::{ChatCompletion, Choice, FinishReason, ResponseMessage};

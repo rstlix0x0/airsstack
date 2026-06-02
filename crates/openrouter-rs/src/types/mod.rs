@@ -10,7 +10,9 @@
 //!   [`ModelId`] slug, the bounded sampling-parameter numerics, the
 //!   capped [`StopSequences`] list, the validated [`FunctionName`] for
 //!   tool definitions, the opaque [`ToolCallId`] for tool-call tracking,
-//!   and the validated [`SchemaName`] for structured-output schema names.
+//!   the validated [`SchemaName`] for structured-output schema names,
+//!   the validated [`ProviderSlug`] for provider routing lists, and the
+//!   non-negative [`Price`] for provider routing price limits.
 //!
 //! Each newtype's construction-failure reason is exported alongside it.
 
@@ -19,6 +21,8 @@ pub mod base_url;
 pub mod function_name;
 pub mod model_id;
 pub mod numeric;
+pub mod price;
+pub mod provider_slug;
 pub mod schema_name;
 pub mod stop_sequences;
 pub mod tool_call_id;
@@ -32,6 +36,8 @@ pub use numeric::{
     InvalidRepetitionPenalty, InvalidTemperature, InvalidTopP, MaxTokens, PresencePenalty,
     RepetitionPenalty, Seed, Temperature, TopK, TopP,
 };
+pub use price::{InvalidPrice, Price};
+pub use provider_slug::{InvalidProviderSlug, ProviderSlug};
 pub use schema_name::{InvalidSchemaName, SchemaName};
 pub use stop_sequences::{InvalidStopSequences, StopSequences};
 pub use tool_call_id::{InvalidToolCallId, ToolCallId};

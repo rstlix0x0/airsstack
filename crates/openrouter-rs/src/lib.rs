@@ -17,9 +17,11 @@ mod wire_helpers;
 
 pub use auth::Auth;
 pub use chat::{
-    ChatCompletion, ChatRequest, ChatResource, FinishReason, FunctionCall, FunctionDef,
-    JsonSchemaConfig, Message, ResponseFormat, Role, SchemaStrictness, Tool, ToolCall, ToolChoice,
-    ToolType,
+    ChatCompletion, ChatRequest, ChatResource, DataCollection, FallbackPolicy, FinishReason,
+    FunctionCall, FunctionDef, JsonSchemaConfig, LatencyCeiling, MaxPrice, Message,
+    ParameterRequirement, ProviderPreferences, ProviderPreferencesBuilder, ProviderSort,
+    Quantization, ResponseFormat, Role, SchemaStrictness, ThroughputFloor, Tool, ToolCall,
+    ToolChoice, ToolType, ZeroDataRetention,
 };
 pub use client::Client;
 pub use config::Config;

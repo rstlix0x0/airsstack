@@ -11,6 +11,7 @@
 use std::marker::PhantomData;
 
 use crate::chat::message::Message;
+use crate::chat::provider::ProviderPreferences;
 use crate::chat::request::ChatRequest;
 use crate::chat::response_format::ResponseFormat;
 use crate::chat::tool::{Tool, ToolChoice};
@@ -59,6 +60,8 @@ struct ChatRequestFields {
     tools: Option<Vec<Tool>>,
     tool_choice: Option<ToolChoice>,
     response_format: Option<ResponseFormat>,
+    provider: Option<ProviderPreferences>,
+    models: Option<Vec<ModelId>>,
 }
 
 /// Builds a [`ChatRequest`]; `M` tracks the `model` state, `Ms` the `messages`
@@ -203,6 +206,20 @@ impl<M: FieldState, Ms: FieldState> ChatRequestBuilder<M, Ms> {
         self.fields.response_format = Some(format);
         self
     }
+
+    /// Set provider routing preferences.
+    #[must_use]
+    pub fn provider(mut self, prefs: ProviderPreferences) -> Self {
+        self.fields.provider = Some(prefs);
+        self
+    }
+
+    /// Set the fallback model chain tried if the primary model is unavailable.
+    #[must_use]
+    pub fn models(mut self, models: Vec<ModelId>) -> Self {
+        self.fields.models = Some(models);
+        self
+    }
 }
 
 impl ChatRequestBuilder<Present, Present> {
@@ -238,6 +255,8 @@ impl ChatRequestBuilder<Present, Present> {
             tools: f.tools,
             tool_choice: f.tool_choice,
             response_format: f.response_format,
+            provider: f.provider,
+            models: f.models,
             stream: false,
         }
     }
@@ -393,5 +412,53 @@ mod tests {
             .messages(vec![Message::user("hi")])
             .build();
         assert!(req.response_format.is_none());
+    }
+
+    #[test]
+    fn provider_survives_required_field_transitions() {
+        use crate::chat::provider::{FallbackPolicy, ProviderPreferences, ProviderSort};
+        let prefs = ProviderPreferences::builder()
+            .sort(ProviderSort::Latency)
+            .allow_fallbacks(FallbackPolicy::Deny)
+            .build();
+        // Set provider BEFORE both required fields — the field-move shape must
+        // preserve it through the type-state transitions.
+        let req = ChatRequest::builder()
+            .provider(prefs)
+            .model(model())
+            .messages(vec![Message::user("hi")])
+            .build();
+        let v = serde_json::to_value(&req).unwrap();
+        assert_eq!(v["provider"]["sort"], json!("latency"));
+        assert_eq!(v["provider"]["allow_fallbacks"], json!(false));
+    }
+
+    #[test]
+    fn models_survives_required_field_transitions() {
+        let fallbacks = vec![
+            ModelId::custom("anthropic/claude-3-haiku").unwrap(),
+            ModelId::custom("openai/gpt-4o-mini").unwrap(),
+        ];
+        // Set models BEFORE both required fields.
+        let req = ChatRequest::builder()
+            .models(fallbacks)
+            .model(model())
+            .messages(vec![Message::user("hi")])
+            .build();
+        let v = serde_json::to_value(&req).unwrap();
+        assert_eq!(
+            v["models"],
+            json!(["anthropic/claude-3-haiku", "openai/gpt-4o-mini"])
+        );
+    }
+
+    #[test]
+    fn builder_without_provider_and_models_leaves_both_none() {
+        let req = ChatRequest::builder()
+            .model(model())
+            .messages(vec![Message::user("hi")])
+            .build();
+        assert!(req.provider.is_none());
+        assert!(req.models.is_none());
     }
 }

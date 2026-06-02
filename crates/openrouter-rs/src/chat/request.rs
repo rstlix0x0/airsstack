@@ -12,6 +12,7 @@ use serde::Serialize;
 
 use crate::chat::builder::{ChatRequestBuilder, Missing};
 use crate::chat::message::Message;
+use crate::chat::provider::ProviderPreferences;
 use crate::chat::response_format::ResponseFormat;
 use crate::chat::tool::{Tool, ToolChoice};
 use crate::types::{
@@ -71,6 +72,10 @@ pub struct ChatRequest {
     pub(crate) tool_choice: Option<ToolChoice>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) response_format: Option<ResponseFormat>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) provider: Option<ProviderPreferences>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) models: Option<Vec<ModelId>>,
     /// Whether to request a streamed response. Managed by the resource layer;
     /// callers do not set this directly.
     #[doc(hidden)]
@@ -135,6 +140,52 @@ mod tests {
         let v = serde_json::to_value(&req).unwrap();
         let obj = v.as_object().unwrap();
         assert_eq!(obj.len(), 2, "only model + messages should serialize");
+    }
+
+    #[test]
+    fn provider_field_serializes_under_provider_key() {
+        use crate::chat::provider::{FallbackPolicy, ProviderPreferences, ProviderSort};
+        let prefs = ProviderPreferences::builder()
+            .sort(ProviderSort::Price)
+            .allow_fallbacks(FallbackPolicy::Allow)
+            .build();
+        let req = ChatRequest::builder()
+            .model(model())
+            .messages(vec![Message::user("hi")])
+            .provider(prefs)
+            .build();
+        let v = serde_json::to_value(&req).unwrap();
+        assert_eq!(v["provider"]["sort"], json!("price"));
+        assert_eq!(v["provider"]["allow_fallbacks"], json!(true));
+    }
+
+    #[test]
+    fn models_field_serializes_under_models_key() {
+        let fallbacks = vec![
+            ModelId::custom("anthropic/claude-3-haiku").unwrap(),
+            ModelId::custom("openai/gpt-4o-mini").unwrap(),
+        ];
+        let req = ChatRequest::builder()
+            .model(model())
+            .messages(vec![Message::user("hi")])
+            .models(fallbacks)
+            .build();
+        let v = serde_json::to_value(&req).unwrap();
+        assert_eq!(
+            v["models"],
+            json!(["anthropic/claude-3-haiku", "openai/gpt-4o-mini"])
+        );
+    }
+
+    #[test]
+    fn provider_and_models_omitted_when_unset() {
+        let req = ChatRequest::builder()
+            .model(model())
+            .messages(vec![Message::user("hi")])
+            .build();
+        let v = serde_json::to_value(&req).unwrap();
+        assert!(v.get("provider").is_none(), "provider must be absent");
+        assert!(v.get("models").is_none(), "models must be absent");
     }
 
     #[test]
