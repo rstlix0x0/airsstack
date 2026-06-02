@@ -7,19 +7,23 @@
 //!
 //! Responsibilities:
 //! - Re-export the secret [`ApiKey`], the validated [`BaseUrl`], the
-//!   [`ModelId`] slug, the bounded sampling-parameter numerics, and the
-//!   capped [`StopSequences`] list.
+//!   [`ModelId`] slug, the bounded sampling-parameter numerics, the
+//!   capped [`StopSequences`] list, the validated [`FunctionName`] for
+//!   tool definitions, and the opaque [`ToolCallId`] for tool-call tracking.
 //!
 //! Each newtype's construction-failure reason is exported alongside it.
 
 pub mod api_key;
 pub mod base_url;
+pub mod function_name;
 pub mod model_id;
 pub mod numeric;
 pub mod stop_sequences;
+pub mod tool_call_id;
 
 pub use api_key::{ApiKey, InvalidApiKey};
 pub use base_url::{BaseUrl, InvalidBaseUrl};
+pub use function_name::{FunctionName, InvalidFunctionName};
 pub use model_id::{InvalidModelId, ModelId};
 pub use numeric::{
     FrequencyPenalty, InvalidFrequencyPenalty, InvalidMaxTokens, InvalidPresencePenalty,
@@ -27,3 +31,4 @@ pub use numeric::{
     RepetitionPenalty, Seed, Temperature, TopK, TopP,
 };
 pub use stop_sequences::{InvalidStopSequences, StopSequences};
+pub use tool_call_id::{InvalidToolCallId, ToolCallId};

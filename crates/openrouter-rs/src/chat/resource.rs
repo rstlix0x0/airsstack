@@ -360,11 +360,12 @@ mod tests {
     use futures_core::Stream;
     use http::{Response, StatusCode};
 
-    use crate::chat::{ChatRequest, Message};
+    use crate::chat::tool::{FunctionDef, Tool, ToolChoice};
+    use crate::chat::{ChatRequest, FinishReason, Message};
     use crate::client::Client;
     use crate::error::{Error, TransportError};
     use crate::transport::{BodyStream, MockHttpTransport};
-    use crate::types::{ApiKey, ModelId};
+    use crate::types::{ApiKey, FunctionName, ModelId};
 
     fn body_from(payload: Vec<u8>) -> BodyStream {
         struct Once(Option<Bytes>);
@@ -449,5 +450,66 @@ mod tests {
         let client = client_with(transport);
         let err = client.chat().send(minimal_request()).await.unwrap_err();
         assert!(matches!(err, Error::RateLimit { .. }));
+    }
+
+    const TOOL_CALL_RESPONSE: &[u8] = br#"{
+        "id": "gen-tc", "object": "chat.completion", "created": 1,
+        "model": "openai/gpt-4o",
+        "choices": [{
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": null,
+                "tool_calls": [{
+                    "id": "call_abc123",
+                    "type": "function",
+                    "function": {
+                        "name": "search_books",
+                        "arguments": "{\"q\":\"rust programming\"}"
+                    }
+                }]
+            },
+            "finish_reason": "tool_calls"
+        }],
+        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15}
+    }"#;
+
+    #[tokio::test]
+    async fn send_with_tools_decodes_tool_calls_in_response() {
+        let mut transport = MockHttpTransport::new();
+        transport.expect_send().times(1).returning(|_req| {
+            let mut resp = Response::new(body_from(TOOL_CALL_RESPONSE.to_vec()));
+            *resp.status_mut() = StatusCode::OK;
+            Ok(resp)
+        });
+
+        let client = client_with(transport);
+
+        let tool = Tool::function(FunctionDef::new(FunctionName::new("search_books").unwrap()));
+        let req = ChatRequest::builder()
+            .model(ModelId::custom("openai/gpt-4o").unwrap())
+            .messages(vec![Message::user("Find rust books")])
+            .tools(vec![tool])
+            .tool_choice(ToolChoice::Auto)
+            .build();
+
+        let completion = client.chat().send(req).await.unwrap();
+
+        assert_eq!(completion.id, "gen-tc");
+        let msg = &completion.choices[0].message;
+        assert!(msg.content.is_none());
+        assert_eq!(
+            completion.choices[0].finish_reason,
+            Some(FinishReason::ToolCalls)
+        );
+
+        let tool_calls = msg.tool_calls.as_ref().unwrap();
+        assert_eq!(tool_calls.len(), 1);
+        assert_eq!(tool_calls[0].id.as_str(), "call_abc123");
+        assert_eq!(tool_calls[0].function.name, "search_books");
+        assert_eq!(
+            tool_calls[0].function.arguments,
+            r#"{"q":"rust programming"}"#
+        );
     }
 }

@@ -12,6 +12,7 @@ use serde::Serialize;
 
 use crate::chat::builder::{ChatRequestBuilder, Missing};
 use crate::chat::message::Message;
+use crate::chat::tool::{Tool, ToolChoice};
 use crate::types::{
     FrequencyPenalty, MaxTokens, ModelId, PresencePenalty, RepetitionPenalty, Seed, StopSequences,
     Temperature, TopK, TopP,
@@ -63,6 +64,10 @@ pub struct ChatRequest {
     pub(crate) stop: Option<StopSequences>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) user: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) tools: Option<Vec<Tool>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) tool_choice: Option<ToolChoice>,
     /// Whether to request a streamed response. Managed by the resource layer;
     /// callers do not set this directly.
     #[doc(hidden)]
@@ -98,6 +103,8 @@ mod tests {
     )]
 
     use super::*;
+    use crate::chat::tool::{FunctionDef, Tool, ToolChoice};
+    use crate::types::FunctionName;
     use serde_json::json;
 
     fn model() -> ModelId {
@@ -149,5 +156,43 @@ mod tests {
             .build();
         assert_eq!(req.model().as_str(), "openai/gpt-4o");
         assert_eq!(req.messages().len(), 2);
+    }
+
+    #[test]
+    fn tools_and_tool_choice_serialize_when_set() {
+        let tool = Tool::function(FunctionDef::new(FunctionName::new("search").unwrap()));
+        let req = ChatRequest::builder()
+            .model(model())
+            .messages(vec![Message::user("hi")])
+            .tools(vec![tool])
+            .tool_choice(ToolChoice::Auto)
+            .build();
+        let v = serde_json::to_value(&req).unwrap();
+        assert_eq!(v["tool_choice"], json!("auto"));
+        assert!(v["tools"].is_array());
+        assert_eq!(v["tools"][0]["type"], json!("function"));
+        assert_eq!(v["tools"][0]["function"]["name"], json!("search"));
+    }
+
+    #[test]
+    fn tools_and_tool_choice_omitted_when_not_set() {
+        let req = ChatRequest::builder()
+            .model(model())
+            .messages(vec![Message::user("hi")])
+            .build();
+        let v = serde_json::to_value(&req).unwrap();
+        assert!(v.get("tools").is_none(), "tools must be absent");
+        assert!(v.get("tool_choice").is_none(), "tool_choice must be absent");
+    }
+
+    #[test]
+    fn tool_choice_required_serializes_correctly() {
+        let req = ChatRequest::builder()
+            .model(model())
+            .messages(vec![Message::user("hi")])
+            .tool_choice(ToolChoice::Required)
+            .build();
+        let v = serde_json::to_value(&req).unwrap();
+        assert_eq!(v["tool_choice"], json!("required"));
     }
 }

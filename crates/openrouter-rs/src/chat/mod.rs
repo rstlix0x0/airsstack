@@ -9,6 +9,9 @@
 //!   [`Message`] / [`Role`] / [`MessageContent`] / [`ContentPart`].
 //! - Response: [`ChatCompletion`] / [`Choice`] / [`ResponseMessage`] /
 //!   [`FinishReason`] and [`Usage`].
+//! - Tool calling: [`Tool`] / [`FunctionDef`] / [`ToolType`] / [`ToolChoice`]
+//!   for the request side; [`ToolCall`] / [`FunctionCall`] shared by request
+//!   replay and response decode.
 //!
 //! Not responsible for sending requests — the resource/transport layer dispatches
 //! a built [`ChatRequest`].
@@ -18,6 +21,8 @@ pub mod message;
 pub mod request;
 pub mod resource;
 pub mod response;
+pub mod tool;
+pub mod tool_call;
 pub mod usage;
 
 #[cfg(feature = "streaming")]
@@ -32,6 +37,8 @@ pub use message::{ContentPart, Message, MessageContent, Role};
 pub use request::ChatRequest;
 pub use resource::ChatResource;
 pub use response::{ChatCompletion, Choice, FinishReason, ResponseMessage};
+pub use tool::{FunctionDef, Tool, ToolChoice, ToolType};
+pub use tool_call::{FunctionCall, ToolCall};
 pub use usage::Usage;
 
 #[cfg(feature = "streaming")]

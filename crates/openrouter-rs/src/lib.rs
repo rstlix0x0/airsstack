@@ -16,7 +16,10 @@ mod headers;
 mod wire_helpers;
 
 pub use auth::Auth;
-pub use chat::{ChatCompletion, ChatRequest, ChatResource, Message, Role};
+pub use chat::{
+    ChatCompletion, ChatRequest, ChatResource, FinishReason, FunctionCall, FunctionDef, Message,
+    Role, Tool, ToolCall, ToolChoice, ToolType,
+};
 pub use client::Client;
 pub use config::Config;
 

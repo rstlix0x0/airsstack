@@ -7,7 +7,8 @@
 //! Responsibilities:
 //! - [`ChatCompletion`] — the response envelope.
 //! - [`Choice`] — one returned completion choice.
-//! - [`ResponseMessage`] — the assistant message inside a choice.
+//! - [`ResponseMessage`] — the assistant message inside a choice, including
+//!   any `tool_calls` the model emitted.
 //! - [`FinishReason`] — why generation stopped (unknown-tolerant).
 //!
 //! Not responsible for HTTP status handling or error-envelope decode — the
@@ -16,6 +17,7 @@
 use serde::Deserialize;
 
 use crate::chat::message::Role;
+use crate::chat::tool_call::ToolCall;
 use crate::chat::usage::Usage;
 
 /// A non-streaming chat completion.
@@ -72,8 +74,9 @@ pub struct Choice {
 
 /// The assistant message inside a [`Choice`].
 ///
-/// `content` is optional because a tool-only response carries `null` content;
-/// this release does not surface tool calls but stays tolerant of that shape.
+/// `content` is optional because a tool-only response carries `null` content.
+/// When the model chooses to call tools, `tool_calls` carries the call list
+/// and `finish_reason` is [`FinishReason::ToolCalls`].
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 pub struct ResponseMessage {
     /// Author role (`assistant` for model output).
@@ -81,6 +84,9 @@ pub struct ResponseMessage {
     /// The generated text, when present.
     #[serde(default)]
     pub content: Option<String>,
+    /// Tool calls the model wants to make, when the model chose to use tools.
+    #[serde(default)]
+    pub tool_calls: Option<Vec<ToolCall>>,
 }
 
 /// Why a completion stopped generating.
@@ -108,7 +114,8 @@ pub enum FinishReason {
 mod tests {
     #![expect(
         clippy::unwrap_used,
-        reason = "tests unwrap known-valid fixtures; a panic is the intended failure signal"
+        clippy::expect_used,
+        reason = "tests unwrap/expect known-valid fixtures; a panic is the intended failure signal"
     )]
 
     use super::*;
@@ -179,5 +186,78 @@ mod tests {
         assert!(c.usage.is_none());
         assert!(c.choices[0].finish_reason.is_none());
         assert!(c.choices[0].logprobs.is_none());
+    }
+
+    #[test]
+    fn response_message_decodes_tool_calls() {
+        let body = json!({
+            "id": "gen-tc", "object": "chat.completion", "created": 1, "model": "openai/gpt-4o",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [{
+                        "id": "call_abc123",
+                        "type": "function",
+                        "function": {
+                            "name": "search_books",
+                            "arguments": "{\"q\":\"rust programming\"}"
+                        }
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }]
+        });
+        let c: ChatCompletion = serde_json::from_value(body).unwrap();
+        let msg = &c.choices[0].message;
+        assert!(msg.content.is_none());
+        let tool_calls = msg.tool_calls.as_ref().expect("tool_calls present");
+        assert_eq!(tool_calls.len(), 1);
+        assert_eq!(tool_calls[0].id.as_str(), "call_abc123");
+        assert_eq!(tool_calls[0].function.name, "search_books");
+        assert_eq!(
+            tool_calls[0].function.arguments,
+            r#"{"q":"rust programming"}"#
+        );
+        assert_eq!(c.choices[0].finish_reason, Some(FinishReason::ToolCalls));
+    }
+
+    #[test]
+    fn response_message_tool_calls_absent_when_no_tools() {
+        let c: ChatCompletion = serde_json::from_value(sample()).unwrap();
+        assert!(c.choices[0].message.tool_calls.is_none());
+    }
+
+    #[test]
+    fn response_message_decodes_multiple_tool_calls() {
+        let body = json!({
+            "id": "gen-multi", "object": "chat.completion", "created": 1, "model": "openai/gpt-4o",
+            "choices": [{
+                "index": 0,
+                "message": {
+                    "role": "assistant",
+                    "content": null,
+                    "tool_calls": [
+                        {
+                            "id": "call_1",
+                            "type": "function",
+                            "function": { "name": "fn_a", "arguments": "{}" }
+                        },
+                        {
+                            "id": "call_2",
+                            "type": "function",
+                            "function": { "name": "fn_b", "arguments": "{\"x\":1}" }
+                        }
+                    ]
+                },
+                "finish_reason": "tool_calls"
+            }]
+        });
+        let c: ChatCompletion = serde_json::from_value(body).unwrap();
+        let tool_calls = c.choices[0].message.tool_calls.as_ref().unwrap();
+        assert_eq!(tool_calls.len(), 2);
+        assert_eq!(tool_calls[0].id.as_str(), "call_1");
+        assert_eq!(tool_calls[1].function.name, "fn_b");
     }
 }

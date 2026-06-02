@@ -12,6 +12,7 @@ use std::marker::PhantomData;
 
 use crate::chat::message::Message;
 use crate::chat::request::ChatRequest;
+use crate::chat::tool::{Tool, ToolChoice};
 use crate::types::{
     FrequencyPenalty, MaxTokens, ModelId, PresencePenalty, RepetitionPenalty, Seed, StopSequences,
     Temperature, TopK, TopP,
@@ -54,6 +55,8 @@ struct ChatRequestFields {
     repetition_penalty: Option<RepetitionPenalty>,
     stop: Option<StopSequences>,
     user: Option<String>,
+    tools: Option<Vec<Tool>>,
+    tool_choice: Option<ToolChoice>,
 }
 
 /// Builds a [`ChatRequest`]; `M` tracks the `model` state, `Ms` the `messages`
@@ -177,6 +180,20 @@ impl<M: FieldState, Ms: FieldState> ChatRequestBuilder<M, Ms> {
         self.fields.user = Some(user.into());
         self
     }
+
+    /// Set the list of tools the model may call.
+    #[must_use]
+    pub fn tools(mut self, tools: Vec<Tool>) -> Self {
+        self.fields.tools = Some(tools);
+        self
+    }
+
+    /// Control which tool, if any, the model calls.
+    #[must_use]
+    pub fn tool_choice(mut self, choice: ToolChoice) -> Self {
+        self.fields.tool_choice = Some(choice);
+        self
+    }
 }
 
 impl ChatRequestBuilder<Present, Present> {
@@ -209,6 +226,8 @@ impl ChatRequestBuilder<Present, Present> {
             repetition_penalty: f.repetition_penalty,
             stop: f.stop,
             user: f.user,
+            tools: f.tools,
+            tool_choice: f.tool_choice,
             stream: false,
         }
     }
@@ -223,7 +242,8 @@ mod tests {
     )]
 
     use super::*;
-    use crate::types::StopSequences;
+    use crate::chat::tool::{FunctionDef, ToolChoice, ToolType};
+    use crate::types::{FunctionName, StopSequences};
     use serde_json::json;
 
     fn model() -> ModelId {
@@ -288,5 +308,53 @@ mod tests {
             .model(model())
             .build();
         assert_eq!(req.model().as_str(), "openai/gpt-4o");
+    }
+
+    #[test]
+    fn tools_and_tool_choice_survive_required_field_transitions() {
+        // Set optional tool fields BEFORE both required fields; the field-move
+        // shape must preserve them through the type-state transitions.
+        let tool = Tool::function(FunctionDef::new(FunctionName::new("fn1").unwrap()));
+        let req = ChatRequest::builder()
+            .tools(vec![tool])
+            .tool_choice(ToolChoice::Auto)
+            .model(model())
+            .messages(vec![Message::user("hi")])
+            .build();
+        let v = serde_json::to_value(&req).unwrap();
+        assert_eq!(v["tool_choice"], json!("auto"));
+        assert_eq!(v["tools"][0]["type"], json!("function"));
+    }
+
+    #[test]
+    fn tool_choice_function_variant_serializes_correctly_from_builder() {
+        let fn_name = FunctionName::new("search_books").unwrap();
+        let req = ChatRequest::builder()
+            .model(model())
+            .messages(vec![Message::user("hi")])
+            .tool_choice(ToolChoice::Function { name: fn_name })
+            .build();
+        let v = serde_json::to_value(&req).unwrap();
+        assert_eq!(v["tool_choice"]["type"], json!("function"));
+        assert_eq!(v["tool_choice"]["function"]["name"], json!("search_books"));
+    }
+
+    #[test]
+    fn builder_without_tools_produces_no_tool_fields() {
+        let req = ChatRequest::builder()
+            .model(model())
+            .messages(vec![Message::user("hi")])
+            .build();
+        // Verify the type fields are None at the struct level, not just serialization.
+        assert!(req.tools.is_none());
+        assert!(req.tool_choice.is_none());
+    }
+
+    #[test]
+    fn tool_type_function_serializes() {
+        assert_eq!(
+            serde_json::to_value(ToolType::Function).unwrap(),
+            json!("function")
+        );
     }
 }
