@@ -7,7 +7,8 @@
 //!
 //! Responsibilities:
 //! - Re-export the secret [`ApiKey`], the validated [`BaseUrl`], the
-//!   [`ModelId`] slug, and the bounded sampling-parameter numerics.
+//!   [`ModelId`] slug, the bounded sampling-parameter numerics, and the
+//!   capped [`StopSequences`] list.
 //!
 //! Each newtype's construction-failure reason is exported alongside it.
 
@@ -15,6 +16,7 @@ pub mod api_key;
 pub mod base_url;
 pub mod model_id;
 pub mod numeric;
+pub mod stop_sequences;
 
 pub use api_key::{ApiKey, InvalidApiKey};
 pub use base_url::{BaseUrl, InvalidBaseUrl};
@@ -24,3 +26,4 @@ pub use numeric::{
     InvalidRepetitionPenalty, InvalidTemperature, InvalidTopP, MaxTokens, PresencePenalty,
     RepetitionPenalty, Seed, Temperature, TopK, TopP,
 };
+pub use stop_sequences::{InvalidStopSequences, StopSequences};

@@ -13,8 +13,8 @@ use serde::Serialize;
 use crate::chat::builder::{ChatRequestBuilder, Missing};
 use crate::chat::message::Message;
 use crate::types::{
-    FrequencyPenalty, MaxTokens, ModelId, PresencePenalty, RepetitionPenalty, Seed, Temperature,
-    TopK, TopP,
+    FrequencyPenalty, MaxTokens, ModelId, PresencePenalty, RepetitionPenalty, Seed, StopSequences,
+    Temperature, TopK, TopP,
 };
 
 /// A chat-completion request body.
@@ -60,7 +60,7 @@ pub struct ChatRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) repetition_penalty: Option<RepetitionPenalty>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub(crate) stop: Option<Vec<String>>,
+    pub(crate) stop: Option<StopSequences>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) user: Option<String>,
 }

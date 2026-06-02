@@ -13,8 +13,8 @@ use std::marker::PhantomData;
 use crate::chat::message::Message;
 use crate::chat::request::ChatRequest;
 use crate::types::{
-    FrequencyPenalty, MaxTokens, ModelId, PresencePenalty, RepetitionPenalty, Seed, Temperature,
-    TopK, TopP,
+    FrequencyPenalty, MaxTokens, ModelId, PresencePenalty, RepetitionPenalty, Seed, StopSequences,
+    Temperature, TopK, TopP,
 };
 
 mod sealed {
@@ -52,7 +52,7 @@ struct ChatRequestFields {
     frequency_penalty: Option<FrequencyPenalty>,
     presence_penalty: Option<PresencePenalty>,
     repetition_penalty: Option<RepetitionPenalty>,
-    stop: Option<Vec<String>>,
+    stop: Option<StopSequences>,
     user: Option<String>,
 }
 
@@ -166,7 +166,7 @@ impl<M: FieldState, Ms: FieldState> ChatRequestBuilder<M, Ms> {
 
     /// Set stop sequences.
     #[must_use]
-    pub fn stop(mut self, stop: Vec<String>) -> Self {
+    pub fn stop(mut self, stop: StopSequences) -> Self {
         self.fields.stop = Some(stop);
         self
     }
@@ -222,6 +222,7 @@ mod tests {
     )]
 
     use super::*;
+    use crate::types::StopSequences;
     use serde_json::json;
 
     fn model() -> ModelId {
@@ -264,7 +265,7 @@ mod tests {
             .frequency_penalty(FrequencyPenalty::new(0.5).unwrap())
             .presence_penalty(PresencePenalty::new(-0.5).unwrap())
             .repetition_penalty(RepetitionPenalty::new(1.1).unwrap())
-            .stop(vec!["\n\n".to_owned()])
+            .stop(StopSequences::new(vec!["\n\n".to_owned()]).expect("valid"))
             .user("user-123")
             .build();
         let v = serde_json::to_value(&req).unwrap();
