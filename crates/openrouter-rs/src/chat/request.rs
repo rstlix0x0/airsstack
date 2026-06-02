@@ -12,6 +12,7 @@ use serde::Serialize;
 
 use crate::chat::builder::{ChatRequestBuilder, Missing};
 use crate::chat::message::Message;
+use crate::chat::response_format::ResponseFormat;
 use crate::chat::tool::{Tool, ToolChoice};
 use crate::types::{
     FrequencyPenalty, MaxTokens, ModelId, PresencePenalty, RepetitionPenalty, Seed, StopSequences,
@@ -68,6 +69,8 @@ pub struct ChatRequest {
     pub(crate) tools: Option<Vec<Tool>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) tool_choice: Option<ToolChoice>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) response_format: Option<ResponseFormat>,
     /// Whether to request a streamed response. Managed by the resource layer;
     /// callers do not set this directly.
     #[doc(hidden)]
@@ -194,5 +197,50 @@ mod tests {
             .build();
         let v = serde_json::to_value(&req).unwrap();
         assert_eq!(v["tool_choice"], json!("required"));
+    }
+
+    #[test]
+    fn response_format_json_object_serializes() {
+        let req = ChatRequest::builder()
+            .model(model())
+            .messages(vec![Message::user("hi")])
+            .response_format(ResponseFormat::JsonObject)
+            .build();
+        let v = serde_json::to_value(&req).unwrap();
+        assert_eq!(v["response_format"], json!({ "type": "json_object" }));
+    }
+
+    #[test]
+    fn response_format_omitted_when_not_set() {
+        let req = ChatRequest::builder()
+            .model(model())
+            .messages(vec![Message::user("hi")])
+            .build();
+        let v = serde_json::to_value(&req).unwrap();
+        assert!(
+            v.get("response_format").is_none(),
+            "response_format must be absent"
+        );
+    }
+
+    #[test]
+    fn response_format_json_schema_serializes_full_shape() {
+        use crate::chat::response_format::{JsonSchemaConfig, SchemaStrictness};
+        use crate::types::SchemaName;
+        let schema = json!({ "type": "object", "properties": { "city": { "type": "string" } }, "required": ["city"] });
+        let mut cfg = JsonSchemaConfig::new(SchemaName::new("weather").unwrap(), schema);
+        cfg.strict = Some(SchemaStrictness::Strict);
+        let req = ChatRequest::builder()
+            .model(model())
+            .messages(vec![Message::user("hi")])
+            .response_format(ResponseFormat::JsonSchema(cfg))
+            .build();
+        let v = serde_json::to_value(&req).unwrap();
+        assert_eq!(v["response_format"]["type"], json!("json_schema"));
+        assert_eq!(
+            v["response_format"]["json_schema"]["name"],
+            json!("weather")
+        );
+        assert_eq!(v["response_format"]["json_schema"]["strict"], json!(true));
     }
 }

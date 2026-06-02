@@ -12,6 +12,8 @@
 //! - Tool calling: [`Tool`] / [`FunctionDef`] / [`ToolType`] / [`ToolChoice`]
 //!   for the request side; [`ToolCall`] / [`FunctionCall`] shared by request
 //!   replay and response decode.
+//! - Structured outputs: [`ResponseFormat`] / [`JsonSchemaConfig`] /
+//!   [`SchemaStrictness`] for requesting a constrained response shape.
 //!
 //! Not responsible for sending requests — the resource/transport layer dispatches
 //! a built [`ChatRequest`].
@@ -21,6 +23,7 @@ pub mod message;
 pub mod request;
 pub mod resource;
 pub mod response;
+pub mod response_format;
 pub mod tool;
 pub mod tool_call;
 pub mod usage;
@@ -37,6 +40,7 @@ pub use message::{ContentPart, Message, MessageContent, Role};
 pub use request::ChatRequest;
 pub use resource::ChatResource;
 pub use response::{ChatCompletion, Choice, FinishReason, ResponseMessage};
+pub use response_format::{JsonSchemaConfig, ResponseFormat, SchemaStrictness};
 pub use tool::{FunctionDef, Tool, ToolChoice, ToolType};
 pub use tool_call::{FunctionCall, ToolCall};
 pub use usage::Usage;

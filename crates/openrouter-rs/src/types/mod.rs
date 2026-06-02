@@ -9,7 +9,8 @@
 //! - Re-export the secret [`ApiKey`], the validated [`BaseUrl`], the
 //!   [`ModelId`] slug, the bounded sampling-parameter numerics, the
 //!   capped [`StopSequences`] list, the validated [`FunctionName`] for
-//!   tool definitions, and the opaque [`ToolCallId`] for tool-call tracking.
+//!   tool definitions, the opaque [`ToolCallId`] for tool-call tracking,
+//!   and the validated [`SchemaName`] for structured-output schema names.
 //!
 //! Each newtype's construction-failure reason is exported alongside it.
 
@@ -18,6 +19,7 @@ pub mod base_url;
 pub mod function_name;
 pub mod model_id;
 pub mod numeric;
+pub mod schema_name;
 pub mod stop_sequences;
 pub mod tool_call_id;
 
@@ -30,5 +32,6 @@ pub use numeric::{
     InvalidRepetitionPenalty, InvalidTemperature, InvalidTopP, MaxTokens, PresencePenalty,
     RepetitionPenalty, Seed, Temperature, TopK, TopP,
 };
+pub use schema_name::{InvalidSchemaName, SchemaName};
 pub use stop_sequences::{InvalidStopSequences, StopSequences};
 pub use tool_call_id::{InvalidToolCallId, ToolCallId};

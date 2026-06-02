@@ -12,6 +12,7 @@ use std::marker::PhantomData;
 
 use crate::chat::message::Message;
 use crate::chat::request::ChatRequest;
+use crate::chat::response_format::ResponseFormat;
 use crate::chat::tool::{Tool, ToolChoice};
 use crate::types::{
     FrequencyPenalty, MaxTokens, ModelId, PresencePenalty, RepetitionPenalty, Seed, StopSequences,
@@ -57,6 +58,7 @@ struct ChatRequestFields {
     user: Option<String>,
     tools: Option<Vec<Tool>>,
     tool_choice: Option<ToolChoice>,
+    response_format: Option<ResponseFormat>,
 }
 
 /// Builds a [`ChatRequest`]; `M` tracks the `model` state, `Ms` the `messages`
@@ -194,6 +196,13 @@ impl<M: FieldState, Ms: FieldState> ChatRequestBuilder<M, Ms> {
         self.fields.tool_choice = Some(choice);
         self
     }
+
+    /// Set the desired response format for structured outputs.
+    #[must_use]
+    pub fn response_format(mut self, format: ResponseFormat) -> Self {
+        self.fields.response_format = Some(format);
+        self
+    }
 }
 
 impl ChatRequestBuilder<Present, Present> {
@@ -228,6 +237,7 @@ impl ChatRequestBuilder<Present, Present> {
             user: f.user,
             tools: f.tools,
             tool_choice: f.tool_choice,
+            response_format: f.response_format,
             stream: false,
         }
     }
@@ -356,5 +366,32 @@ mod tests {
             serde_json::to_value(ToolType::Function).unwrap(),
             json!("function")
         );
+    }
+
+    #[test]
+    fn response_format_survives_required_field_transitions() {
+        // Set response_format BEFORE both required fields; the field-move shape
+        // must preserve it through the type-state transitions.
+        let schema = serde_json::json!({ "type": "object" });
+        let cfg = crate::chat::response_format::JsonSchemaConfig::new(
+            crate::types::SchemaName::new("weather").unwrap(),
+            schema,
+        );
+        let req = ChatRequest::builder()
+            .response_format(ResponseFormat::JsonSchema(cfg))
+            .model(model())
+            .messages(vec![Message::user("hi")])
+            .build();
+        let v = serde_json::to_value(&req).unwrap();
+        assert_eq!(v["response_format"]["type"], json!("json_schema"));
+    }
+
+    #[test]
+    fn builder_without_response_format_produces_no_field() {
+        let req = ChatRequest::builder()
+            .model(model())
+            .messages(vec![Message::user("hi")])
+            .build();
+        assert!(req.response_format.is_none());
     }
 }
