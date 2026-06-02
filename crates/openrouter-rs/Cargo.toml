@@ -13,8 +13,10 @@ keywords    = ["openrouter", "llm", "sdk", "ai", "openai"]
 categories  = ["api-bindings", "web-programming::http-client", "asynchronous"]
 
 [features]
-# Default HTTP backend (reqwest + rustls + http2 + stream, per workspace pin).
-default           = ["transport-reqwest"]
+# Default: SSE streaming + reqwest backend (rustls + http2 + stream, per workspace pin).
+default           = ["streaming", "transport-reqwest"]
+# SSE streaming for chat completions.
+streaming         = ["dep:eventsource-stream"]
 transport-reqwest = ["dep:reqwest"]
 # Internal-only: exposes MockHttpTransport for downstream tests.
 __test-mocks      = ["dep:mockall"]
@@ -32,6 +34,7 @@ pin-project-lite = { workspace = true }
 async-trait      = { workspace = true }
 reqwest          = { workspace = true, optional = true }
 mockall          = { workspace = true, optional = true }
+eventsource-stream = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio        = { workspace = true, features = ["full", "test-util"] }

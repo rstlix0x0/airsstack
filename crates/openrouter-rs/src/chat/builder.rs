@@ -209,6 +209,7 @@ impl ChatRequestBuilder<Present, Present> {
             repetition_penalty: f.repetition_penalty,
             stop: f.stop,
             user: f.user,
+            stream: false,
         }
     }
 }

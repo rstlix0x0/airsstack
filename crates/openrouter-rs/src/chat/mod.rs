@@ -20,9 +20,23 @@ pub mod resource;
 pub mod response;
 pub mod usage;
 
+#[cfg(feature = "streaming")]
+#[cfg_attr(docsrs, doc(cfg(feature = "streaming")))]
+pub mod stream;
+#[cfg(feature = "streaming")]
+#[cfg_attr(docsrs, doc(cfg(feature = "streaming")))]
+pub mod stream_chunk;
+
 pub use builder::{ChatRequestBuilder, FieldState, Missing, Present};
 pub use message::{ContentPart, Message, MessageContent, Role};
 pub use request::ChatRequest;
 pub use resource::ChatResource;
 pub use response::{ChatCompletion, Choice, FinishReason, ResponseMessage};
 pub use usage::Usage;
+
+#[cfg(feature = "streaming")]
+#[cfg_attr(docsrs, doc(cfg(feature = "streaming")))]
+pub use stream::ChatStream;
+#[cfg(feature = "streaming")]
+#[cfg_attr(docsrs, doc(cfg(feature = "streaming")))]
+pub use stream_chunk::{ChunkChoice, ChunkDelta, StreamChunk};

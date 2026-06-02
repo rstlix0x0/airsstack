@@ -167,6 +167,12 @@ pub enum Error {
         detail: String,
     },
 
+    /// SSE stream framing failure, transport interruption mid-stream, or a
+    /// mid-stream error event surfaced by the server. Carries a human-readable
+    /// description; the stream is terminal once this is yielded.
+    #[error("stream error: {0}")]
+    Stream(String),
+
     /// JSON serialize/deserialize failure inside the SDK.
     #[error("serialization error in {context}: {source}")]
     Serde {
@@ -201,6 +207,7 @@ impl Error {
             Self::Moderation { .. }
             | Self::Provider { .. }
             | Self::UndecodableApiError { .. }
+            | Self::Stream(_)
             | Self::Serde { .. }
             | Self::InvalidRequest(_)
             | Self::Build(_) => false,
@@ -338,6 +345,17 @@ mod tests {
         assert!(
             !bad_request.is_retryable(),
             "HTTP 400 must not be retryable"
+        );
+    }
+
+    #[test]
+    fn stream_error_is_not_retryable_and_displays() {
+        let e = Error::Stream("connection dropped mid-stream".into());
+        assert!(!e.is_retryable());
+        assert!(e.retry_after().is_none());
+        assert_eq!(
+            format!("{e}"),
+            "stream error: connection dropped mid-stream"
         );
     }
 

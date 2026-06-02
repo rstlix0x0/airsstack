@@ -20,6 +20,10 @@ pub use chat::{ChatCompletion, ChatRequest, ChatResource, Message, Role};
 pub use client::Client;
 pub use config::Config;
 
+#[cfg(feature = "streaming")]
+#[cfg_attr(docsrs, doc(cfg(feature = "streaming")))]
+pub use chat::{ChatStream, StreamChunk};
+
 #[cfg(feature = "transport-reqwest")]
 #[cfg_attr(docsrs, doc(cfg(feature = "transport-reqwest")))]
 pub use client::DefaultClient;

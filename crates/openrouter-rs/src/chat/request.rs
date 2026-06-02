@@ -63,6 +63,11 @@ pub struct ChatRequest {
     pub(crate) stop: Option<StopSequences>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) user: Option<String>,
+    /// Whether to request a streamed response. Managed by the resource layer;
+    /// callers do not set this directly.
+    #[doc(hidden)]
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub(crate) stream: bool,
 }
 
 impl ChatRequest {
@@ -120,6 +125,20 @@ mod tests {
         let v = serde_json::to_value(&req).unwrap();
         let obj = v.as_object().unwrap();
         assert_eq!(obj.len(), 2, "only model + messages should serialize");
+    }
+
+    #[test]
+    fn stream_flag_omitted_by_default_and_emitted_when_set() {
+        let mut req = ChatRequest::builder()
+            .model(model())
+            .messages(vec![Message::user("hi")])
+            .build();
+        // Default build does not request streaming.
+        assert!(serde_json::to_value(&req).unwrap().get("stream").is_none());
+
+        // The resource layer flips this before a streaming send.
+        req.stream = true;
+        assert_eq!(serde_json::to_value(&req).unwrap()["stream"], json!(true));
     }
 
     #[test]
