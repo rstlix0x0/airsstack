@@ -11,8 +11,10 @@
 //!   capped [`StopSequences`] list, the validated [`FunctionName`] for
 //!   tool definitions, the opaque [`ToolCallId`] for tool-call tracking,
 //!   the validated [`SchemaName`] for structured-output schema names,
-//!   the validated [`ProviderSlug`] for provider routing lists, and the
-//!   non-negative [`Price`] for provider routing price limits.
+//!   the validated [`ProviderSlug`] for provider routing lists, the
+//!   non-negative [`Price`] for provider routing price limits, and the
+//!   decimal-string [`PricePerToken`] for per-token pricing in the models
+//!   catalog.
 //!
 //! Each newtype's construction-failure reason is exported alongside it.
 
@@ -22,6 +24,7 @@ pub mod function_name;
 pub mod model_id;
 pub mod numeric;
 pub mod price;
+pub mod price_per_token;
 pub mod provider_slug;
 pub mod schema_name;
 pub mod stop_sequences;
@@ -37,6 +40,7 @@ pub use numeric::{
     RepetitionPenalty, Seed, Temperature, TopK, TopP,
 };
 pub use price::{InvalidPrice, Price};
+pub use price_per_token::{InvalidPricePerToken, PricePerToken};
 pub use provider_slug::{InvalidProviderSlug, ProviderSlug};
 pub use schema_name::{InvalidSchemaName, SchemaName};
 pub use stop_sequences::{InvalidStopSequences, StopSequences};

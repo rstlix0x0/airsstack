@@ -13,6 +13,7 @@ pub mod chat;
 pub mod client;
 mod config;
 mod headers;
+pub mod models;
 mod wire_helpers;
 
 pub use auth::Auth;
@@ -27,6 +28,7 @@ pub use chat::{
 };
 pub use client::Client;
 pub use config::Config;
+pub use models::{Model, ModelsResource, Pricing};
 
 #[cfg(feature = "streaming")]
 #[cfg_attr(docsrs, doc(cfg(feature = "streaming")))]

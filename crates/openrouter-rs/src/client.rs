@@ -146,6 +146,15 @@ impl<T: HttpTransport> Client<T> {
     pub const fn chat(&self) -> crate::chat::ChatResource<'_, T> {
         crate::chat::ChatResource { client: self }
     }
+
+    /// Begin a models-catalog call.
+    ///
+    /// Returns a short-lived [`crate::models::ModelsResource`] borrowing this
+    /// client; create it at the call site and drop it after the call.
+    #[must_use]
+    pub const fn models(&self) -> crate::models::ModelsResource<'_, T> {
+        crate::models::ModelsResource { client: self }
+    }
 }
 
 #[cfg(feature = "transport-reqwest")]
