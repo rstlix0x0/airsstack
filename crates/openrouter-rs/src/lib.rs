@@ -5,6 +5,28 @@
 //! single API and a single API key. This crate targets that API from Rust.
 //!
 //! This crate is not affiliated with OpenRouter.
+//!
+//! # Quick start
+//!
+//! ```no_run
+//! use openrouter_rs::prelude::*;
+//!
+//! # async fn run() -> Result<(), Box<dyn std::error::Error>> {
+//! let api_key = ApiKey::new(std::env::var("OPENROUTER_API_KEY")?)?;
+//! let client = Client::builder()?.api_key(api_key).build()?;
+//!
+//! let req = ChatRequest::builder()
+//!     .model(ModelId::custom("openai/gpt-4o-mini")?)
+//!     .messages(vec![Message::user("Say hi in one word.")])
+//!     .build();
+//!
+//! let completion = client.chat().send(req).await?;
+//! if let Some(choice) = completion.choices.first() {
+//!     println!("{:?}", choice.message.content);
+//! }
+//! # Ok(())
+//! # }
+//! ```
 #![forbid(unsafe_code)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
@@ -40,5 +62,6 @@ pub use client::DefaultClient;
 
 pub mod builder;
 pub mod error;
+pub mod prelude;
 pub mod transport;
 pub mod types;

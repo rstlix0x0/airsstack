@@ -42,5 +42,21 @@ futures-util = { workspace = true }
 mockall      = { workspace = true }
 trybuild     = { workspace = true }
 
+[[example]]
+name = "01_chat"
+required-features = ["transport-reqwest"]
+
+[[example]]
+name = "02_streaming"
+required-features = ["streaming", "transport-reqwest"]
+
+[[example]]
+name = "03_tools"
+required-features = ["transport-reqwest"]
+
+[[example]]
+name = "04_caching"
+required-features = ["transport-reqwest"]
+
 [lints]
 workspace = true
