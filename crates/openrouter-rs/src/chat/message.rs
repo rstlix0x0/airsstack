@@ -17,6 +17,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::chat::cache_control::CacheControl;
 use crate::chat::tool_call::ToolCall;
 use crate::types::ToolCallId;
 
@@ -82,7 +83,8 @@ impl From<Vec<ContentPart>> for MessageContent {
 /// One structured piece of a message's content.
 ///
 /// Only the `text` variant exists in this release; it serializes to
-/// `{ "type": "text", "text": "…" }`.
+/// `{ "type": "text", "text": "…" }`, plus an optional `cache_control`
+/// breakpoint marking the part as a prompt-cache prefix.
 ///
 /// # Examples
 /// ```
@@ -100,14 +102,29 @@ pub enum ContentPart {
     Text {
         /// The text payload.
         text: String,
+        /// Optional prompt-cache breakpoint; omitted from the wire when unset.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        cache_control: Option<CacheControl>,
     },
 }
 
 impl ContentPart {
-    /// Build a text content part.
+    /// Build a text content part with no cache breakpoint.
     #[must_use]
     pub fn text(text: impl Into<String>) -> Self {
-        Self::Text { text: text.into() }
+        Self::Text {
+            text: text.into(),
+            cache_control: None,
+        }
+    }
+
+    /// Build a text content part marked as a prompt-cache prefix.
+    #[must_use]
+    pub fn text_cached(text: impl Into<String>, cache_control: CacheControl) -> Self {
+        Self::Text {
+            text: text.into(),
+            cache_control: Some(cache_control),
+        }
     }
 }
 
@@ -373,6 +390,42 @@ mod tests {
         let id = ToolCallId::new("call_1").unwrap();
         let m = Message::tool_result(id, "ok");
         assert_eq!(m.content(), Some(&MessageContent::Text("ok".into())));
+    }
+
+    #[test]
+    fn text_part_without_cache_control_serializes_unchanged() {
+        let part = ContentPart::text("hi");
+        assert_eq!(
+            serde_json::to_value(&part).unwrap(),
+            json!({ "type": "text", "text": "hi" }),
+        );
+    }
+
+    #[test]
+    fn text_cached_part_serializes_with_cache_control() {
+        use crate::chat::cache_control::{CacheControl, CacheTtl};
+        let part = ContentPart::text_cached("prefix", CacheControl::with_ttl(CacheTtl::OneHour));
+        assert_eq!(
+            serde_json::to_value(&part).unwrap(),
+            json!({
+                "type": "text",
+                "text": "prefix",
+                "cache_control": { "type": "ephemeral", "ttl": "1h" }
+            }),
+        );
+    }
+
+    #[test]
+    fn text_part_round_trips_with_and_without_cache_control() {
+        use crate::chat::cache_control::CacheControl;
+        for part in [
+            ContentPart::text("a"),
+            ContentPart::text_cached("b", CacheControl::ephemeral()),
+        ] {
+            let v = serde_json::to_value(&part).unwrap();
+            let back: ContentPart = serde_json::from_value(v).unwrap();
+            assert_eq!(back, part);
+        }
     }
 
     #[test]

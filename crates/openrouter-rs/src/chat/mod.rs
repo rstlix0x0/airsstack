@@ -21,12 +21,16 @@
 //! a built [`ChatRequest`].
 
 pub mod builder;
+pub mod cache_control;
+pub mod cached;
 pub mod message;
 pub mod provider;
 pub mod request;
 pub mod resource;
 pub mod response;
+pub mod response_cache;
 pub mod response_format;
+pub mod token_details;
 pub mod tool;
 pub mod tool_call;
 pub mod usage;
@@ -39,6 +43,8 @@ pub mod stream;
 pub mod stream_chunk;
 
 pub use builder::{ChatRequestBuilder, FieldState, Missing, Present};
+pub use cache_control::{CacheControl, CacheKind, CacheTtl};
+pub use cached::{CacheStatus, Cached};
 pub use message::{ContentPart, Message, MessageContent, Role};
 pub use provider::{
     DataCollection, FallbackPolicy, InvalidLatencyCeiling, InvalidThroughputFloor, LatencyCeiling,
@@ -48,7 +54,11 @@ pub use provider::{
 pub use request::ChatRequest;
 pub use resource::ChatResource;
 pub use response::{ChatCompletion, Choice, FinishReason, ResponseMessage};
+pub use response_cache::{
+    CacheClear, CacheMode, CacheTtlSeconds, InvalidCacheTtlSeconds, ResponseCache,
+};
 pub use response_format::{JsonSchemaConfig, ResponseFormat, SchemaStrictness};
+pub use token_details::{CompletionTokensDetails, CostDetails, PromptTokensDetails};
 pub use tool::{FunctionDef, Tool, ToolChoice, ToolType};
 pub use tool_call::{FunctionCall, ToolCall};
 pub use usage::Usage;

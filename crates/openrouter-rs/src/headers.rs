@@ -24,6 +24,11 @@ pub(crate) const HTTP_REFERER: &str = "http-referer";
 pub(crate) const X_TITLE: &str = "x-title";
 pub(crate) const RETRY_AFTER: &str = "retry-after";
 pub(crate) const USER_AGENT: &str = "user-agent";
+pub(crate) const X_OPENROUTER_CACHE: &str = "x-openrouter-cache";
+pub(crate) const X_OPENROUTER_CACHE_TTL: &str = "x-openrouter-cache-ttl";
+pub(crate) const X_OPENROUTER_CACHE_CLEAR: &str = "x-openrouter-cache-clear";
+pub(crate) const X_OPENROUTER_CACHE_STATUS: &str = "x-openrouter-cache-status";
+pub(crate) const X_OPENROUTER_CACHE_AGE: &str = "x-openrouter-cache-age";
 
 #[cfg(test)]
 mod tests {
@@ -41,6 +46,11 @@ mod tests {
             X_TITLE,
             RETRY_AFTER,
             USER_AGENT,
+            X_OPENROUTER_CACHE,
+            X_OPENROUTER_CACHE_TTL,
+            X_OPENROUTER_CACHE_CLEAR,
+            X_OPENROUTER_CACHE_STATUS,
+            X_OPENROUTER_CACHE_AGE,
         ] {
             assert!(
                 h.bytes()

@@ -10,6 +10,7 @@
 
 use std::marker::PhantomData;
 
+use crate::chat::cache_control::CacheControl;
 use crate::chat::message::Message;
 use crate::chat::provider::ProviderPreferences;
 use crate::chat::request::ChatRequest;
@@ -62,6 +63,7 @@ struct ChatRequestFields {
     response_format: Option<ResponseFormat>,
     provider: Option<ProviderPreferences>,
     models: Option<Vec<ModelId>>,
+    cache_control: Option<CacheControl>,
 }
 
 /// Builds a [`ChatRequest`]; `M` tracks the `model` state, `Ms` the `messages`
@@ -220,6 +222,13 @@ impl<M: FieldState, Ms: FieldState> ChatRequestBuilder<M, Ms> {
         self.fields.models = Some(models);
         self
     }
+
+    /// Set a top-level prompt-cache breakpoint (Anthropic-direct auto-cache).
+    #[must_use]
+    pub const fn cache_control(mut self, cache_control: CacheControl) -> Self {
+        self.fields.cache_control = Some(cache_control);
+        self
+    }
 }
 
 impl ChatRequestBuilder<Present, Present> {
@@ -257,6 +266,7 @@ impl ChatRequestBuilder<Present, Present> {
             response_format: f.response_format,
             provider: f.provider,
             models: f.models,
+            cache_control: f.cache_control,
             stream: false,
         }
     }
@@ -449,6 +459,22 @@ mod tests {
         assert_eq!(
             v["models"],
             json!(["anthropic/claude-3-haiku", "openai/gpt-4o-mini"])
+        );
+    }
+
+    #[test]
+    fn cache_control_survives_required_field_transitions() {
+        use crate::chat::cache_control::{CacheControl, CacheTtl};
+        // Set cache_control BEFORE both required fields; field-move must preserve it.
+        let req = ChatRequest::builder()
+            .cache_control(CacheControl::with_ttl(CacheTtl::FiveMinutes))
+            .model(model())
+            .messages(vec![Message::user("hi")])
+            .build();
+        let v = serde_json::to_value(&req).unwrap();
+        assert_eq!(
+            v["cache_control"],
+            json!({ "type": "ephemeral", "ttl": "5m" })
         );
     }
 
