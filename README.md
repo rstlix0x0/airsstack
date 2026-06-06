@@ -22,11 +22,7 @@ Previously, I've been doing lot of experiments with multiple models, and then I 
 - `Kimi K2`
 - `Qwen`
 
-## What this repository ships
-
-Two things live here:
-
-### Rust crates (the AI-SDK)
+## Rust crates (the AI-SDK & Tools)
 
 A Cargo workspace (`crates/`) with two members:
 
@@ -35,7 +31,7 @@ A Cargo workspace (`crates/`) with two members:
 
 Standard Rust commands apply: `cargo build`, `cargo test -p <crate>`, `cargo clippy`, `cargo fmt`.
 
-### The airsstack Claude Code plugin suite (the methodology)
+## The airsstack Claude Code plugin suite (the methodology)
 
 A marketplace (`.claude-plugin/marketplace.json`) of three plugins under `plugins/` that package this project's spec-driven, review-gated development methodology for [Claude Code](https://www.claude.com/product/claude-code):
 
