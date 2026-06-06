@@ -1,18 +1,18 @@
-//! Shared wire-layer helpers used when processing an HTTP response.
+//! Shared API-error-decoding helper used when processing an HTTP response.
 //!
-//! Groups the body-collection and error-decoding routines a resource needs
-//! after the transport returns. Kept in one place so each resource module
-//! stays focused on request construction and status interpretation, and so a
-//! second resource reuses the same decoding without duplication.
+//! Groups the non-2xx error decoding a resource needs after the transport
+//! returns. Kept in one place so each resource module stays focused on request
+//! construction and status interpretation, and so a second resource reuses the
+//! same decoding without duplication. Draining the response body is a
+//! transport-layer concern — see [`crate::transport::collect_body`].
 //!
 //! Responsibilities:
-//! - [`collect_body`] — drain a [`crate::transport::BodyStream`] into bytes,
-//!   enforcing a size cap.
 //! - [`decode_api_error_from_parts`] — turn a non-2xx status + headers + body
 //!   into an [`crate::error::Error`], routing the rate-limit, moderation,
 //!   provider-passthrough, generic-API, and undecodable cases.
 //!
 //! Not responsible for:
+//! - Draining response bodies — that is [`crate::transport::collect_body`].
 //! - Constructing HTTP requests or setting headers — the resource layer does.
 //! - Serializing request bodies — also the resource layer.
 
@@ -25,7 +25,6 @@ use std::time::Duration;
 
 use crate::error::Error;
 use crate::headers as h;
-pub(crate) use airs_transport::{MAX_RESPONSE_BODY_BYTES, collect_body};
 
 /// Outer error envelope every non-2xx body uses: `{"error":{...}}`.
 #[derive(serde::Deserialize)]
