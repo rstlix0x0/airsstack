@@ -25,8 +25,8 @@ use http::{Method, Request};
 use crate::client::Client;
 use crate::error::Error;
 use crate::headers as h;
-use crate::transport::{BodyStream, HttpTransport};
-use crate::wire_helpers::{MAX_RESPONSE_BODY_BYTES, collect_body, decode_api_error_from_parts};
+use crate::transport::{BodyStream, HttpTransport, MAX_RESPONSE_BODY_BYTES, collect_body};
+use crate::wire_helpers::decode_api_error_from_parts;
 
 use super::request::MessageRequest;
 use super::response::Message;

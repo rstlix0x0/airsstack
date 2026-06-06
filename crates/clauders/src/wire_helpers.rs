@@ -1,18 +1,18 @@
-//! Shared wire-layer helpers used by multiple API resources.
+//! Shared API-error-decoding helper used by multiple resource modules.
 //!
-//! Groups the body-collection and API-error-decoding routines that every
-//! resource module (messages, models) needs when processing an HTTP
-//! response. Placing them here avoids duplication and keeps each resource
-//! focused on request construction and response interpretation.
+//! Groups the non-2xx response decoding that every resource module
+//! (messages, models) needs when interpreting an HTTP response. Placing it
+//! here avoids duplication and keeps each resource focused on request
+//! construction and response interpretation. Draining the response body is a
+//! transport-layer concern — see [`crate::transport::collect_body`].
 //!
 //! Responsibilities:
-//! - [`collect_body`] — drain a [`crate::transport::BodyStream`] into bytes,
-//!   enforcing a size cap.
 //! - [`decode_api_error_from_parts`] — turn a non-2xx status + headers +
 //!   body into an [`crate::error::Error`], extracting `request-id`,
 //!   `anthropic-organization-id`, and `retry-after` header values.
 //!
 //! Not responsible for:
+//! - Draining response bodies — that is [`crate::transport::collect_body`].
 //! - Constructing HTTP requests or setting headers — the resource layer
 //!   handles that.
 //! - Serializing request bodies — also the resource layer.
@@ -22,8 +22,6 @@
 )]
 
 use std::time::Duration;
-
-pub(crate) use airs_transport::{MAX_RESPONSE_BODY_BYTES, collect_body};
 
 use crate::error::{ApiError, ApiErrorBody, Error};
 use crate::headers as h;
