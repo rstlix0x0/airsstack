@@ -1,0 +1,13 @@
+{
+  "name": "airsstack-guideline-rust",
+  "version": "0.1.0",
+  "description": "Rust engineering guidelines and Definition-of-Done, delivered as a lazily-loaded skill.",
+  "author": {
+    "name": "rstlix0x0",
+    "email": "rstlix.dev@gmail.com"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/rstlix0x0/airsstack",
+  "repository": "https://github.com/rstlix0x0/airsstack",
+  "keywords": ["rust", "guidelines", "definition-of-done", "code-quality"]
+}

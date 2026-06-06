@@ -1,0 +1,13 @@
+{
+  "name": "airsstack-sdd",
+  "version": "0.1.0",
+  "description": "Spec-driven development workflow: brainstorm an idea into a spec, write a one-objective implementation plan, and execute it with review checkpoints.",
+  "author": {
+    "name": "rstlix0x0",
+    "email": "rstlix.dev@gmail.com"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/rstlix0x0/airsstack",
+  "repository": "https://github.com/rstlix0x0/airsstack",
+  "keywords": ["spec-driven-development", "planning", "workflow"]
+}
