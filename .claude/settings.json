@@ -1,27 +1,4 @@
 {
-  "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "startup|resume|clear",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo 'Reminder: run /snapshot-load for the current git branch to rehydrate relevant project memory before starting work.'"
-          }
-        ]
-      }
-    ],
-    "SessionEnd": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo 'Reminder: run /snapshot-save to flush durable session learnings into project memory (durability gate applies — thin sessions write nothing).'"
-          }
-        ]
-      }
-    ]
-  },
   "companyAnnouncements": [
     "airsstack is a custom AI-SDK for personal AI stacks.",
     "Utilizing Claude API and open-source models through OpenRouter"
