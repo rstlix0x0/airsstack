@@ -163,9 +163,10 @@ For `crates.io`-publishable members, the workspace-deps form must include both `
 cargo build
 cargo check --workspace --all-targets --all-features
 
-# Build / test one crate
-cargo build -p <crate>
-cargo test  -p <crate>
+# Build / test one crate (tests always carry --all-features:
+# a default-feature run silently skips feature-gated tests)
+cargo build -p <crate> --all-features
+cargo test  -p <crate> --all-features
 
 # Run a binary crate
 # cargo run -p <bin-crate> -- <args>

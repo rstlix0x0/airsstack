@@ -21,7 +21,7 @@ Be pragmatic; do not build for an imagined future. The repo deliberately ships *
 
 ## Commands
 
-The standard Rust commands apply (`cargo build`, `cargo test`, `cargo test -p clauders`, `cargo clippy`, `cargo fmt`). `clauders` is feature-gated (e.g. `transport-reqwest`); use `cargo hack --each-feature` for feature combinatorics. The full pass/fail gate (Definition of Done) lives in the `airsstack-guideline-rust` plugin — see below.
+The standard Rust commands apply (`cargo build`, `cargo clippy`, `cargo fmt`). **Tests must run with `--all-features`**: `cargo test --workspace --all-features` for the full gate, or `cargo test -p <crate> --all-features` while iterating on one crate. Plain `cargo test` / `cargo test -p <crate>` compiles only the default features and **silently skips feature-gated tests** (e.g. the `__test-mocks` mock/integration tests), so a green default-feature run is NOT a valid gate. The crates are feature-gated (e.g. `transport-reqwest`, `__test-mocks`); use `cargo hack check --each-feature` for compile-time feature combinatorics. The full pass/fail gate (Definition of Done) lives in the `airsstack-guideline-rust` plugin — see below.
 
 ## AI methodology — the airsstack plugin suite
 
