@@ -15,7 +15,7 @@ Do NOT invoke any implementation skill, write code, or scaffold anything until y
 
 Work through these steps in order. Create a `TodoWrite` item for each step so progress is visible.
 
-1. **Explore project context.** Read relevant files, docs, and recent commits to understand the codebase, its conventions, and what already exists. Do not design in a vacuum.
+1. **Explore project context.** Read relevant files, docs, and recent commits to understand the codebase, its conventions, and what already exists. Do not design in a vacuum. **Check for RFCs:** an engineer may have dropped an RFC into the SDD `rfcs/` directory (location in `../../references/artifact-paths.md`) as design input. If the user explicitly named an RFC — by path or filename — load it as primary design input; if that named file is missing, report the path and ask for a correct reference rather than guessing. Otherwise auto-scan `rfcs/` for any files: if it holds RFCs, surface them and ask which (if any) are relevant before proceeding; if it is empty or absent, proceed normally with no RFC prompt. RFCs are read-only input — never create, edit, move, or delete one.
 
 2. **Assess scope.** Before refining any details, judge whether the request spans multiple independent subsystems. If it does, flag this immediately and help the user decompose it into separate, sequenced scopes — each one gets its own spec, plan, and implementation cycle. Do not proceed with a multi-scope design as though it were one unit of work.
 
@@ -25,7 +25,7 @@ Work through these steps in order. Create a `TodoWrite` item for each step so pr
 
 5. **Present the design section by section.** Walk through the design in sections scaled to their complexity. At minimum, cover architecture, key components and their responsibilities, data flow, error handling, and testing strategy. After each non-trivial section, confirm the user's understanding and agreement before moving to the next. This incremental gate catches disagreements early, before the full spec is written.
 
-6. **Write the spec.** Once the design is agreed upon, write it to the SDD specs directory — its location and `YYYY-MM-DD-<topic>.md` naming are defined in `../../references/artifact-paths.md` (read it for the exact path). Before writing, ensure that directory exists, creating it if absent: the SessionStart hook or `/airsstack-sdd:setup` normally provisions it, but never assume a wrapper ran. The spec is the durable record — write it to stand on its own without reference to this conversation.
+6. **Write the spec.** Once the design is agreed upon, write it to the SDD specs directory — its location and `YYYY-MM-DD-<topic>.md` naming are defined in `../../references/artifact-paths.md` (read it for the exact path). Before writing, ensure that directory exists, creating it if absent: the SessionStart hook or `/airsstack-sdd:setup` normally provisions it, but never assume a wrapper ran. The spec is the durable record — write it to stand on its own without reference to this conversation. **RFC provenance:** if one or more RFCs seeded this spec, record each in the spec header with a `Derived-from-RFC: rfcs/<filename>` line — one line per source RFC. Omit the line entirely when no RFC seeded the spec.
 
 7. **Self-review the spec.** After writing, re-read the spec with fresh eyes using the criteria in the Self-Review section below. Fix issues inline. No re-review loop needed — one clean pass is sufficient.
 
