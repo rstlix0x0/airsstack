@@ -43,7 +43,7 @@ A marketplace (`.claude-plugin/marketplace.json`) of three plugins under `plugin
 
 The plugins are language-agnostic except for the guideline plugin: the agents obtain their Definition-of-Done and rules from whichever `*-guideline-*` skill is installed and degrade gracefully when none is present.
 
-## Using the plugin suite
+### Using the plugin suite
 
 Working inside this repository, the suite loads automatically — `.claude/settings.json` registers the in-repo marketplace and enables all three plugins (restart Claude Code once to activate).
 
