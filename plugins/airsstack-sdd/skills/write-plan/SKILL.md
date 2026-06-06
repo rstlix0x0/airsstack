@@ -1,6 +1,6 @@
 ---
 name: write-plan
-description: Use when you have an approved spec and need an implementation plan — decomposes one objective into bite-sized test-first tasks with exact file paths and complete code, writes the plan to docs/plans/, and owns the spec-versus-plan artifact lifecycle. One objective per plan; read references/artifact-lifecycle.md before deleting any plan.
+description: Use when you have an approved spec and need an implementation plan — decomposes one objective into bite-sized test-first tasks with exact file paths and complete code, writes the plan to the SDD plans directory, and owns the spec-versus-plan artifact lifecycle. One objective per plan; read references/artifact-lifecycle.md before deleting any plan.
 ---
 
 # Write Plan
@@ -181,7 +181,7 @@ After drafting the plan, run through these three passes before saving:
    a gap — add the task or note explicitly that the requirement is deferred (with justification).
 
 2. **Placeholder scan.** Search the draft for the patterns listed in the "No placeholders" section.
-   Fix every hit inline. The plan goes to `docs/plans/` only once the scan is clean.
+   Fix every hit inline. The plan goes to the SDD plans directory (see `../../references/artifact-paths.md`) only once the scan is clean.
 
 3. **Type-consistency check.** Verify that every type name, function signature, and constant referenced
    in Task N+1 was either defined in a previous task or already exists in the codebase. A forward
@@ -192,7 +192,7 @@ Fix all findings inline before moving on. The self-review is not optional.
 
 ## Execution handoff
 
-Save the plan to `docs/plans/YYYY-MM-DD-<topic>.md` before handing off.
+Save the plan to the SDD plans directory — location and `YYYY-MM-DD-<topic>.md` naming are defined in `../../references/artifact-paths.md`. Before writing, ensure that directory exists, creating it if absent; do not assume the provisioning hook or `/airsstack-sdd:setup` has run.
 
 Two execution paths are available — choose based on task complexity and how much main-context you want
 to preserve:

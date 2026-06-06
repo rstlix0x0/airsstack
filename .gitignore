@@ -27,3 +27,4 @@ target
 
 # Claude Code scheduled-task lock (per-session runtime mutex). Ephemeral, machine-local.
 .claude/scheduled_tasks.lock
+.airsstack/
