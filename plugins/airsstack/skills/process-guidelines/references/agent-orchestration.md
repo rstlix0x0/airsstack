@@ -47,6 +47,24 @@ Delegation trades total token spend for main-context longevity — each spawn re
 - Keep trivia inline on the main thread (a one-line edit costs more delegated than done directly).
 - Don't blanket-delegate to "keep context clean" — it raises total cost for no gain.
 
+## Reach for explorer by default when locating
+
+Locating is not only a pre-coder step — it is the default for any broad or
+multi-file search, standalone or not. Before reading widely yourself, ask: am I
+*finding/mapping* (→ explorer) or *understanding/judging* (→ inline)?
+
+- **Delegate to explorer:** "where is X defined", "what calls Y", "every use of
+  Z", "map this directory", locating across an unfamiliar tree. It returns
+  `file:line` tables — the main context never absorbs the file bodies it sifted.
+- **Keep inline:** a single read at a known path; any task needing synthesis or
+  judgment (explorer HARD-REFUSES that and will bounce it back); docs that need
+  interpreting rather than locating.
+
+The win is token-shaped: explorer (haiku) burns its own cheap context grepping
+and reading, and hands back a compact table. Reading the same breadth on the
+main thread pulls every scanned line into the expensive context for the rest of
+the session.
+
 ## Validate before trust
 
 Before a new or changed agent gates real work, dry-run it on known-good material (e.g. an

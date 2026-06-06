@@ -4,7 +4,11 @@ description: >
   Read-only code locator and navigator. Answers "where is X defined", "what
   calls Y", "list all uses of Z", "map this directory" — returns compact
   file:line tables. HARD-REFUSES evaluation, judgment, bug-hunting, and fix
-  suggestions. Use to find and map code fast before another agent acts on it.
+  suggestions. PREFER THIS for any broad or multi-file locating — finding where
+  something lives, mapping an unfamiliar directory, sweeping for all uses —
+  whether or not an implementation follows; it returns compact tables instead
+  of dumping file bodies into the main context. Skip it for a single known-path
+  read or when the next step needs judgment (explorer refuses that).
 tools: [Read, Grep, Glob, Bash]
 model: haiku
 ---
