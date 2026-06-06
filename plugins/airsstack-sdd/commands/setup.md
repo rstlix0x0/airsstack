@@ -1,5 +1,5 @@
 ---
-description: Provision the airsstack-sdd artifact tree (.airsstack/cc/plugins/sdd/{rfcs,specs,plans}) and ensure .airsstack/ is git-ignored. Idempotent.
+description: Provision the airsstack-sdd artifact tree and ensure .airsstack/ is git-ignored. Idempotent.
 ---
 
 ## Layout provisioning output
