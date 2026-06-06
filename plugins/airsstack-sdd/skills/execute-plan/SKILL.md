@@ -11,7 +11,7 @@ This skill works with any plan that follows a documented on-disk format, whether
 
 ## Load and review
 
-Before a single line changes, read and understand the plan fully.
+Before a single line changes, read and understand the plan fully. If the caller did not hand you an explicit plan path, the default plan location and naming are defined in `../../references/artifact-paths.md` — look there.
 
 1. Read the plan file from disk. Note each task, its description, its acceptance criteria, and the verifications the plan specifies.
 2. Assess the plan critically. Ask yourself: Are any tasks ambiguous? Are dependencies between tasks clear? Is the branch specified, or does one need to be created? Does anything in the plan contradict known project conventions?
