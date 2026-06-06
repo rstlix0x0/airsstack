@@ -1,4 +1,17 @@
 {
+  "extraKnownMarketplaces": {
+    "airsstack": {
+      "source": {
+        "source": "directory",
+        "path": "."
+      }
+    }
+  },
+  "enabledPlugins": {
+    "airsstack@airsstack": true,
+    "airsstack-sdd@airsstack": true,
+    "airsstack-guideline-rust@airsstack": true
+  },
   "companyAnnouncements": [
     "airsstack is a custom AI-SDK for personal AI stacks.",
     "Utilizing Claude API and open-source models through OpenRouter"
