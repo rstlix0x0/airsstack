@@ -1,0 +1,25 @@
+{
+  "name": "airsstack",
+  "owner": {
+    "name": "rstlix0x0",
+    "email": "rstlix.dev@gmail.com"
+  },
+  "description": "airsstack — modular AI development methodology for Claude Code: execution agents, a spec-driven workflow, and per-language guideline plugins.",
+  "plugins": [
+    {
+      "name": "airsstack",
+      "source": "./plugins/airsstack",
+      "description": "Execution engine: a TDD coder, a merged code+spec reviewer, a claim verifier, and a read-only explorer, plus an orchestration driver, process guidelines, project-local memory, and a concise output mode."
+    },
+    {
+      "name": "airsstack-sdd",
+      "source": "./plugins/airsstack-sdd",
+      "description": "Spec-driven development workflow: brainstorm an idea into a spec, write a one-objective implementation plan, and execute it with review checkpoints."
+    },
+    {
+      "name": "airsstack-guideline-rust",
+      "source": "./plugins/airsstack-guideline-rust",
+      "description": "Rust engineering guidelines and Definition-of-Done, delivered as a lazily-loaded skill."
+    }
+  ]
+}

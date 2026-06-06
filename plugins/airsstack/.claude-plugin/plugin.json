@@ -1,0 +1,13 @@
+{
+  "name": "airsstack",
+  "version": "0.1.0",
+  "description": "Execution engine: a TDD coder, a merged code+spec reviewer, a claim verifier, and a read-only explorer, plus an orchestration driver, process guidelines, project-local memory, and a concise output mode.",
+  "author": {
+    "name": "rstlix0x0",
+    "email": "rstlix.dev@gmail.com"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/rstlix0x0/airsstack",
+  "repository": "https://github.com/rstlix0x0/airsstack",
+  "keywords": ["methodology", "tdd", "code-review", "agents", "orchestration"]
+}
