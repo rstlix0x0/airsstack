@@ -1,18 +1,8 @@
-//! Default `reqwest`-backed [`HttpTransport`] implementation.
+//! Default `reqwest`-backed implementer of [`crate::Transport`] (and, via the
+//! blanket impl, [`crate::HttpTransport`]).
 //!
-//! Exists as its own module so the concrete transport and its `reqwest`
-//! error-mapping sit behind the `transport-reqwest` feature and never compile
-//! into builds that disable it.
-//!
-//! Responsibilities:
-//! - Define [`ReqwestTransport`], the default [`HttpTransport`] backed by a
-//!   shared `reqwest::Client`.
-//! - Classify `reqwest::Error` into [`TransportError`] categories the retry
-//!   layer can act on.
-//! - Re-pin `reqwest::Response::bytes_stream()` into the crate [`BodyStream`].
-//!
-//! Not responsible for:
-//! - Status-code interpretation — non-2xx responses return as `Ok`.
+//! Sits behind the `transport-reqwest` feature so `reqwest` and its error
+//! mapping never compile into builds that disable it.
 
 use std::time::{Duration, Instant};
 
@@ -21,8 +11,9 @@ use futures_core::Stream;
 use http::{Request, Response};
 use pin_project_lite::pin_project;
 
-use super::{BodyStream, HttpTransport};
+use crate::BodyStream;
 use crate::error::TransportError;
+use crate::transport::Transport;
 
 /// Default `reqwest`-backed transport.
 ///
@@ -32,7 +23,7 @@ use crate::error::TransportError;
 /// # Examples
 ///
 /// ```
-/// use openrouter_rs::transport::ReqwestTransport;
+/// use airs_transport::ReqwestTransport;
 /// let transport = ReqwestTransport::try_new().expect("transport built");
 /// ```
 #[derive(Debug, Clone)]
@@ -41,29 +32,41 @@ pub struct ReqwestTransport {
 }
 
 impl ReqwestTransport {
-    /// Construct a transport with default settings and an SDK `User-Agent`.
+    /// Construct a transport whose `User-Agent` is supplied by the caller.
+    ///
+    /// Consumer SDKs pass their own branded UA (e.g. `"clauders/0.1.0"`) so
+    /// on-wire identification is preserved after the transport moved out of
+    /// the SDK crate.
     ///
     /// # Errors
     /// Returns [`TransportError::Build`] when the underlying `reqwest::Client`
     /// cannot initialize (typically a TLS-backend load failure).
-    pub fn try_new() -> Result<Self, TransportError> {
+    pub fn try_new_with_user_agent(user_agent: &str) -> Result<Self, TransportError> {
         reqwest::Client::builder()
-            .user_agent(concat!("openrouter-rs/", env!("CARGO_PKG_VERSION")))
+            .user_agent(user_agent)
             .build()
             .map(|inner| Self { inner })
             .map_err(|e| TransportError::Build(e.to_string()))
     }
 
+    /// Construct a transport with a default `airs-transport/<version>` UA.
+    ///
+    /// # Errors
+    /// Returns [`TransportError::Build`] when the underlying `reqwest::Client`
+    /// cannot initialize (typically a TLS-backend load failure).
+    pub fn try_new() -> Result<Self, TransportError> {
+        Self::try_new_with_user_agent(concat!("airs-transport/", env!("CARGO_PKG_VERSION")))
+    }
+
     /// Construct a transport from a caller-supplied `reqwest::Client`.
     ///
     /// Use this for custom timeouts, proxies, TLS roots, or shared
-    /// instrumentation. `reqwest::Client` is part of the public contract only
-    /// when the `transport-reqwest` feature is enabled.
+    /// instrumentation.
     ///
     /// # Examples
     ///
     /// ```
-    /// use openrouter_rs::transport::ReqwestTransport;
+    /// use airs_transport::ReqwestTransport;
     /// let transport = ReqwestTransport::from_client(reqwest::Client::new());
     /// ```
     #[must_use]
@@ -73,7 +76,11 @@ impl ReqwestTransport {
 }
 
 #[async_trait::async_trait]
-impl HttpTransport for ReqwestTransport {
+impl Transport for ReqwestTransport {
+    type Request = Request<Bytes>;
+    type Response = Response<BodyStream>;
+    type Error = TransportError;
+
     async fn send(&self, req: Request<Bytes>) -> Result<Response<BodyStream>, TransportError> {
         let (parts, body) = req.into_parts();
         let url = parts.uri.to_string();
@@ -139,8 +146,8 @@ fn classify(
 }
 
 /// Detect TLS-related error text. `reqwest` does not expose its TLS error
-/// type, so the SDK matches tokens that reliably appear in
-/// `rustls`/`webpki` messages.
+/// type, so the SDK matches tokens that reliably appear in `rustls`/`webpki`
+/// messages.
 fn is_tls_message(s: &str) -> bool {
     s.contains("certificate")
         || s.contains("handshake")
@@ -217,6 +224,12 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn constructors_build_a_client() {
+        assert!(ReqwestTransport::try_new().is_ok());
+        assert!(ReqwestTransport::try_new_with_user_agent("clauders/0.0.0-test").is_ok());
+    }
 
     #[test]
     fn tls_messages_detected() {

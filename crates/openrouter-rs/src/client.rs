@@ -27,6 +27,9 @@ use crate::auth::Auth;
 use crate::config::Config;
 use crate::transport::HttpTransport;
 
+#[cfg(not(feature = "transport-reqwest"))]
+use crate::transport::Transport;
+
 #[cfg(feature = "transport-reqwest")]
 use crate::transport::ReqwestTransport;
 
@@ -67,7 +70,10 @@ pub struct DefaultTransportPlaceholder;
 
 #[cfg(not(feature = "transport-reqwest"))]
 #[async_trait::async_trait]
-impl HttpTransport for DefaultTransportPlaceholder {
+impl Transport for DefaultTransportPlaceholder {
+    type Request = http::Request<bytes::Bytes>;
+    type Response = http::Response<crate::transport::BodyStream>;
+    type Error = crate::error::TransportError;
     async fn send(
         &self,
         _req: http::Request<bytes::Bytes>,
@@ -184,8 +190,11 @@ impl Client<ReqwestTransport> {
         crate::builder::ClientBuilder<crate::builder::Missing, ReqwestTransport>,
         crate::error::BuildError,
     > {
-        let transport = ReqwestTransport::try_new()
-            .map_err(|e| crate::error::BuildError::Transport(e.to_string()))?;
+        let transport = ReqwestTransport::try_new_with_user_agent(concat!(
+            "openrouter-rs/",
+            env!("CARGO_PKG_VERSION")
+        ))
+        .map_err(|e| crate::error::BuildError::Transport(e.to_string()))?;
         Ok(crate::builder::ClientBuilder::new_with_transport(transport))
     }
 }

@@ -1,18 +1,18 @@
-//! Shared wire-layer helpers used by multiple API resources.
+//! Shared API-error-decoding helper used by multiple resource modules.
 //!
-//! Groups the body-collection and API-error-decoding routines that every
-//! resource module (messages, models) needs when processing an HTTP
-//! response. Placing them here avoids duplication and keeps each resource
-//! focused on request construction and response interpretation.
+//! Groups the non-2xx response decoding that every resource module
+//! (messages, models) needs when interpreting an HTTP response. Placing it
+//! here avoids duplication and keeps each resource focused on request
+//! construction and response interpretation. Draining the response body is a
+//! transport-layer concern — see [`crate::transport::collect_body`].
 //!
 //! Responsibilities:
-//! - [`collect_body`] — drain a [`crate::transport::BodyStream`] into bytes,
-//!   enforcing a size cap.
 //! - [`decode_api_error_from_parts`] — turn a non-2xx status + headers +
 //!   body into an [`crate::error::Error`], extracting `request-id`,
 //!   `anthropic-organization-id`, and `retry-after` header values.
 //!
 //! Not responsible for:
+//! - Draining response bodies — that is [`crate::transport::collect_body`].
 //! - Constructing HTTP requests or setting headers — the resource layer
 //!   handles that.
 //! - Serializing request bodies — also the resource layer.
@@ -23,16 +23,9 @@
 
 use std::time::Duration;
 
-use crate::error::{ApiError, ApiErrorBody, Error, TransportError};
+use crate::error::{ApiError, ApiErrorBody, Error};
 use crate::headers as h;
-use crate::transport::BodyStream;
 use crate::types::{OrganizationId, RequestId};
-
-/// Maximum response body size accepted before truncation.
-///
-/// 16 MiB is a conservative ceiling well above any plausible non-streaming
-/// response from the Anthropic API.
-pub(crate) const MAX_RESPONSE_BODY_BYTES: usize = 16 * 1024 * 1024;
 
 /// Outer error envelope the Anthropic API wraps every non-2xx body in.
 ///
@@ -41,33 +34,6 @@ pub(crate) const MAX_RESPONSE_BODY_BYTES: usize = 16 * 1024 * 1024;
 #[derive(serde::Deserialize)]
 struct ApiErrorEnvelope {
     error: ApiErrorBody,
-}
-
-/// Collect a [`BodyStream`] into a byte buffer, stopping at `limit` bytes.
-///
-/// Returns [`TransportError::BodyStream`] if the stream yields an error or
-/// if the accumulated size exceeds `limit`.
-pub(crate) async fn collect_body(
-    mut stream: BodyStream,
-    limit: usize,
-) -> Result<Vec<u8>, TransportError> {
-    let mut buf = Vec::new();
-    loop {
-        let item = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await;
-        match item {
-            None => break,
-            Some(Err(e)) => return Err(e),
-            Some(Ok(chunk)) => {
-                if buf.len() + chunk.len() > limit {
-                    return Err(TransportError::BodyStream(format!(
-                        "response body exceeded {limit} byte limit"
-                    )));
-                }
-                buf.extend_from_slice(&chunk);
-            }
-        }
-    }
-    Ok(buf)
 }
 
 /// Decode a non-2xx HTTP response into an [`Error`].
@@ -227,33 +193,6 @@ mod tests {
     fn parse_retry_after_returns_none_for_non_integer() {
         assert!(parse_retry_after("not-a-number").is_none());
         assert!(parse_retry_after("").is_none());
-    }
-
-    #[test]
-    fn collect_body_up_to_limit() {
-        use bytes::Bytes;
-        use futures_core::Stream;
-        use std::pin::Pin;
-        use std::task::{Context, Poll};
-
-        struct OneShotStream(Option<Bytes>);
-
-        impl Stream for OneShotStream {
-            type Item = Result<Bytes, TransportError>;
-            fn poll_next(
-                mut self: Pin<&mut Self>,
-                _cx: &mut Context<'_>,
-            ) -> Poll<Option<Self::Item>> {
-                Poll::Ready(self.0.take().map(Ok))
-            }
-        }
-
-        let stream: BodyStream = Box::pin(OneShotStream(Some(Bytes::from("hello world"))));
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .build()
-            .unwrap();
-        let result = rt.block_on(collect_body(stream, 1024)).unwrap();
-        assert_eq!(result, b"hello world");
     }
 
     #[test]

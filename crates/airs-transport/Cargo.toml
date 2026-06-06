@@ -1,0 +1,39 @@
+[package]
+name        = "airs-transport"
+description = "Generic async transport substrate (with HTTP/reqwest layer) shared by airsstack SDK crates."
+version     = "0.1.0"
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+authors.workspace      = true
+publish.workspace      = true
+readme      = "README.md"
+keywords    = ["http", "transport", "reqwest", "async", "sdk"]
+categories  = ["web-programming::http-client", "asynchronous"]
+
+[lints]
+workspace = true
+
+[features]
+default           = []
+transport-reqwest = ["dep:reqwest"]
+__test-mocks      = ["dep:mockall"]
+
+[dependencies]
+http             = { workspace = true }
+bytes            = { workspace = true }
+futures-core     = { workspace = true }
+pin-project-lite = { workspace = true }
+async-trait      = { workspace = true }
+thiserror        = { workspace = true }
+reqwest          = { workspace = true, optional = true }
+mockall          = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio        = { workspace = true, features = ["full", "test-util"] }
+futures-util = { workspace = true }
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

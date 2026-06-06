@@ -8,7 +8,7 @@
 use bytes::Bytes;
 use futures_util::StreamExt;
 use http::{Request, Response, StatusCode};
-use openrouter_rs::transport::{BodyStream, HttpTransport, MockHttpTransport};
+use openrouter_rs::transport::{BodyStream, MockHttpTransport, Transport};
 
 fn canned_response(body: &'static [u8]) -> Response<BodyStream> {
     let stream: BodyStream = Box::pin(futures_util::stream::once(async move {

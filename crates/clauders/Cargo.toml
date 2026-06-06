@@ -36,7 +36,7 @@ messages-tools = ["messages"]
 messages-caching  = []
 
 # Default HTTP transport (reqwest with rustls + http2 + stream features).
-transport-reqwest = ["dep:reqwest"]
+transport-reqwest = ["airs-transport/transport-reqwest"]
 
 # Token-counting helper (`POST /v1/messages/count_tokens`).
 # Depends on `messages`; not enabled by default.
@@ -57,9 +57,10 @@ messages-structured-outputs = ["messages"]
 
 # Internal-only: exposes MockHttpTransport for downstream tests.
 # Double-underscore prefix signals not-for-public-use.
-__test-mocks      = ["dep:mockall"]
+__test-mocks      = ["airs-transport/__test-mocks"]
 
 [dependencies]
+airs-transport = { path = "../airs-transport" }
 serde          = { workspace = true }
 serde_json     = { workspace = true }
 thiserror      = { workspace = true }
@@ -74,9 +75,7 @@ futures-core       = { workspace = true }
 pin-project-lite   = { workspace = true }
 async-trait        = { workspace = true }
 tokio          = { workspace = true }
-reqwest              = { workspace = true, optional = true }
 eventsource-stream   = { workspace = true, optional = true }
-mockall              = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio        = { workspace = true, features = ["full", "test-util"] }

@@ -16,7 +16,7 @@ use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use clauders::error::TransportError;
-use clauders::transport::{BodyStream, HttpTransport, ReqwestTransport};
+use clauders::transport::{BodyStream, ReqwestTransport, Transport};
 
 async fn collect_body(mut s: BodyStream) -> Result<Vec<u8>, TransportError> {
     let mut out = Vec::new();

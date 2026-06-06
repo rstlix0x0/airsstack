@@ -1,18 +1,18 @@
-//! Shared wire-layer helpers used when processing an HTTP response.
+//! Shared API-error-decoding helper used when processing an HTTP response.
 //!
-//! Groups the body-collection and error-decoding routines a resource needs
-//! after the transport returns. Kept in one place so each resource module
-//! stays focused on request construction and status interpretation, and so a
-//! second resource reuses the same decoding without duplication.
+//! Groups the non-2xx error decoding a resource needs after the transport
+//! returns. Kept in one place so each resource module stays focused on request
+//! construction and status interpretation, and so a second resource reuses the
+//! same decoding without duplication. Draining the response body is a
+//! transport-layer concern — see [`crate::transport::collect_body`].
 //!
 //! Responsibilities:
-//! - [`collect_body`] — drain a [`crate::transport::BodyStream`] into bytes,
-//!   enforcing a size cap.
 //! - [`decode_api_error_from_parts`] — turn a non-2xx status + headers + body
 //!   into an [`crate::error::Error`], routing the rate-limit, moderation,
 //!   provider-passthrough, generic-API, and undecodable cases.
 //!
 //! Not responsible for:
+//! - Draining response bodies — that is [`crate::transport::collect_body`].
 //! - Constructing HTTP requests or setting headers — the resource layer does.
 //! - Serializing request bodies — also the resource layer.
 
@@ -23,15 +23,8 @@
 
 use std::time::Duration;
 
-use crate::error::{Error, TransportError};
+use crate::error::Error;
 use crate::headers as h;
-use crate::transport::BodyStream;
-
-/// Maximum response body size accepted before truncation.
-///
-/// 16 MiB is a conservative ceiling well above any plausible non-streaming
-/// response from the API.
-pub(crate) const MAX_RESPONSE_BODY_BYTES: usize = 16 * 1024 * 1024;
 
 /// Outer error envelope every non-2xx body uses: `{"error":{...}}`.
 #[derive(serde::Deserialize)]
@@ -64,34 +57,6 @@ struct ModerationMeta {
 struct ProviderMeta {
     provider_name: String,
     raw: serde_json::Value,
-}
-
-/// Collect a [`BodyStream`] into a byte buffer, stopping at `limit` bytes.
-///
-/// # Errors
-/// Returns [`TransportError::BodyStream`] if the stream yields an error or if
-/// the accumulated size exceeds `limit`.
-pub(crate) async fn collect_body(
-    mut stream: BodyStream,
-    limit: usize,
-) -> Result<Vec<u8>, TransportError> {
-    let mut buf = Vec::new();
-    loop {
-        let item = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await;
-        match item {
-            None => break,
-            Some(Err(e)) => return Err(e),
-            Some(Ok(chunk)) => {
-                if buf.len() + chunk.len() > limit {
-                    return Err(TransportError::BodyStream(format!(
-                        "response body exceeded {limit} byte limit"
-                    )));
-                }
-                buf.extend_from_slice(&chunk);
-            }
-        }
-    }
-    Ok(buf)
 }
 
 /// Decode a non-2xx HTTP response into an [`Error`].
@@ -181,37 +146,7 @@ mod tests {
 
     use super::*;
     use crate::error::Error;
-    use bytes::Bytes;
-    use futures_core::Stream;
     use http::StatusCode;
-    use std::pin::Pin;
-    use std::task::{Context, Poll};
-
-    fn body_from(payload: &'static [u8]) -> BodyStream {
-        struct Once(Option<Bytes>);
-        impl Stream for Once {
-            type Item = Result<Bytes, TransportError>;
-            fn poll_next(
-                mut self: Pin<&mut Self>,
-                _cx: &mut Context<'_>,
-            ) -> Poll<Option<Self::Item>> {
-                Poll::Ready(self.0.take().map(Ok))
-            }
-        }
-        Box::pin(Once(Some(Bytes::from_static(payload))))
-    }
-
-    #[tokio::test]
-    async fn collect_body_drains_within_limit() {
-        let bytes = collect_body(body_from(b"hello world"), 1024).await.unwrap();
-        assert_eq!(bytes, b"hello world");
-    }
-
-    #[tokio::test]
-    async fn collect_body_rejects_over_limit() {
-        let err = collect_body(body_from(b"too big"), 3).await.unwrap_err();
-        assert!(matches!(err, TransportError::BodyStream(_)));
-    }
 
     fn headers_with(name: &'static str, value: &str) -> http::HeaderMap {
         let mut m = http::HeaderMap::new();

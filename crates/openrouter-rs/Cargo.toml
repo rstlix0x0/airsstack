@@ -17,9 +17,9 @@ categories  = ["api-bindings", "web-programming::http-client", "asynchronous"]
 default           = ["streaming", "transport-reqwest"]
 # SSE streaming for chat completions.
 streaming         = ["dep:eventsource-stream"]
-transport-reqwest = ["dep:reqwest"]
+transport-reqwest = ["airs-transport/transport-reqwest"]
 # Internal-only: exposes MockHttpTransport for downstream tests.
-__test-mocks      = ["dep:mockall"]
+__test-mocks      = ["airs-transport/__test-mocks"]
 
 [dependencies]
 serde            = { workspace = true }
@@ -32,8 +32,7 @@ bytes            = { workspace = true }
 futures-core     = { workspace = true }
 pin-project-lite = { workspace = true }
 async-trait      = { workspace = true }
-reqwest          = { workspace = true, optional = true }
-mockall          = { workspace = true, optional = true }
+airs-transport   = { path = "../airs-transport" }
 eventsource-stream = { workspace = true, optional = true }
 
 [dev-dependencies]

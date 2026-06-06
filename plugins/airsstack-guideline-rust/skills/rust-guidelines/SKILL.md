@@ -11,8 +11,9 @@ the detail lives in `references/` and is read on demand.
 ## Definition of Done (the gate)
 
 Every Rust change must pass ALL of the following before it is considered complete. Zero warnings is a
-hard bar, not a target. Scope the runs to the crate you touched with `-p <crate>`; run the whole
-workspace before a release.
+hard bar, not a target. Scope the runs to the crate you touched with `-p <crate> --all-features`; run
+the whole workspace with `cargo test --workspace --all-features` before a release. Every test run
+carries `--all-features` — a default-feature run is not a gate (see the caution below).
 
 ```bash
 cargo fmt --check
@@ -32,6 +33,12 @@ Rules of the gate:
 
 - **Zero warnings** from build, clippy, and rustdoc. A warning is a failure.
 - **Doctests count.** `cargo test` must exercise doctests; a failing doctest fails the gate.
+- **`--all-features` is mandatory for the test run, never optional.** Plain `cargo test` /
+  `cargo test -p <crate>` / `cargo test --workspace` compiles only the default features and
+  **silently skips** every `#[cfg(feature = "…")]`-gated test (e.g. the `__test-mocks` mock and
+  integration tests). A green default-feature run is NOT a passing gate; only `--all-features` runs
+  count. `cargo hack check --each-feature` is compile-only and does not run any test, so it does not
+  substitute for the `--all-features` test run.
 - **One `--all-features` test run** exercises all feature-gated logic; `cargo hack check --each-feature`
   is the compile-only combination guard. You do NOT need a powerset test matrix or a
   `--no-default-features` test run for the gate — compile coverage of each feature is sufficient.

@@ -21,8 +21,8 @@ use crate::client::Client;
 use crate::error::Error;
 use crate::headers as h;
 use crate::models::model::Model;
-use crate::transport::HttpTransport;
-use crate::wire_helpers::{MAX_RESPONSE_BODY_BYTES, collect_body, decode_api_error_from_parts};
+use crate::transport::{HttpTransport, MAX_RESPONSE_BODY_BYTES, collect_body};
+use crate::wire_helpers::decode_api_error_from_parts;
 
 /// Path joined onto the configured base URL for models-catalog calls.
 ///
