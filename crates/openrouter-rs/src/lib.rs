@@ -63,5 +63,6 @@ pub use client::DefaultClient;
 pub mod builder;
 pub mod error;
 pub mod prelude;
-pub mod transport;
+#[doc(inline)]
+pub use airs_transport as transport;
 pub mod types;
