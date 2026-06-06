@@ -1,6 +1,6 @@
 ---
 name: brainstorm
-description: Use before any creative or build work — turns a rough idea into an approved design spec through a one-question-at-a-time design dialogue, then writes the spec to docs/specs/ and hands off to the write-plan skill. Invoke at the very start, before writing code or scaffolding anything.
+description: Use before any creative or build work — turns a rough idea into an approved design spec through a one-question-at-a-time design dialogue, then writes the spec to the SDD specs directory and hands off to the write-plan skill. Invoke at the very start, before writing code or scaffolding anything.
 ---
 
 # Brainstorm
@@ -25,7 +25,7 @@ Work through these steps in order. Create a `TodoWrite` item for each step so pr
 
 5. **Present the design section by section.** Walk through the design in sections scaled to their complexity. At minimum, cover architecture, key components and their responsibilities, data flow, error handling, and testing strategy. After each non-trivial section, confirm the user's understanding and agreement before moving to the next. This incremental gate catches disagreements early, before the full spec is written.
 
-6. **Write the spec.** Once the design is agreed upon, write it to `docs/specs/YYYY-MM-DD-<topic>.md`. The spec is the durable record — write it to stand on its own without reference to this conversation.
+6. **Write the spec.** Once the design is agreed upon, write it to the SDD specs directory — its location and `YYYY-MM-DD-<topic>.md` naming are defined in `../../references/artifact-paths.md` (read it for the exact path). Before writing, ensure that directory exists, creating it if absent: the SessionStart hook or `/airsstack-sdd:setup` normally provisions it, but never assume a wrapper ran. The spec is the durable record — write it to stand on its own without reference to this conversation.
 
 7. **Self-review the spec.** After writing, re-read the spec with fresh eyes using the criteria in the Self-Review section below. Fix issues inline. No re-review loop needed — one clean pass is sufficient.
 
@@ -46,7 +46,7 @@ Fix issues directly in the file. There is no secondary review loop — self-revi
 
 ## User review gate
 
-Ask the user to read `docs/specs/YYYY-MM-DD-<topic>.md` before anything moves forward. This is a mandatory stop, not a formality. If the user requests changes — whether small clarifications or significant redesigns — revise the spec, re-run the self-review, and then return to the user. Only proceed to `airsstack-sdd:write-plan` once the user has explicitly approved the spec as written. Never auto-commit the spec; committing is the user's decision.
+Ask the user to read the spec file you just wrote under the SDD specs directory (see `../../references/artifact-paths.md` for the path) before anything moves forward. This is a mandatory stop, not a formality. If the user requests changes — whether small clarifications or significant redesigns — revise the spec, re-run the self-review, and then return to the user. Only proceed to `airsstack-sdd:write-plan` once the user has explicitly approved the spec as written. Never auto-commit the spec; committing is the user's decision.
 
 ## Design for isolation
 
