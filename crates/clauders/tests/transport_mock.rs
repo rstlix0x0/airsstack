@@ -13,7 +13,7 @@ use futures_core::Stream;
 use http::{Request, Response, StatusCode};
 
 use clauders::error::TransportError;
-use clauders::transport::{BodyStream, HttpTransport, MockHttpTransport};
+use clauders::transport::{BodyStream, MockHttpTransport, Transport};
 
 fn canned_body(payload: &'static [u8]) -> BodyStream {
     struct Once(Option<Bytes>);

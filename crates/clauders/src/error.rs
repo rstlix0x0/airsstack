@@ -12,78 +12,10 @@
 
 use std::time::Duration;
 
+pub use airs_transport::TransportError;
+
 use crate::types::{OrganizationId, RequestId};
 use http::StatusCode;
-
-/// Failures originating in the HTTP transport layer.
-///
-/// Each variant maps to a category of failure that the SDK can
-/// distinguish without inspecting error message strings. Use
-/// [`TransportError::is_retryable`] to decide whether a request can be
-/// safely retried with the same body.
-///
-/// # Examples
-///
-/// ```
-/// use clauders::error::TransportError;
-/// use std::time::Duration;
-///
-/// let e = TransportError::Network("connection refused".into());
-/// assert!(e.is_retryable());
-///
-/// let e = TransportError::Tls("certificate verification failed".into());
-/// assert!(!e.is_retryable());
-///
-/// let e = TransportError::Timeout { elapsed: Duration::from_secs(30) };
-/// assert!(e.is_retryable());
-/// ```
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum TransportError {
-    /// Network-level failure (connection refused, reset, DNS, etc.).
-    #[error("network failure: {0}")]
-    Network(String),
-
-    /// TLS handshake or certificate validation failure.
-    #[error("TLS error: {0}")]
-    Tls(String),
-
-    /// Request did not complete within the configured timeout.
-    #[error("request timed out after {elapsed:?}")]
-    Timeout {
-        /// How long the request was in flight before being aborted.
-        elapsed: Duration,
-    },
-
-    /// Failure consuming the response body stream after headers arrived.
-    #[error("response body stream error: {0}")]
-    BodyStream(String),
-
-    /// Failure constructing the outgoing request (URL parse, header value, etc.).
-    #[error("request build failed: {0}")]
-    Build(String),
-
-    /// Catch-all for transport-layer failures the SDK cannot categorize
-    /// more specifically. Treated as **non-retryable** — without a known
-    /// failure category the SDK cannot prove a retry is safe; callers who
-    /// know the underlying cause is transient can retry explicitly.
-    #[error("transport error: {0}")]
-    Other(String),
-}
-
-impl TransportError {
-    /// Whether the failure is safe to retry with the same request body.
-    ///
-    /// Retryable categories: `Network`, `Timeout` — these are transient
-    /// connectivity failures where re-issuing the request commonly
-    /// succeeds. All other variants (`Tls`, `BodyStream`, `Build`, `Other`)
-    /// indicate a request-shape or configuration issue that retrying will
-    /// not resolve.
-    #[must_use]
-    pub const fn is_retryable(&self) -> bool {
-        matches!(self, Self::Network(_) | Self::Timeout { .. })
-    }
-}
 
 /// API-layer error: a non-2xx response from the Anthropic API whose
 /// envelope (`{ "type": "error", "error": { ... } }`) was successfully
@@ -371,37 +303,6 @@ mod tests {
     )]
 
     use super::*;
-
-    #[test]
-    fn retryable_classification() {
-        assert!(TransportError::Network(String::new()).is_retryable());
-        assert!(
-            TransportError::Timeout {
-                elapsed: Duration::from_secs(1)
-            }
-            .is_retryable()
-        );
-
-        assert!(!TransportError::Other(String::new()).is_retryable());
-        assert!(!TransportError::Tls(String::new()).is_retryable());
-        assert!(!TransportError::BodyStream(String::new()).is_retryable());
-        assert!(!TransportError::Build(String::new()).is_retryable());
-    }
-
-    #[test]
-    fn display_messages() {
-        let e = TransportError::Network("connection refused".into());
-        assert_eq!(format!("{e}"), "network failure: connection refused");
-
-        let e = TransportError::Timeout {
-            elapsed: Duration::from_millis(1500),
-        };
-        // Format uses `{:?}` on Duration; just verify the prefix.
-        assert!(format!("{e}").starts_with("request timed out after"));
-
-        let e = TransportError::Build("invalid header value".into());
-        assert_eq!(format!("{e}"), "request build failed: invalid header value");
-    }
 
     #[test]
     fn error_type_serde_unknown_falls_back() {

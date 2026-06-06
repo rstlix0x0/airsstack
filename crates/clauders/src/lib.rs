@@ -66,7 +66,8 @@ pub mod error;
 pub(crate) mod headers;
 pub mod prelude;
 pub mod retry;
-pub mod transport;
+#[doc(inline)]
+pub use airs_transport as transport;
 pub mod types;
 #[cfg(any(feature = "messages", feature = "models", feature = "messages-batches"))]
 pub(crate) mod wire_helpers;
