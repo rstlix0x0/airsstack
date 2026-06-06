@@ -1,5 +1,26 @@
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'Reminder: run /airsstack:snapshot-load for the current git branch to rehydrate relevant project memory before starting work.'"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'Reminder: run /airsstack:snapshot-save to flush durable session learnings into project memory (durability gate applies — thin sessions write nothing).'"
+          }
+        ]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "hooks": [
