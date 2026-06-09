@@ -59,6 +59,10 @@ messages-structured-outputs = ["messages"]
 # Double-underscore prefix signals not-for-public-use.
 __test-mocks      = ["airs-transport/__test-mocks"]
 
+# Agent SDK: drive the `claude` Code CLI binary as a subprocess over the
+# control protocol. Not enabled by default.
+agent = ["dep:nix", "tokio/process"]
+
 [dependencies]
 airs-transport = { path = "../airs-transport" }
 serde          = { workspace = true }
@@ -77,6 +81,12 @@ async-trait        = { workspace = true }
 tokio          = { workspace = true }
 eventsource-stream   = { workspace = true, optional = true }
 
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.29.0", default-features = false, features = ["signal", "process"], optional = true }
+
+[target.'cfg(unix)'.dev-dependencies]
+nix = { version = "0.29.0", default-features = false, features = ["signal", "process"] }
+
 [dev-dependencies]
 tokio        = { workspace = true, features = ["full", "test-util"] }
 mockall      = { workspace = true }
@@ -84,6 +94,11 @@ wiremock     = { workspace = true }
 futures-util = { workspace = true }
 trybuild     = { workspace = true }
 insta        = { workspace = true }
+
+[[bin]]
+name              = "clauders-agent-testchild"
+path              = "src/bin/clauders-agent-testchild.rs"
+required-features  = ["agent"]
 
 [[example]]
 name             = "01_hello"
