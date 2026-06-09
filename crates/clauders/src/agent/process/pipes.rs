@@ -19,7 +19,6 @@ fn append_bounded(buf: &mut Vec<u8>, data: &[u8], cap: usize) {
 pub struct StdoutLines(Lines<BufReader<ChildStdout>>);
 
 impl StdoutLines {
-    #[expect(dead_code, reason = "constructed by ManagedProcess::spawn")]
     pub(crate) fn new(stdout: ChildStdout) -> Self {
         Self(BufReader::new(stdout).lines())
     }
@@ -44,7 +43,6 @@ pub struct StderrBuffer {
 
 impl StderrBuffer {
     /// Spawn the drain task and return a handle to the captured bytes.
-    #[expect(dead_code, reason = "constructed by ManagedProcess::spawn")]
     pub(crate) fn drain(mut stderr: ChildStderr) -> Self {
         let inner = Arc::new(Mutex::new(Vec::new()));
         let sink = Arc::clone(&inner);

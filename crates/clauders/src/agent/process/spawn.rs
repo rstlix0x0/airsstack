@@ -36,7 +36,6 @@ impl ProcessConfig {
 /// piped, `kill_on_drop` is enabled as a last-resort safety net, and on
 /// Unix the child becomes the leader of a new process group so the whole
 /// group (including the child's own descendants) can be signalled at once.
-#[expect(dead_code, reason = "no caller yet; wired by ManagedProcess::spawn")]
 pub(super) fn build_command(cfg: &ProcessConfig) -> Command {
     let mut cmd = Command::new(&cfg.program);
     cmd.args(&cfg.args)
