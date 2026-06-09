@@ -5,7 +5,9 @@
 //! `claude` binary or the control protocol.
 
 mod error;
+mod pipes;
 mod spawn;
 
 pub use error::ProcessError;
+pub use pipes::{StderrBuffer, StdoutLines};
 pub use spawn::ProcessConfig;
