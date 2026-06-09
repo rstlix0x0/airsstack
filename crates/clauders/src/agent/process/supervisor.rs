@@ -40,6 +40,15 @@ impl Supervisor {
         self.pid
     }
 
+    /// Signal teardown without awaiting the outcome.
+    ///
+    /// Called from `Drop`, which is synchronous, so it can only fire the
+    /// `Notify` here; the detached supervisor task performs the async
+    /// graceful→kill→reap sequence.
+    pub(super) fn request_shutdown(self_: &Arc<Self>) {
+        self_.shutdown.notify_one();
+    }
+
     /// Request graceful teardown, then await the outcome.
     pub(super) async fn shutdown(&self) -> Outcome {
         self.shutdown.notify_one();

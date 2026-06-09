@@ -88,3 +88,21 @@ async fn escalates_to_kill_when_child_ignores_eof() {
         "child not reaped after kill"
     );
 }
+
+#[tokio::test]
+async fn dropping_handle_kills_child_without_explicit_shutdown() {
+    let mut cfg = config(&["--ignore-eof"]);
+    cfg.shutdown_grace = Duration::from_millis(300);
+    let (proc, io) = ManagedProcess::spawn(&cfg).expect("spawn");
+    let pid = proc.id().expect("pid");
+    drop(io.stdin);
+
+    // Drop the handle without calling shutdown(): the Drop bridge must
+    // signal the supervisor, which kills and reaps the child.
+    drop(proc);
+
+    assert!(
+        await_reaped(pid, Duration::from_secs(2)).await,
+        "child orphaned after handle drop"
+    );
+}

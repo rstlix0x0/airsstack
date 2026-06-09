@@ -5,6 +5,7 @@
 //! `claude` binary or the control protocol.
 
 mod error;
+mod guard;
 mod pipes;
 mod spawn;
 mod supervisor;
