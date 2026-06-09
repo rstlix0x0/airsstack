@@ -106,3 +106,45 @@ async fn dropping_handle_kills_child_without_explicit_shutdown() {
         "child orphaned after handle drop"
     );
 }
+
+#[tokio::test]
+async fn captures_stderr_flood_without_deadlock() {
+    // Child spams ~256 KiB to stderr (past the OS pipe buffer) then exits
+    // on EOF. If stderr were not drained, the child would block and the
+    // test would hang; the timeout guards against that.
+    let (proc, io) = ManagedProcess::spawn(&config(&["--spam-stderr"])).expect("spawn");
+    let stderr = io.stderr.clone();
+    drop(io.stdin);
+
+    let status = timeout(Duration::from_secs(3), proc.shutdown())
+        .await
+        .expect("shutdown timed out — stderr drain deadlock")
+        .expect("shutdown");
+    assert!(status.success());
+
+    let captured = stderr.snapshot();
+    assert!(!captured.is_empty(), "expected captured stderr");
+    assert!(
+        captured.bytes().all(|b| b == b'E'),
+        "unexpected stderr content"
+    );
+}
+
+#[tokio::test]
+async fn shutdown_is_idempotent() {
+    let (proc, io) = ManagedProcess::spawn(&config(&[])).expect("spawn");
+    let pid = proc.id().expect("pid");
+    drop(io.stdin);
+
+    let first = proc.shutdown().await.expect("first shutdown");
+    let second = proc.shutdown().await.expect("second shutdown");
+    assert_eq!(
+        first.code(),
+        second.code(),
+        "repeated shutdown changed the outcome"
+    );
+
+    // A third teardown via Drop must also be a no-op (no panic).
+    drop(proc);
+    assert!(await_reaped(pid, Duration::from_secs(2)).await);
+}
