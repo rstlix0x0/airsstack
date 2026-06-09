@@ -148,3 +148,55 @@ async fn shutdown_is_idempotent() {
     drop(proc);
     assert!(await_reaped(pid, Duration::from_secs(2)).await);
 }
+
+/// Read the pids belonging to process group `pgid` via `ps`.
+fn pids_in_group(pgid: u32) -> Vec<u32> {
+    let output = std::process::Command::new("ps")
+        .args(["-o", "pid=", "-g", &pgid.to_string()])
+        .output();
+    match output {
+        Ok(out) => String::from_utf8_lossy(&out.stdout)
+            .split_whitespace()
+            .filter_map(|s| s.parse::<u32>().ok())
+            .collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+#[tokio::test]
+async fn group_kill_reaps_grandchild_descendant() {
+    let mut cfg = config(&["--ignore-eof", "--fork-grandchild"]);
+    cfg.shutdown_grace = Duration::from_millis(300);
+    let (proc, io) = ManagedProcess::spawn(&cfg).expect("spawn");
+    let pid = proc.id().expect("pid");
+    drop(io.stdin);
+
+    // pgid == pid because spawn used process_group(0). Poll until the grandchild
+    // appears in the group (the child forks asynchronously after spawn).
+    let grandchild_opt = timeout(Duration::from_secs(2), async {
+        loop {
+            let members = pids_in_group(pid);
+            if let Some(gc) = members.into_iter().find(|&p| p != pid) {
+                return gc;
+            }
+            sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(
+        grandchild_opt.is_ok(),
+        "grandchild was not spawned into the group within 2s"
+    );
+    let grandchild = grandchild_opt.expect("grandchild pid");
+
+    proc.shutdown().await.expect("shutdown");
+
+    assert!(
+        await_reaped(pid, Duration::from_secs(2)).await,
+        "direct child not reaped"
+    );
+    assert!(
+        await_reaped(grandchild, Duration::from_secs(2)).await,
+        "grandchild leaked — escalation was not a group kill"
+    );
+}
