@@ -63,3 +63,28 @@ async fn reaps_child_on_normal_exit() {
         "child not reaped (zombie)"
     );
 }
+
+#[tokio::test]
+async fn escalates_to_kill_when_child_ignores_eof() {
+    // Short grace so the forced kill fires well within 2 s.
+    let mut cfg = config(&["--ignore-eof"]);
+    cfg.shutdown_grace = Duration::from_millis(300);
+    let (proc, io) = ManagedProcess::spawn(&cfg).expect("spawn");
+    let pid = proc.id().expect("pid");
+
+    // EOF is ignored by this child, so graceful wait must time out and the
+    // supervisor must escalate to a forced kill.
+    drop(io.stdin);
+
+    let started = std::time::Instant::now();
+    let status = proc.shutdown().await.expect("shutdown");
+    assert!(!status.success(), "killed child should not report success");
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "shutdown took too long; escalation did not fire"
+    );
+    assert!(
+        await_reaped(pid, Duration::from_secs(2)).await,
+        "child not reaped after kill"
+    );
+}

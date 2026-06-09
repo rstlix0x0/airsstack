@@ -65,17 +65,62 @@ impl Supervisor {
     }
 }
 
-/// Drive the child to completion. Graceful path only: this layer waits for
-/// natural exit or, on shutdown request, waits out the grace window; it never
-/// force-kills.
+/// Drive the child to completion.
+///
+/// On a shutdown request, waits up to `grace` for the child to exit on its
+/// own. If the child is still running after that window, the entire process
+/// group (on Unix) is sent a forced kill; on other platforms the direct child
+/// is killed. A second `grace` window is then given for the forced-kill reap.
+/// Natural exit (no shutdown requested) returns immediately when the child
+/// exits.
 async fn run(mut child: Child, grace: Duration, shutdown: Arc<Notify>) -> Outcome {
     tokio::select! {
         result = child.wait() => result.map_err(|e| ProcessError::Kill(e.to_string())),
         () = shutdown.notified() => {
             match timeout(grace, child.wait()).await {
                 Ok(result) => result.map_err(|e| ProcessError::Kill(e.to_string())),
-                Err(_elapsed) => Err(ProcessError::Timeout),
+                Err(_elapsed) => {
+                    kill_tree(&mut child)?;
+                    match timeout(grace, child.wait()).await {
+                        Ok(result) => result.map_err(|e| ProcessError::Kill(e.to_string())),
+                        Err(_elapsed) => Err(ProcessError::Timeout),
+                    }
+                }
             }
         }
     }
+}
+
+/// Forcibly kill the child. On Unix this signals the entire process group
+/// (so the child's own descendants die too); elsewhere it kills just the
+/// direct child. The pgid is read from the live `Child` at call time — never
+/// a stored value — so a recycled pid can never be signalled.
+#[cfg(unix)]
+#[expect(
+    clippy::needless_pass_by_ref_mut,
+    reason = "non-unix cfg branch calls start_kill(&mut self); keeping the \
+              signature consistent across platforms avoids a signature mismatch"
+)]
+fn kill_tree(child: &mut Child) -> Result<(), ProcessError> {
+    use nix::errno::Errno;
+    use nix::sys::signal::{Signal, killpg};
+    use nix::unistd::Pid;
+
+    let Some(pid) = child.id() else {
+        return Ok(());
+    };
+    let Ok(raw) = i32::try_from(pid) else {
+        return Ok(());
+    };
+    match killpg(Pid::from_raw(raw), Signal::SIGKILL) {
+        Ok(()) | Err(Errno::ESRCH) => Ok(()),
+        Err(err) => Err(ProcessError::Kill(err.to_string())),
+    }
+}
+
+#[cfg(not(unix))]
+fn kill_tree(child: &mut Child) -> Result<(), ProcessError> {
+    child
+        .start_kill()
+        .map_err(|e| ProcessError::Kill(e.to_string()))
 }

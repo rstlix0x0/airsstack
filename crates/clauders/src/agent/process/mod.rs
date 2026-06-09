@@ -79,12 +79,15 @@ impl ManagedProcess {
         Ok((Self { supervisor }, io))
     }
 
-    /// Request graceful teardown, wait out the grace window, and return the
-    /// exit status.
+    /// Request graceful teardown and return the exit status.
+    ///
+    /// Waits up to the configured grace period for the child to exit on its
+    /// own. If the child is still running after that window, the supervisor
+    /// escalates to a forced (group, on Unix) kill and waits for the reap.
     ///
     /// # Errors
-    /// Returns a [`ProcessError`] if the child does not exit within the grace
-    /// window or if waiting fails.
+    /// Returns a [`ProcessError`] if the kill or subsequent wait fails, or if
+    /// the child still has not exited after the post-kill grace window.
     pub async fn shutdown(&self) -> Result<ExitStatus, ProcessError> {
         self.supervisor.shutdown().await
     }
