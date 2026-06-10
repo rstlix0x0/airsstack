@@ -50,6 +50,10 @@
 #![forbid(unsafe_code)]
 #![cfg_attr(docsrs, feature(doc_cfg))]
 
+#[cfg(feature = "agent")]
+#[cfg_attr(docsrs, doc(cfg(feature = "agent")))]
+pub mod agent;
+
 #[cfg(feature = "messages")]
 #[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
 pub mod messages;
