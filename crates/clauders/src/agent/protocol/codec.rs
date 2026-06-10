@@ -5,8 +5,8 @@
 //! single newline-terminated JSON line. [`RequestId`] mints the correlation
 //! ids that match an outbound control request to its response.
 
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::Serialize;
 
@@ -73,8 +73,10 @@ pub fn encode_line<T: Serialize>(frame: &T) -> Result<String, AgentError> {
 mod tests {
     #![expect(clippy::expect_used, reason = "test assertions use expect for context")]
 
-    use super::{decode_inbound, encode_line, RequestId};
-    use crate::agent::protocol::frames::{InboundFrame, OutboundControlRequest, OutboundRequestBody};
+    use super::{RequestId, decode_inbound, encode_line};
+    use crate::agent::protocol::frames::{
+        InboundFrame, OutboundControlRequest, OutboundRequestBody,
+    };
 
     #[test]
     fn request_ids_are_unique_and_prefixed() {
@@ -96,7 +98,10 @@ mod tests {
     fn malformed_line_is_protocol_error() {
         let err = decode_inbound("{ not json").expect_err("should fail");
         let shown = err.to_string();
-        assert!(shown.contains("decode") || shown.contains("protocol"), "got {shown}");
+        assert!(
+            shown.contains("decode") || shown.contains("protocol"),
+            "got {shown}"
+        );
     }
 
     #[test]
@@ -108,7 +113,11 @@ mod tests {
         };
         let line = encode_line(&req).expect("encode");
         assert!(line.ends_with('\n'));
-        assert_eq!(line.matches('\n').count(), 1, "exactly one trailing newline");
+        assert_eq!(
+            line.matches('\n').count(),
+            1,
+            "exactly one trailing newline"
+        );
         assert!(line.contains("\"subtype\":\"interrupt\""));
     }
 }

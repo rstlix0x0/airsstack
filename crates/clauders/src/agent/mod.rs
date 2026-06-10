@@ -8,6 +8,8 @@
 //! codec. The async `Runtime`/`Client` layer is a separate module.
 
 pub mod capabilities;
+pub mod cli;
+pub mod client;
 pub mod content;
 pub mod error;
 pub mod message;
@@ -15,9 +17,13 @@ pub mod options;
 pub mod permissions;
 pub mod process;
 pub mod protocol;
+pub mod runtime;
+pub mod stream;
 pub mod types;
 
 pub use capabilities::{Capabilities, HookEvent};
+pub use cli::CliRuntime;
+pub use client::{AgentClientBuilder, Client, query};
 pub use content::ContentBlock;
 pub use error::AgentError;
 pub use message::{
@@ -25,3 +31,11 @@ pub use message::{
 };
 pub use options::{Options, OptionsBuilder};
 pub use permissions::PermissionMode;
+pub use runtime::Runtime;
+pub use stream::MessageStream;
+
+#[cfg(feature = "__test-mocks")]
+pub mod mock;
+
+#[cfg(feature = "__test-mocks")]
+pub use mock::{ControlCall, MockRuntime};

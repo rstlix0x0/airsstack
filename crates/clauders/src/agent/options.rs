@@ -219,7 +219,10 @@ mod tests {
             .max_turns(7)
             .shutdown_grace(Duration::from_secs(2))
             .build();
-        assert_eq!(opts.model.as_ref().map(ModelId::as_str), Some("claude-sonnet-4-5"));
+        assert_eq!(
+            opts.model.as_ref().map(ModelId::as_str),
+            Some("claude-sonnet-4-5")
+        );
         assert_eq!(opts.permission_mode, PermissionMode::AcceptEdits);
         assert_eq!(opts.allowed_tools, vec!["Bash".to_string()]);
         assert_eq!(opts.max_turns, Some(7));
