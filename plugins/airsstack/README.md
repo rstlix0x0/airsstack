@@ -62,9 +62,15 @@ install `python3` only if you want the preferred path; nothing breaks without it
 
 ## Project memory
 
-`snapshot-save` writes a project-local `.claude/memory/` store on first use and adds a self-contained
-`.claude/memory/.gitignore` (ignore all but itself), so memory stays local scratch and never lands in
-your commits. Delete that `.gitignore` if you want to share memory with your team.
+`snapshot-save` writes a per-fact memory store **outside the repo**, at
+`${AIRSSTACK_HOME:-~/.airsstack}/memory/<project-key>/` (same user-global root the `concise` hook
+uses). `<project-key>` is derived from `git rev-parse --git-common-dir`, so **all worktrees of one
+repo share a single store** and memory survives worktree teardown, branch churn, `target/` cleans,
+and `/clear`. Because it lives outside the repo, it can never be accidentally committed.
+
+This is deliberately **local persistence, not git-shareable** — memory does not travel to teammates,
+CI, or a fresh clone. If you need shared project knowledge, commit it as source (docs, ADRs), not as
+memory.
 
 ## License
 
