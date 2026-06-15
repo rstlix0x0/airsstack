@@ -1,31 +1,36 @@
 ---
 name: snapshot-save
-description: Use when ending a work session, before /clear, or when the user says "save a snapshot" / "save to memory" / "snapshot save" — flushes durable session learnings into a project-local per-fact memory store, with a strict durability gate so thin sessions write nothing.
+description: Use when ending a work session, before /clear, or when the user says "save a snapshot" / "save to memory" / "snapshot save" — captures a conversation snapshot (session summary + key snippets) into the project-local snapshot store, with a light durability gate so thin sessions write nothing.
 ---
 
 # Snapshot Save
 
-Codifies the memory-save ceremony so it runs the same way every time. A "snapshot" is NOT a new
-format — it is a file-per-fact memory store kept **outside the repo** in the user-global airsstack
-home, namespaced per project, with a one-line index `MEMORY.md`. This skill standardizes the *act*
-of saving.
+Codifies the snapshot-save ceremony so it runs the same way every time. A **snapshot** is a short
+capture of the current conversation — a curated session summary plus a few key snippets — written as
+one timestamped file in the project-local snapshot store **outside the repo**. This is the
+airsstack memory; it is **deliberately separate from Claude's native memory tool**, whose store has
+size limits we are working around.
 
-## Memory store location
+## Snapshot store location
 
 The store lives at:
 
 ```
-${AIRSSTACK_HOME:-~/.airsstack}/memory/<project-key>/
-├── MEMORY.md          # index — one line per memory, loaded for orientation
-├── <slug-1>.md        # one fact per file
-├── <slug-2>.md
+${AIRSSTACK_HOME:-~/.airsstack}/snapshots/<project-key>/
+├── index.md                          # custom index — one line per snapshot (NOT Claude's MEMORY.md)
+├── 2026-06-15-143012-<branch>.md     # one snapshot per save, timestamped
+├── 2026-06-14-090530-<branch>.md
 └── ...
 ```
 
-Why outside the repo: memory is per-user **local persistence** — it must survive worktree teardown,
-branch churn, `target/` cleans, and `/clear`, and must never be accidentally committed. Keeping it in
-`~/.airsstack` (same root the `concise` hook uses) gives one user-global state location and makes it
-shared across every worktree of the same repo. It is intentionally NOT shareable via git.
+Why outside the repo: snapshots are per-user **local persistence** — they must survive worktree
+teardown, branch churn, `target/` cleans, and `/clear`, and must never be accidentally committed.
+Keeping them in `~/.airsstack` (same root the `concise` hook uses) gives one user-global state
+location, shared across every worktree of the same repo. Intentionally NOT shareable via git.
+
+The index file is named `index.md` **on purpose** — never name it `MEMORY.md`. `MEMORY.md` is the
+filename Claude's native memory tool drives; reusing it would collide with native memory and defeat
+the point of this store.
 
 ### Resolving `<project-key>` (MANDATORY — stable across worktrees)
 
@@ -52,60 +57,68 @@ hash8=$(printf '%s' "$abs" | shasum | cut -c1-8)
 key="${base}-${hash8}"
 ```
 
-Created on first use: make `${AIRSSTACK_HOME:-~/.airsstack}/memory/<project-key>/` and an empty
-`MEMORY.md`. No `.gitignore` ceremony — the store is outside the repo, so nothing can leak into a
+Created on first use: make `${AIRSSTACK_HOME:-~/.airsstack}/snapshots/<project-key>/` and an empty
+`index.md`. No `.gitignore` ceremony — the store is outside the repo, so nothing can leak into a
 commit.
 
-## Per-fact file schema
+## Snapshot filename
 
-Each memory is ONE file holding ONE fact:
+`<YYYY-MM-DD>-<HHMMSS>-<branch>.md`, e.g. `2026-06-15-143012-feature-memory.md`.
+
+- Date/time from `date +%Y-%m-%d-%H%M%S` (local). Seconds included to avoid same-minute collisions.
+- `<branch>` from `git branch --show-current`; sanitize `/` → `-` (e.g. `feature/x` → `feature-x`).
+  No branch (detached / no git) → use `nogit`.
+
+## Snapshot file schema
 
 ```markdown
 ---
-name: <short-kebab-case-slug>
-description: <one-line summary — used to decide relevance during recall>
-metadata:
-  type: user | feedback | project | reference
+date: 2026-06-15 14:30:12
+branch: <branch>
+project-key: <project-key>
+summary: <one-line summary — what this session was about>
 ---
 
-<the fact. For feedback/project, follow with **Why:** and **How to apply:** lines.
-Link related memories with [[their-slug]].>
+# Snapshot — <date> — <branch>
+
+## Session summary
+<Curated prose: what was done, decisions made, current state, and the next step.
+Tight — orientation, not a transcript.>
+
+## Key snippets
+<A few quoted excerpts pulled from the session that matter for resuming: a decision,
+a command, a code fragment, an error message. Quote verbatim where fidelity matters.
+Omit this section if nothing is worth quoting.>
+
+## Open carryovers
+<Unfinished work, concerns, the immediate next step. Omit if none.>
 ```
-
-The four types:
-
-- `user` — who the user is (role, expertise, durable preferences).
-- `feedback` — how you should work (corrections, confirmed approaches). Include **Why:** and
-  **How to apply:** lines.
-- `project` — ongoing work, goals, constraints NOT derivable from code/git. Convert relative dates
-  to absolute. Include **Why:** and **How to apply:** lines.
-- `reference` — pointers to external resources (URLs, dashboards, tickets).
-
-Link related memories with `[[slug]]` (a not-yet-existing target is fine — it marks future work).
 
 ## Procedure
 
-1. **Review the session** for facts worth persisting, classified by the four types above.
+1. **Review the session** for what a future reader needs to resume: decisions, current state, key
+   commands/snippets, open carryovers.
 
-2. **Durability gate (MANDATORY).** If nothing in the session is durable — a thin session, only
-   transient detail, or only things already recorded in the repo / git history / project
-   instructions — write **nothing** and report "nothing durable to save." Do not invent memories
-   to look productive. This gate is what keeps an auto-save hook quiet on thin sessions.
+2. **Durability gate.** If nothing meaningful happened — a thin session, only transient chatter, or
+   only things already recorded in the repo / git history / project instructions — write **nothing**
+   and report "nothing durable to save." Do not invent a snapshot to look productive. This keeps an
+   auto-save hook quiet on thin sessions.
 
-3. **Dedupe before writing.** For each durable fact, check `MEMORY.md` and the memory dir for an
-   existing file that already covers it. **Update** that file instead of creating a duplicate.
-   Delete any memory the session proved wrong.
+3. **Resolve the store dir** (the `<project-key>` rule above). Create it and an empty `index.md` if
+   absent.
 
-4. **Write/update one file per fact** in the resolved store dir, following the schema above.
+4. **Write one snapshot file** with the timestamped filename and the schema above.
 
-5. **Update the store's `MEMORY.md`** — add/adjust one line per new or changed memory:
-   `- [Title](file.md) — hook`. Never put memory content in `MEMORY.md` body; it is index only.
+5. **Update `index.md`** — append one line:
+   `- <date> · <branch> · <summary> · [file](<filename>.md)`. Index is one line per snapshot, never
+   snapshot bodies.
 
-6. **Report**: list files written / updated / deleted, or "nothing durable to save."
+6. **Report**: the snapshot file written, or "nothing durable to save."
 
 ## Must NOT do
 
-- Invent a new file format or a multi-section checkpoint file (snapshots are per-fact).
-- Dump raw session transcript into a memory.
-- Save what the repo already records (code structure, past fixes resolved in git, project docs).
-- Write to `MEMORY.md` beyond its one-line index entries.
+- Write to Claude's native memory store (`~/.claude/projects/.../memory/` or any `MEMORY.md`). This
+  skill owns the airsstack store only.
+- Dump the raw session transcript — capture a curated summary + key snippets, not everything.
+- Save what the repo already records (code structure, fixes already in git, project docs).
+- Put snapshot content in `index.md` beyond its one-line entries.
