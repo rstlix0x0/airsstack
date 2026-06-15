@@ -37,8 +37,8 @@ Agents are leaves — they never spawn other agents. Chaining lives in `orchestr
 | `orchestrate` | Drives `explorer → coder → reviewer → verifier → user` per task; routes findings through the orchestrator; the user is the only commit gate. |
 | `process-guidelines` | Conventional Commits (workspace-aware scope), model-routing, and the agent-orchestration flow. |
 | `concise` | Verbosity-reduction mode (lite / full / ultra). Clean professional terseness, not caveman-speak; persists across the session. |
-| `snapshot-load` | Reads project-local memory relevant to the current branch and reports the rehydrated state. |
-| `snapshot-save` | Flushes durable session learnings into project-local memory, with a durability gate so thin sessions write nothing. |
+| `snapshot-load` | Reads the project-local snapshot(s) relevant to the current branch and reports the rehydrated state. |
+| `snapshot-save` | Captures a conversation snapshot (session summary + key snippets) into the project-local snapshot store, with a durability gate so thin sessions write nothing. |
 
 ## Output style
 
@@ -60,17 +60,22 @@ The `UserPromptSubmit` hook prefers `python3` and falls back to `node` (which Cl
 ships), exiting silently if neither is found. It is therefore effectively zero-extra-dependency —
 install `python3` only if you want the preferred path; nothing breaks without it.
 
-## Project memory
+## Project snapshots
 
-`snapshot-save` writes a per-fact memory store **outside the repo**, at
-`${AIRSSTACK_HOME:-~/.airsstack}/memory/<project-key>/` (same user-global root the `concise` hook
-uses). `<project-key>` is derived from `git rev-parse --git-common-dir`, so **all worktrees of one
-repo share a single store** and memory survives worktree teardown, branch churn, `target/` cleans,
-and `/clear`. Because it lives outside the repo, it can never be accidentally committed.
+`snapshot-save` writes timestamped conversation snapshots (session summary + key snippets) to a
+store **outside the repo**, at `${AIRSSTACK_HOME:-~/.airsstack}/snapshots/<project-key>/` (same
+user-global root the `concise` hook uses), with a custom `index.md`. `<project-key>` is derived from
+`git rev-parse --git-common-dir`, so **all worktrees of one repo share a single store** and snapshots
+survive worktree teardown, branch churn, `target/` cleans, and `/clear`. Because it lives outside the
+repo, it can never be accidentally committed.
 
-This is deliberately **local persistence, not git-shareable** — memory does not travel to teammates,
-CI, or a fresh clone. If you need shared project knowledge, commit it as source (docs, ADRs), not as
-memory.
+This store is **deliberately separate from Claude's native memory tool** (`~/.claude/projects/.../`
++ `MEMORY.md`), whose store has size limits we are working around — these skills never write there,
+and the index is named `index.md`, never `MEMORY.md`.
+
+This is deliberately **local persistence, not git-shareable** — snapshots do not travel to
+teammates, CI, or a fresh clone. If you need shared project knowledge, commit it as source (docs,
+ADRs), not as a snapshot.
 
 ## License
 
