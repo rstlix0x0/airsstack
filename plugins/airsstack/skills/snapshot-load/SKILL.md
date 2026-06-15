@@ -11,9 +11,12 @@ for the layout and schema). Pulls the relevant facts into context and reports wh
 
 ## Memory store
 
-`.claude/memory/MEMORY.md` is the index (one line per memory). The per-fact files live alongside it
-in `.claude/memory/`. If `.claude/memory/` does not exist yet, there is nothing to load — report
-that and stop.
+The store lives **outside the repo**, namespaced per project, at
+`${AIRSSTACK_HOME:-~/.airsstack}/memory/<project-key>/`. `MEMORY.md` there is the index (one line per
+memory); the per-fact files live alongside it. See `snapshot-save` for the layout and the exact
+`<project-key>` resolution — compute it the **same way** (from `git rev-parse --git-common-dir`, so
+every worktree of one repo loads the same store). If the store dir does not exist yet, there is
+nothing to load — report that and stop.
 
 ## Argument
 
@@ -22,7 +25,8 @@ that and stop.
 
 ## Procedure
 
-1. **Read `.claude/memory/MEMORY.md`** (the index). If absent → report "no memory store yet" and stop.
+1. **Resolve the store dir** (see `snapshot-save` for the `<project-key>` rule) and **read its
+   `MEMORY.md`** (the index). If absent → report "no memory store yet" and stop.
 
 2. **Determine the current branch:** run `git branch --show-current`.
 

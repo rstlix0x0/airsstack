@@ -6,31 +6,55 @@ description: Use when ending a work session, before /clear, or when the user say
 # Snapshot Save
 
 Codifies the memory-save ceremony so it runs the same way every time. A "snapshot" is NOT a new
-format — it is a file-per-fact memory store kept in the project at `.claude/memory/`, with a
-one-line index at `.claude/memory/MEMORY.md`. This skill standardizes the *act* of saving.
+format — it is a file-per-fact memory store kept **outside the repo** in the user-global airsstack
+home, namespaced per project, with a one-line index `MEMORY.md`. This skill standardizes the *act*
+of saving.
 
-## Memory store layout
+## Memory store location
+
+The store lives at:
 
 ```
-.claude/memory/
-├── .gitignore         # ignores the store from within (memory is local scratch)
+${AIRSSTACK_HOME:-~/.airsstack}/memory/<project-key>/
 ├── MEMORY.md          # index — one line per memory, loaded for orientation
 ├── <slug-1>.md        # one fact per file
 ├── <slug-2>.md
 └── ...
 ```
 
-Created on first use. If `.claude/memory/` does not exist yet, before writing the first memory:
+Why outside the repo: memory is per-user **local persistence** — it must survive worktree teardown,
+branch churn, `target/` cleans, and `/clear`, and must never be accidentally committed. Keeping it in
+`~/.airsstack` (same root the `concise` hook uses) gives one user-global state location and makes it
+shared across every worktree of the same repo. It is intentionally NOT shareable via git.
 
-1. Create the directory and an empty `MEMORY.md`.
-2. Write `.claude/memory/.gitignore` with exactly:
-   ```
-   *
-   !.gitignore
-   ```
-   This keeps the store **local** — memory is per-user scratch context, not committed source. The
-   dir ignores itself, so the consumer's root `.gitignore` is never touched. A consumer who wants
-   to share memory with their team deletes this `.gitignore`.
+### Resolving `<project-key>` (MANDATORY — stable across worktrees)
+
+Compute it the same way every time so all worktrees of one repo map to one store:
+
+1. Run `git rev-parse --git-common-dir` and resolve it to an absolute path. This resolves to the
+   **main** repo's `.git` from every linked worktree → one key per repo, no per-worktree
+   fragmentation.
+2. `project-key` = `<repo-basename>-<hash8>` where:
+   - `<repo-basename>` = basename of the common-dir's parent (the repo dir name), for greppability.
+   - `<hash8>` = first 8 hex chars of a hash of the absolute common-dir path, for collision safety.
+   - Example: `airsstack-3f9a2c1b`.
+3. **No git repo** (command fails): fall back to hashing the absolute `cwd`, key
+   `<cwd-basename>-<hash8>`.
+
+Concretely:
+
+```sh
+common_dir=$(git rev-parse --git-common-dir 2>/dev/null) \
+  && abs=$(cd "$(dirname "$common_dir")" && pwd)/$(basename "$common_dir") \
+  || abs="$(pwd)"
+base=$(basename "$(dirname "$abs")")
+hash8=$(printf '%s' "$abs" | shasum | cut -c1-8)
+key="${base}-${hash8}"
+```
+
+Created on first use: make `${AIRSSTACK_HOME:-~/.airsstack}/memory/<project-key>/` and an empty
+`MEMORY.md`. No `.gitignore` ceremony — the store is outside the repo, so nothing can leak into a
+commit.
 
 ## Per-fact file schema
 
@@ -72,9 +96,9 @@ Link related memories with `[[slug]]` (a not-yet-existing target is fine — it 
    existing file that already covers it. **Update** that file instead of creating a duplicate.
    Delete any memory the session proved wrong.
 
-4. **Write/update one file per fact** in `.claude/memory/`, following the schema above.
+4. **Write/update one file per fact** in the resolved store dir, following the schema above.
 
-5. **Update `.claude/memory/MEMORY.md`** — add/adjust one line per new or changed memory:
+5. **Update the store's `MEMORY.md`** — add/adjust one line per new or changed memory:
    `- [Title](file.md) — hook`. Never put memory content in `MEMORY.md` body; it is index only.
 
 6. **Report**: list files written / updated / deleted, or "nothing durable to save."
