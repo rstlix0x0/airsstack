@@ -1,9 +1,13 @@
 //! Session configuration for the Agent SDK.
 
+use std::fmt;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
-use crate::agent::permissions::PermissionMode;
+use crate::agent::capabilities::HookEvent;
+use crate::agent::hooks::{Hook, HookRegistry};
+use crate::agent::permissions::{PermissionMode, PermissionPolicy};
 use crate::agent::types::McpServerConfig;
 use crate::types::ModelId;
 
@@ -13,9 +17,10 @@ const DEFAULT_SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 /// Configuration for a `Client` / `query` session.
 ///
 /// Built via [`Options::builder`]. Carries everything the runtime needs to
-/// discover, spawn, and configure the binary. In-loop handler fields (hooks,
-/// permission policy) are not yet supported.
-#[derive(Clone, Debug)]
+/// discover, spawn, and configure the binary. In-loop handler fields
+/// (`hooks`, `permission_policy`) carry `Arc`-wrapped handlers consulted by
+/// the runtime's reader.
+#[derive(Clone)]
 pub struct Options {
     /// Optional system prompt forwarded in the initialize handshake.
     pub system_prompt: Option<String>,
@@ -43,6 +48,35 @@ pub struct Options {
     pub require_min_version: bool,
     /// Graceful-exit window before a forced kill.
     pub shutdown_grace: Duration,
+    /// Registered in-loop hooks.
+    pub hooks: HookRegistry,
+    /// Optional tool-permission policy.
+    pub permission_policy: Option<Arc<dyn PermissionPolicy>>,
+}
+
+impl fmt::Debug for Options {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Options")
+            .field("system_prompt", &self.system_prompt)
+            .field("model", &self.model)
+            .field("permission_mode", &self.permission_mode)
+            .field("allowed_tools", &self.allowed_tools)
+            .field("disallowed_tools", &self.disallowed_tools)
+            .field("mcp_servers", &self.mcp_servers)
+            .field("cwd", &self.cwd)
+            .field("env", &self.env)
+            .field("max_turns", &self.max_turns)
+            .field("path_to_executable", &self.path_to_executable)
+            .field("executable_args", &self.executable_args)
+            .field("require_min_version", &self.require_min_version)
+            .field("shutdown_grace", &self.shutdown_grace)
+            .field(
+                "hooks",
+                &format_args!("<{} registered>", i32::from(!self.hooks.is_empty())),
+            )
+            .field("permission_policy", &self.permission_policy.is_some())
+            .finish()
+    }
 }
 
 impl Options {
@@ -60,7 +94,7 @@ impl Default for Options {
 }
 
 /// Builder for [`Options`].
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Default)]
 pub struct OptionsBuilder {
     system_prompt: Option<String>,
     model: Option<ModelId>,
@@ -75,6 +109,23 @@ pub struct OptionsBuilder {
     executable_args: Vec<String>,
     require_min_version: bool,
     shutdown_grace: Option<Duration>,
+    hooks: HookRegistry,
+    permission_policy: Option<Arc<dyn PermissionPolicy>>,
+}
+
+impl fmt::Debug for OptionsBuilder {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("OptionsBuilder")
+            .field("system_prompt", &self.system_prompt)
+            .field("model", &self.model)
+            .field("permission_mode", &self.permission_mode)
+            .field(
+                "hooks",
+                &format_args!("<{} registered>", i32::from(!self.hooks.is_empty())),
+            )
+            .field("permission_policy", &self.permission_policy.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 impl OptionsBuilder {
@@ -169,6 +220,20 @@ impl OptionsBuilder {
         self
     }
 
+    /// Register a hook for `event`, optionally narrowed by a `matcher`.
+    #[must_use]
+    pub fn hook(mut self, event: HookEvent, matcher: Option<String>, hook: Arc<dyn Hook>) -> Self {
+        self.hooks.register(event, matcher, hook);
+        self
+    }
+
+    /// Set the tool-permission policy.
+    #[must_use]
+    pub fn permission_policy(mut self, policy: Arc<dyn PermissionPolicy>) -> Self {
+        self.permission_policy = Some(policy);
+        self
+    }
+
     /// Finalize into an [`Options`].
     #[must_use]
     pub fn build(self) -> Options {
@@ -186,6 +251,8 @@ impl OptionsBuilder {
             executable_args: self.executable_args,
             require_min_version: self.require_min_version,
             shutdown_grace: self.shutdown_grace.unwrap_or(DEFAULT_SHUTDOWN_GRACE),
+            hooks: self.hooks,
+            permission_policy: self.permission_policy,
         }
     }
 }
@@ -194,11 +261,44 @@ impl OptionsBuilder {
 mod tests {
     #![expect(clippy::expect_used, reason = "test assertions use expect for context")]
 
+    use std::sync::Arc;
     use std::time::Duration;
 
     use super::Options;
-    use crate::agent::permissions::PermissionMode;
+    use crate::agent::capabilities::HookEvent;
+    use crate::agent::hooks::{Hook, HookInput, HookOutput};
+    use crate::agent::permissions::{
+        PermissionContext, PermissionDecision, PermissionMode, PermissionPolicy,
+    };
     use crate::types::ModelId;
+
+    struct TestHook;
+
+    #[async_trait::async_trait]
+    impl Hook for TestHook {
+        async fn call(
+            &self,
+            _input: HookInput,
+        ) -> Result<HookOutput, crate::agent::error::AgentError> {
+            Ok(HookOutput::default())
+        }
+    }
+
+    struct TestPolicy;
+
+    #[async_trait::async_trait]
+    impl PermissionPolicy for TestPolicy {
+        async fn can_use_tool(
+            &self,
+            _tool: &str,
+            _input: &serde_json::Value,
+            _ctx: PermissionContext,
+        ) -> Result<PermissionDecision, crate::agent::error::AgentError> {
+            Ok(PermissionDecision::Allow {
+                updated_input: None,
+            })
+        }
+    }
 
     #[test]
     fn defaults_are_sane() {
@@ -227,5 +327,35 @@ mod tests {
         assert_eq!(opts.allowed_tools, vec!["Bash".to_string()]);
         assert_eq!(opts.max_turns, Some(7));
         assert_eq!(opts.shutdown_grace, Duration::from_secs(2));
+    }
+
+    #[test]
+    fn builder_accumulates_hooks_and_policy() {
+        let opts = Options::builder()
+            .hook(
+                HookEvent::PreToolUse,
+                Some("Bash".to_string()),
+                Arc::new(TestHook),
+            )
+            .permission_policy(Arc::new(TestPolicy))
+            .build();
+        assert!(!opts.hooks.is_empty());
+        assert!(opts.permission_policy.is_some());
+    }
+
+    #[test]
+    fn debug_does_not_expose_handler_internals() {
+        let opts = Options::builder()
+            .permission_policy(Arc::new(TestPolicy))
+            .build();
+        let shown = format!("{opts:?}");
+        assert!(shown.contains("permission_policy"));
+    }
+
+    #[test]
+    fn default_options_have_no_handlers() {
+        let opts = Options::default();
+        assert!(opts.hooks.is_empty());
+        assert!(opts.permission_policy.is_none());
     }
 }
