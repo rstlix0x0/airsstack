@@ -12,6 +12,7 @@ pub mod cli;
 pub mod client;
 pub mod content;
 pub mod error;
+pub mod hooks;
 pub mod message;
 pub mod options;
 pub mod permissions;
