@@ -18,18 +18,12 @@ use crate::agent::protocol::{
 };
 
 /// Handles inbound control requests by invoking registered handlers.
-// `dead_code` fires in the lib-only build until `runtime.rs` wires in the
-// dispatcher (Task 10), but the test module already uses it, so `#[expect]`
-// would be unfulfilled under `--all-targets`. `#[allow]` is the only form that
-// passes both gate configs; Task 10 removes it.
-#[allow(dead_code)]
 pub(super) struct Dispatcher {
     hooks: Arc<HookRegistry>,
     policy: Option<Arc<dyn PermissionPolicy>>,
     out_tx: mpsc::UnboundedSender<String>,
 }
 
-#[allow(dead_code)]
 impl Dispatcher {
     /// Build a dispatcher over the session's handlers and outbound channel.
     pub(super) fn new(
