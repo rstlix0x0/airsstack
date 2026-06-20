@@ -8,6 +8,7 @@
 mod argv;
 mod demux;
 mod discovery;
+mod dispatch;
 mod handshake;
 mod runtime;
 

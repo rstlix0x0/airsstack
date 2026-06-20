@@ -5,7 +5,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tokio::io::AsyncWriteExt;
 use tokio::process::ChildStdin;
-use tokio::sync::{Mutex, mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 use crate::agent::capabilities::Capabilities;
@@ -25,20 +25,22 @@ use crate::types::ModelId;
 use super::argv::{build_argv, permission_mode_wire};
 use super::demux::Demux;
 use super::discovery::{check_version, discover};
-use super::handshake::{initialize_request, parse_capabilities};
+use super::dispatch::Dispatcher;
+use super::handshake::{initialize_request, parse_capabilities, warn_unsupported_hooks};
 
 /// Per-turn message channel capacity (natural backpressure beyond this).
 const TURN_CHANNEL_CAPACITY: usize = 64;
 
 /// A `Runtime` that drives the backend binary over its control protocol.
 pub struct CliRuntime {
-    // Field order matters for drop: closing stdin first lets the backend exit
-    // cleanly before the process handle's own teardown runs.
-    stdin: Mutex<ChildStdin>,
+    // Outbound lines are funneled to a single writer task that owns stdin, so
+    // run(), control requests, and reader-spawned dispatch never contend on it.
+    out_tx: mpsc::UnboundedSender<String>,
     demux: Arc<Demux>,
     id_gen: RequestIdGen,
     capabilities: Capabilities,
     reader: JoinHandle<()>,
+    writer: JoinHandle<()>,
     _process: ManagedProcess,
 }
 
@@ -73,18 +75,29 @@ impl CliRuntime {
 
         let id_gen = RequestId::generator();
         let capabilities = handshake(&mut stdin, &mut stdout, &options, &id_gen).await?;
+        warn_unsupported_hooks(&options, &capabilities);
+
+        // Single writer task owns stdin from here on.
+        let (out_tx, out_rx) = mpsc::unbounded_channel::<String>();
+        let writer = tokio::spawn(writer_loop(stdin, out_rx));
+
+        // Extract handlers for the dispatcher (Arc-shared; cheap clone).
+        let hooks = Arc::new(options.hooks.clone());
+        let policy = options.permission_policy.clone();
+        let dispatcher = Arc::new(Dispatcher::new(hooks, policy, out_tx.clone()));
 
         let demux = Arc::new(Demux::new());
-        let reader = tokio::spawn(reader_loop(stdout, Arc::clone(&demux)));
+        let reader = tokio::spawn(reader_loop(stdout, Arc::clone(&demux), dispatcher));
         // stderr is drained by the process layer; not needed for message routing.
         drop(stderr);
 
         Ok(Self {
-            stdin: Mutex::new(stdin),
+            out_tx,
             demux,
             id_gen,
             capabilities,
             reader,
+            writer,
             _process: process,
         })
     }
@@ -108,9 +121,9 @@ impl CliRuntime {
         let (tx, rx) = oneshot::channel();
         self.demux.register_pending(id.as_str().to_string(), tx);
 
-        if let Err(err) = write_line(&self.stdin, &line).await {
+        if self.out_tx.send(line).is_err() {
             self.demux.remove_pending(id.as_str());
-            return Err(err);
+            return Err(AgentError::TransportClosed);
         }
 
         match rx.await {
@@ -126,8 +139,9 @@ impl CliRuntime {
 
 impl Drop for CliRuntime {
     fn drop(&mut self) {
-        // Stop the reader; the process handle's own Drop tears the child down.
+        // Stop both tasks; the process handle's own Drop tears the child down.
         self.reader.abort();
+        self.writer.abort();
     }
 }
 
@@ -137,7 +151,9 @@ impl Runtime for CliRuntime {
         let (tx, rx) = mpsc::channel(TURN_CHANNEL_CAPACITY);
         self.demux.set_turn_sink(tx);
         let line = encode_line(&user_message_frame(&prompt))?;
-        write_line(&self.stdin, &line).await?;
+        if self.out_tx.send(line).is_err() {
+            return Err(AgentError::TransportClosed);
+        }
         Ok(ReceiverStream::new(rx).boxed())
     }
 
@@ -244,12 +260,30 @@ async fn handshake(
     }
 }
 
-/// The background reader: decode each line and demultiplex it.
-async fn reader_loop(mut stdout: StdoutLines, demux: Arc<Demux>) {
+/// The single outbound writer: owns stdin, drains pre-encoded lines.
+async fn writer_loop(mut stdin: ChildStdin, mut rx: mpsc::UnboundedReceiver<String>) {
+    while let Some(line) = rx.recv().await {
+        if stdin.write_all(line.as_bytes()).await.is_err() {
+            break;
+        }
+        if stdin.flush().await.is_err() {
+            break;
+        }
+    }
+}
+
+/// The background reader: decode each line, dispatch control requests, and
+/// demultiplex everything else.
+async fn reader_loop(mut stdout: StdoutLines, demux: Arc<Demux>, dispatcher: Arc<Dispatcher>) {
     loop {
         match stdout.next_line().await {
             Ok(Some(text)) if text.trim().is_empty() => {}
             Ok(Some(text)) => match decode_inbound(&text) {
+                Ok(crate::agent::protocol::InboundFrame::ControlRequest(req)) => {
+                    // Spawn so a slow handler never stalls the reader.
+                    let dispatcher = Arc::clone(&dispatcher);
+                    tokio::spawn(async move { dispatcher.handle(req).await });
+                }
                 Ok(frame) => demux.route(frame).await,
                 Err(error) => demux.fail_turn(error).await,
             },
@@ -259,16 +293,6 @@ async fn reader_loop(mut stdout: StdoutLines, demux: Arc<Demux>) {
             }
         }
     }
-}
-
-/// Write one already-newline-terminated line to stdin under its lock.
-async fn write_line(stdin: &Mutex<ChildStdin>, line: &str) -> Result<(), AgentError> {
-    let mut guard = stdin.lock().await;
-    guard
-        .write_all(line.as_bytes())
-        .await
-        .map_err(|_| AgentError::TransportClosed)?;
-    guard.flush().await.map_err(|_| AgentError::TransportClosed)
 }
 
 #[cfg(test)]
@@ -282,5 +306,12 @@ mod tests {
         assert_eq!(value["type"], "user");
         assert_eq!(value["message"]["role"], "user");
         assert_eq!(value["message"]["content"], "hello there");
+    }
+
+    #[test]
+    fn user_message_frame_is_unchanged_by_writer_refactor() {
+        let value = user_message_frame(&Prompt::new("hi"));
+        assert_eq!(value["type"], "user");
+        assert_eq!(value["message"]["content"], "hi");
     }
 }

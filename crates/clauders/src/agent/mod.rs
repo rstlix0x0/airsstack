@@ -12,6 +12,7 @@ pub mod cli;
 pub mod client;
 pub mod content;
 pub mod error;
+pub mod hooks;
 pub mod message;
 pub mod options;
 pub mod permissions;
@@ -26,11 +27,12 @@ pub use cli::CliRuntime;
 pub use client::{AgentClientBuilder, Client, query};
 pub use content::ContentBlock;
 pub use error::AgentError;
+pub use hooks::{Hook, HookDecision, HookInput, HookOutput, HookRegistry};
 pub use message::{
     AssistantMessage, Message, ResultMessage, StreamEvent, SystemMessage, Usage, UserMessage,
 };
 pub use options::{Options, OptionsBuilder};
-pub use permissions::PermissionMode;
+pub use permissions::{PermissionContext, PermissionDecision, PermissionMode, PermissionPolicy};
 pub use runtime::Runtime;
 pub use stream::MessageStream;
 

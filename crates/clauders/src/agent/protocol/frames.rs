@@ -94,6 +94,27 @@ pub enum InboundRequestBody {
         /// Tool input (opaque).
         #[serde(default)]
         input: serde_json::Value,
+        /// Id of the tool-use block this request gates.
+        #[serde(default)]
+        tool_use_id: Option<String>,
+        /// Id of the (sub)agent issuing the call.
+        #[serde(default)]
+        agent_id: Option<String>,
+        /// Path the call is blocked on, when applicable.
+        #[serde(default)]
+        blocked_path: Option<String>,
+        /// The binary's own pre-decision reason.
+        #[serde(default)]
+        decision_reason: Option<String>,
+        /// Short human title.
+        #[serde(default)]
+        title: Option<String>,
+        /// Display name of the tool.
+        #[serde(default)]
+        display_name: Option<String>,
+        /// Longer human description.
+        #[serde(default)]
+        description: Option<String>,
     },
     /// The binary invokes a registered hook.
     HookCallback {
@@ -103,6 +124,9 @@ pub enum InboundRequestBody {
         /// Hook input payload (opaque).
         #[serde(default)]
         input: serde_json::Value,
+        /// The tool-use id in scope, when tool-related.
+        #[serde(default)]
+        tool_use_id: Option<String>,
     },
 }
 
@@ -159,6 +183,13 @@ pub enum OutboundResponseBody {
         /// Structured response payload.
         response: serde_json::Value,
     },
+    /// Failure response echoing the server's request id.
+    Error {
+        /// The inbound request's id.
+        request_id: String,
+        /// Human-readable error detail.
+        error: String,
+    },
 }
 
 #[cfg(test)]
@@ -193,5 +224,44 @@ mod tests {
         let line = r#"{"type":"control_request","request_id":"srv_5","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"cmd":"ls"}}}"#;
         let frame: InboundFrame = serde_json::from_str(line).expect("deserialize");
         assert!(matches!(frame, InboundFrame::ControlRequest(_)));
+    }
+
+    #[test]
+    fn serializes_error_control_response() {
+        use super::{OutboundControlResponse, OutboundResponseBody};
+        let frame = OutboundControlResponse {
+            kind: "control_response",
+            response: OutboundResponseBody::Error {
+                request_id: "srv_7".to_string(),
+                error: "handler failed".to_string(),
+            },
+        };
+        let value = serde_json::to_value(frame).expect("serialize");
+        assert_eq!(value["type"], "control_response");
+        assert_eq!(value["response"]["subtype"], "error");
+        assert_eq!(value["response"]["request_id"], "srv_7");
+        assert_eq!(value["response"]["error"], "handler failed");
+    }
+
+    #[test]
+    fn deserializes_can_use_tool_context_fields() {
+        use super::{InboundFrame, InboundRequestBody};
+        let line = r#"{"type":"control_request","request_id":"srv_8","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"cmd":"ls"},"tool_use_id":"tu_1","blocked_path":"/etc"}}"#;
+        let frame: InboundFrame = serde_json::from_str(line).expect("deserialize");
+        let InboundFrame::ControlRequest(req) = frame else {
+            panic!("expected control request");
+        };
+        let InboundRequestBody::CanUseTool {
+            tool_name,
+            tool_use_id,
+            blocked_path,
+            ..
+        } = req.request
+        else {
+            panic!("expected can_use_tool");
+        };
+        assert_eq!(tool_name, "Bash");
+        assert_eq!(tool_use_id.as_deref(), Some("tu_1"));
+        assert_eq!(blocked_path.as_deref(), Some("/etc"));
     }
 }

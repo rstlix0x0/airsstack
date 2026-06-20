@@ -20,6 +20,13 @@ pub(super) fn build_argv(options: &Options) -> Vec<String> {
     argv.push("--permission-mode".to_string());
     argv.push(permission_mode_wire(options.permission_mode).to_string());
 
+    // A registered policy routes tool-permission prompts over the control
+    // protocol; the `stdio` sentinel selects that path.
+    if options.permission_policy.is_some() {
+        argv.push("--permission-prompt-tool".to_string());
+        argv.push("stdio".to_string());
+    }
+
     if let Some(model) = &options.model {
         argv.push("--model".to_string());
         argv.push(model.as_str().to_string());
@@ -117,6 +124,42 @@ mod tests {
         assert_eq!(
             permission_mode_wire(PermissionMode::BypassPermissions),
             "bypassPermissions"
+        );
+    }
+
+    #[test]
+    fn omits_permission_prompt_tool_without_policy() {
+        let argv = build_argv(&Options::default());
+        assert!(!argv.iter().any(|a| a == "--permission-prompt-tool"));
+    }
+
+    #[test]
+    fn emits_permission_prompt_tool_when_policy_set() {
+        use crate::agent::error::AgentError;
+        use crate::agent::permissions::{PermissionContext, PermissionDecision, PermissionPolicy};
+        use std::sync::Arc;
+
+        struct P;
+        #[async_trait::async_trait]
+        impl PermissionPolicy for P {
+            async fn can_use_tool(
+                &self,
+                _t: &str,
+                _i: &serde_json::Value,
+                _c: PermissionContext,
+            ) -> Result<PermissionDecision, AgentError> {
+                Ok(PermissionDecision::Allow {
+                    updated_input: None,
+                })
+            }
+        }
+
+        let opts = Options::builder().permission_policy(Arc::new(P)).build();
+        let argv = build_argv(&opts);
+        let joined = argv.join(" ");
+        assert!(
+            joined.contains("--permission-prompt-tool stdio"),
+            "got: {joined}"
         );
     }
 }
