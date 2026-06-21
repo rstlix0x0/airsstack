@@ -1,8 +1,9 @@
 # Artifact Lifecycle
 
 How specs, plans, and RFCs are organized, how they relate, and when a plan is safe to
-delete. Under the SDD layout the entire artifact tree is **git-ignored**, so plan deletion
-is irreversible — read this before removing any plan.
+delete. Under the SDD layout no artifact lives in git history — RFCs sit under the
+git-ignored `.airsstack/` tree, specs and plans in the HOME-global store outside any repo —
+so plan deletion is irreversible — read this before removing any plan.
 
 ## Why this matters
 
@@ -15,17 +16,20 @@ plans may be removed.
 
 ## Where artifacts live
 
-All SDD artifacts live under the per-project, git-ignored tree defined in
+SDD artifacts live under **two roots**, defined in
 `../../../references/artifact-paths.md` (the prose single source of truth for these
 paths). In summary:
 
-- RFCs → the `rfcs/` directory (human-authored input, read-only to the plugin)
-- Specs → the `specs/` directory (`YYYY-MM-DD-<topic>.md`)
-- Plans → the `plans/` directory (`YYYY-MM-DD-<topic>.md`)
-- Archived plans → the `plans/_archive/` directory
+- RFCs → the worktree-local `rfcs/` directory (human-authored input, read-only to the
+  plugin; transient, not shared across worktrees)
+- Specs → the HOME-global `specs/` directory (`YYYY-MM-DD-<topic>.md`)
+- Plans → the HOME-global `plans/` directory (`YYYY-MM-DD-<topic>.md`)
+- Archived plans → the HOME-global `plans/_archive/` directory
 
-Any sub-directory layout beyond this — organising artifacts by component, package, or
-domain — is a project-local choice and is not imposed here. Keep the
+The HOME-global root is keyed per repo and shared across every worktree of that repo, so
+a spec or plan written from one worktree is visible to all of them and survives worktree
+teardown. Any sub-directory layout beyond this — organising artifacts by component,
+package, or domain — is a project-local choice and is not imposed here. Keep the
 `YYYY-MM-DD-<topic>` naming so it stays the scannable identifier.
 
 ## Specs are durable, plans are derived
@@ -35,9 +39,10 @@ long-lived record: when decisions made during implementation diverge from the or
 spec, those amendments are folded back so the spec always reflects what was actually
 built. Specs are not auto-deleted.
 
-Because the artifact tree is git-ignored, a spec's durability is **local to the working
-tree** — it is not committed to git history. Treat the spec file as the working record of
-intent, and push any decision that must outlive the working tree into a committed durable
+Because the HOME-global root is outside any repo, a spec's durability is **per-user
+local persistence** — shared across every worktree of the repo and surviving worktree
+teardown, but not committed to git history. Treat the spec file as the working record of
+intent, and push any decision that must outlive the local store into a committed durable
 location (see Gate 2).
 
 A **plan** is derived from a spec. It is execution scaffolding: a task-by-task
@@ -83,9 +88,9 @@ first.
 
 Any decision in the plan that belongs permanently in the project has been copied to a
 committed durable location: project documentation, configuration, a rules file, or
-project memory. This gate matters more under the git-ignored layout: the spec itself is
-**not** a committed durable location, so "the spec explains why we chose X" does not
-satisfy this gate. A plan that holds the only record of a key architectural decision
+project memory. This gate matters more under the HOME-global layout: the store lives outside any repo, so
+the spec itself is **not** a committed durable location, and "the spec explains why we
+chose X" does not satisfy this gate. A plan that holds the only record of a key architectural decision
 cannot be deleted until that decision is captured somewhere committed.
 
 ### Gate 3 — manual, per-spec judgment
@@ -98,8 +103,8 @@ deletion, archive instead.
 
 ## Irreversibility — archive is the default
 
-The artifact tree is git-ignored, so a deleted plan **cannot** be recovered from git
-history. Deletion is permanent. Therefore:
+The HOME-global store is outside any repo and not committed, so a deleted plan **cannot**
+be recovered from git history. Deletion is permanent. Therefore:
 
 - When recall value is even slightly unclear, **archive instead of deleting**: move the
   file to the `plans/_archive/` directory. It stays local-only, costs nothing, and keeps
