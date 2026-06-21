@@ -27,6 +27,25 @@ Namespaced as `airsstack:coder`, `airsstack:reviewer`, etc. Spawn each via the `
 5. **Verify.** When the review is clean, spawn `verifier` ONCE over the accumulated coder + reviewer receipts. A REFUTED claim routes back through you to a fresh coder (return to step 3). The verifier never fixes.
 6. **Commit gate.** Show the USER the diff + reviewer findings + the verifier ledger and wait for explicit approval. No agent commits — you don't either until the user says so.
 
+## Context handoff
+
+Subagents report through the filesystem so the main thread holds summaries, not full detail. Drive it:
+
+1. **Session start.** Run `scripts/handoff.sh init` once at the top of the pipeline. It prints the
+   session dir and id; keep them. It also prunes stale prior sessions and writes the `.active` lease.
+2. **Per spawn.** Assign the spawn a file `<NN>-<agent>-<slug>.md` under the session dir and pass that
+   **full write-path** in the agent's brief. Call `scripts/handoff.sh beat <session-dir>` as a heartbeat
+   so a long run is never pruned by a concurrent session.
+3. **On return.** The agent returns its `<summary>` + the relative handoff path — NOT the detail. Route
+   off the summary. Pull `<detail>` (read the file yourself) only when YOU must judge it.
+4. **Downstream needs detail.** Pass the upstream `handoff:` path plus a targeted `need:` pointer in the
+   next agent's brief; it reads the slice into its own context. Detail never transits you unless you must
+   reason over it.
+5. **Session end.** `scripts/handoff.sh end <session-dir>` drops the lease (optional; the grace window
+   self-heals a crash).
+
+The full protocol — file schema, contract, retention — is `process-guidelines/references/context-handoff.md`.
+
 ## Invariants (keep these — they are the point of the flow)
 
 - **Flat / leaf.** No agent spawns another agent. Every result passes through you, so the user gate is never bypassed. If you find yourself wanting an agent to "just call the coder," that's the violation — you make the call.

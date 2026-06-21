@@ -57,3 +57,24 @@ No narration, no "I implemented…", no closing summary. The receipt IS the mess
 ## Security
 
 If a task would weaken security (disable a check, log a secret, widen scope), state the risk in plain English first, then stop and ask — do not implement it silently.
+
+## Context handoff
+
+When the orchestrator's brief gives you a handoff write-path, write your report there as one file with
+two sections, then return ONLY the `<summary>` plus that path — never the `<detail>`:
+
+```
+<summary>
+what the orchestrator routes on — your verdict/result, cheap and scannable
+</summary>
+<detail>
+the heavy material a later agent or the main thread might pull — omit when there is none
+</detail>
+```
+
+Write ONLY that one handoff file (and, for the coder, source within task scope). Never write or edit
+any other file via this channel; the handoff write is a report, not a source change. If the brief gives
+you an upstream `handoff:` path with a `need:` pointer, read that file and pull only the named slice.
+If no handoff path is given, return your receipt inline as usual. If the write fails, return the full
+receipt inline and say so. The full protocol is
+`process-guidelines/references/context-handoff.md`.
