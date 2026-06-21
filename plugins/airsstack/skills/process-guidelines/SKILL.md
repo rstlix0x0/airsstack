@@ -25,6 +25,9 @@ load-bearing one-liners; the detail lives in `references/` and is read on demand
 - **Agent orchestration**: agents are **leaves** (no agent spawns another); the chain runs FLAT on the
   main thread; findings route back through the orchestrator to a fresh coder; the user is the sole commit
   gate. The operational driver is the `orchestrate` skill. → `references/agent-orchestration.md`
+- **Context handoff**: subagents report through the filesystem — a cheap `<summary>` returns to the main
+  thread, heavy `<detail>` stays on disk and is pulled by path only when needed. Sessions are managed by
+  `scripts/handoff.sh` (`init`/`beat`/`end`). → `references/context-handoff.md`
 
 ## Reference index
 
@@ -36,3 +39,5 @@ Read the one that matches your task:
   spawn, and what not to downgrade.
 - `references/agent-orchestration.md` — the leaf invariant, the flow, selective delegation,
   validate-before-trust, and where the commit gate sits.
+- `references/context-handoff.md` — the handoff path layout, file schema, the summary+path return and
+  path-pointer routing contract, and the `handoff.sh` session lifecycle.
