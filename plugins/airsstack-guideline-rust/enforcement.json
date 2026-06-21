@@ -1,0 +1,7 @@
+{
+  "stack": "rust",
+  "detect": ["Cargo.toml"],
+  "match": ["**/*.rs", "**/Cargo.toml"],
+  "skill": "airsstack-guideline-rust:rust-guidelines",
+  "phase": ["code", "design"]
+}
