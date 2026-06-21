@@ -77,6 +77,47 @@ This is deliberately **local persistence, not git-shareable** — snapshots do n
 teammates, CI, or a fresh clone. If you need shared project knowledge, commit it as source (docs,
 ADRs), not as a snapshot.
 
+## Enforcement dispatcher
+
+The `airsstack` plugin is the suite's single rule-enforcement dispatcher. A
+`PreToolUse(Edit|Write)` hook (`hooks/enforce.sh` → `enforce.py`, with
+`enforce.js` as a node fallback) reads `~/.claude/plugins/installed_plugins.json`,
+keeps only airsstack-marketplace plugins (keys ending `@airsstack`), and loads
+each one's root `enforcement.json`. For the file being edited it surfaces the
+matching guideline skill — once per `stack:phase` per session — by injecting
+`additionalContext` with `permissionDecision:"defer"` (it never blocks an edit).
+
+### The `enforcement.json` convention
+
+Any airsstack sub-plugin that enforces rules declares them in an
+`enforcement.json` at its plugin root. This is the **only** sanctioned
+enforcement channel — a plugin never ships its own enforcement hook.
+
+```json
+{
+  "stack": "rust",
+  "detect": ["Cargo.toml"],
+  "match": ["**/*.rs", "**/Cargo.toml"],
+  "skill": "airsstack-guideline-rust:rust-guidelines",
+  "phase": ["code", "design"]
+}
+```
+
+- `stack` — identifier for the rule domain (and the dedup key component).
+- `detect` — repo-root marker files; the design-phase trigger (the stack is
+  "active" when a marker is present at the working dir or any ancestor).
+- `match` — path globs; the code-phase trigger (matched against the edited
+  file's basename via the glob's final segment).
+- `skill` — the skill id the dispatcher tells the model to load.
+- `phase` — which surfaces fire: `code` (editing source) and/or `design`
+  (editing an SDD spec/plan while a `detect` marker is present).
+
+Enforcement is two-tier: this hook is the **proactive** surface (it makes the
+rule visible at the moment it applies); the `reviewer` agent re-running the
+Definition of Done is the **retroactive** gate. The dispatcher is fail-open —
+a missing registry, an absent or malformed manifest, or a missing runtime all
+resolve to "do nothing," never to a blocked edit.
+
 ## License
 
 Apache-2.0. See [LICENSE](./LICENSE).

@@ -14,7 +14,11 @@ rules when they touch Rust code; it is equally useful on its own.
 /plugin install airsstack-guideline-rust@airsstack
 ```
 
-No agents, no hooks — knowledge only.
+Knowledge + an `enforcement.json` manifest. The skill carries the rules; the
+`airsstack` plugin's dispatcher reads the manifest and surfaces this skill at
+edit/design time. Installed without the `airsstack` plugin it degrades to
+knowledge-only (the skill still loads on demand, but nothing proactively
+surfaces it).
 
 ## What it provides
 
