@@ -36,23 +36,34 @@ the point of this store.
 
 Compute it the same way every time so all worktrees of one repo map to one store:
 
-1. Run `git rev-parse --git-common-dir` and resolve it to an absolute path. This resolves to the
-   **main** repo's `.git` from every linked worktree → one key per repo, no per-worktree
-   fragmentation.
+1. Run `git rev-parse --git-common-dir` and resolve it to an absolute path with **`pwd -P`**
+   (physical canonicalization). This resolves to the **main** repo's `.git` from every linked
+   worktree → one key per repo, no per-worktree fragmentation. `pwd -P` is load-bearing: on
+   symlinked paths (e.g. macOS `/var` → `/private/var`) a linked worktree's common-dir comes back
+   already resolved while the main worktree's stays logical — without `-P` the two hash differently
+   and fragment the store.
 2. `project-key` = `<repo-basename>-<hash8>` where:
-   - `<repo-basename>` = basename of the common-dir's parent (the repo dir name), for greppability.
+   - `<repo-basename>` = basename of the common-dir's parent (the repo dir name), for greppability,
+     **sanitized** to `[A-Za-z0-9._-]` (any other byte → `-`) so the key is filesystem-safe.
    - `<hash8>` = first 8 hex chars of a hash of the absolute common-dir path, for collision safety.
+     Computed from the full (unsanitized) path, so it keeps keys unique even if sanitization
+     collapses distinct names.
    - Example: `airsstack-3f9a2c1b`.
-3. **No git repo** (command fails): fall back to hashing the absolute `cwd`, key
+3. **No git repo** (command fails): fall back to hashing the absolute `cwd` (also `pwd -P`), key
    `<cwd-basename>-<hash8>`.
 
-Concretely:
+Concretely (byte-identical to `airsstack-sdd/hooks/ensure-layout.sh` — the three stores share one
+key, so keep these in sync):
 
 ```sh
-common_dir=$(git rev-parse --git-common-dir 2>/dev/null) \
-  && abs=$(cd "$(dirname "$common_dir")" && pwd)/$(basename "$common_dir") \
-  || abs="$(pwd)"
-base=$(basename "$(dirname "$abs")")
+if common_dir=$(git rev-parse --git-common-dir 2>/dev/null); then
+  abs=$(cd "$(dirname "$common_dir")" 2>/dev/null && pwd -P)/$(basename "$common_dir")
+  base=$(basename "$(dirname "$abs")")
+else
+  abs=$(pwd -P)
+  base=$(basename "$abs")
+fi
+base=$(printf '%s' "$base" | LC_ALL=C tr -c 'A-Za-z0-9._-' '-')
 hash8=$(printf '%s' "$abs" | shasum | cut -c1-8)
 key="${base}-${hash8}"
 ```
