@@ -27,6 +27,13 @@ Follow these principles throughout:
   revert; large commits are a planning smell.
 - **Small, focused files.** Prefer many focused files over a few large ones. If a file is acquiring
   multiple responsibilities, that is a signal to split, not to keep stacking.
+- **Honor the active stack's guidelines.** Detect the project's active stack from repo markers
+  (e.g. `Cargo.toml` → Rust) and load the matching guideline skill (e.g.
+  `airsstack-guideline-rust:rust-guidelines`). Every code block you write into a task must already
+  conform to that guideline's architecture rules — strong types over primitives, table-of-contents
+  module layout, static over dynamic dispatch, doc and test mandates — and each task's verification
+  must include the guideline's Definition of Done. A plan that emits rule-violating code is a
+  defect, even if the code "works."
 
 ## Scope check — one objective per plan
 
@@ -174,7 +181,7 @@ A plan that contains any of the following patterns is incomplete. Fix them befor
 
 ## Self-review
 
-After drafting the plan, run through these three passes before saving:
+After drafting the plan, run through these four passes before saving:
 
 1. **Spec-coverage pass.** List every requirement in the spec's scope that this plan addresses. For
    each requirement, identify which task satisfies it. If any requirement maps to no task, the plan has
@@ -187,6 +194,12 @@ After drafting the plan, run through these three passes before saving:
    in Task N+1 was either defined in a previous task or already exists in the codebase. A forward
    reference to something the plan has not yet created is a defect. Resolve it by reordering tasks or
    by adding the missing definition.
+
+4. **Guideline-conformance pass.** For each active stack, re-read the guideline's architecture rules
+   and scan every code block in the plan against them — strong types over primitives, table-of-contents
+   modules, static over dynamic dispatch, the doc and unit-test mandates. Fix any violation in the
+   plan now; it is far cheaper to correct in the plan than after the coder has shipped it. If no
+   installed guideline matches the stack, note that and rely on general principles.
 
 Fix all findings inline before moving on. The self-review is not optional.
 
