@@ -1,0 +1,176 @@
+#!/usr/bin/env python3
+"""Black-box tests for build-index.py — run the script against a temp vault."""
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+BUILDER = HERE / "build-index.py"
+
+
+class IndexBuilderTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.home = Path(self.tmp)
+        self.vault = self.home / "journal"
+        for d in ("daily", "sessions", "notes", "mocs", ".index"):
+            (self.vault / d).mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def write_note(self, sub, name, frontmatter, body=""):
+        lines = ["---"]
+        for key, val in frontmatter.items():
+            if isinstance(val, list):
+                lines.append("%s: [%s]" % (key, ", ".join(val)))
+            else:
+                lines.append("%s: %s" % (key, val))
+        lines.append("---")
+        text = "\n".join(lines) + "\n" + body
+        (self.vault / sub / name).write_text(text, encoding="utf-8")
+
+    def write_raw(self, sub, name, text):
+        (self.vault / sub / name).write_text(text, encoding="utf-8")
+
+    def run_builder(self, *args):
+        env = dict(os.environ, AIRSSTACK_HOME=str(self.home))
+        return subprocess.run(
+            [sys.executable, str(BUILDER), *args],
+            env=env, capture_output=True, text=True,
+        )
+
+    def read_idx(self, name):
+        return (self.vault / ".index" / name).read_text(encoding="utf-8")
+
+    def graph(self):
+        return json.loads(self.read_idx("graph.json"))
+
+    def tags(self):
+        return json.loads(self.read_idx("tags.json"))
+
+    def tsv_rows(self):
+        text = self.read_idx("summaries.tsv")
+        return [r.split("\t") for r in text.splitlines()]
+
+    def test_empty_vault_yields_valid_empty_index(self):
+        res = self.run_builder()
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(self.graph(), {})
+        self.assertEqual(self.tags(), {})
+        self.assertEqual(self.read_idx("summaries.tsv"), "")
+
+    def test_summary_row_has_expected_columns(self):
+        self.write_note("notes", "alpha.md", {
+            "title": "Alpha note",
+            "project": "clauders",
+            "helped": "3",
+            "updated": "2026-06-23 10:00",
+            "summary": "alpha is the first",
+        })
+        self.run_builder()
+        rows = self.tsv_rows()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0], [
+            "alpha", "Alpha note", "alpha is the first",
+            "clauders", "3", "2026-06-23 10:00",
+        ])
+
+    def test_project_list_is_joined_in_tsv(self):
+        self.write_note("notes", "beta.md", {
+            "title": "Beta",
+            "project": ["clauders", "openrouter-rs"],
+            "summary": "beta spans two",
+        })
+        self.run_builder()
+        rows = self.tsv_rows()
+        self.assertEqual(rows[0][3], "clauders, openrouter-rs")
+
+    def test_tabs_and_newlines_neutralised_in_tsv(self):
+        self.write_note("notes", "gamma.md", {
+            "title": "Gamma",
+            "summary": "has\ttab and stuff",
+        })
+        self.run_builder()
+        text = self.read_idx("summaries.tsv")
+        # exactly one row → exactly the column separators, no stray tabs
+        self.assertEqual(len(text.splitlines()), 1)
+        self.assertEqual(text.splitlines()[0].count("\t"), 5)
+
+    def test_malformed_note_skipped_others_indexed(self):
+        self.write_note("notes", "good.md", {"title": "Good", "summary": "ok"})
+        self.write_raw("notes", "bad.md", "---\nthis line has no colon\n---\nbody")
+        res = self.run_builder()
+        self.assertEqual(res.returncode, 0)
+        stems = [r[0] for r in self.tsv_rows()]
+        self.assertIn("good", stems)
+        self.assertNotIn("bad", stems)
+        self.assertIn("bad", res.stderr)
+
+    def test_tags_and_domains_inverted(self):
+        self.write_note("notes", "delta.md", {
+            "title": "Delta",
+            "tags": ["tokio", "shutdown"],
+            "domains": ["async-rust"],
+            "summary": "d",
+        })
+        self.run_builder()
+        tags = self.tags()
+        self.assertEqual(tags["tokio"], ["delta"])
+        self.assertEqual(tags["shutdown"], ["delta"])
+        self.assertEqual(tags["async-rust"], ["delta"])
+
+    def test_graph_resolves_body_and_frontmatter_links(self):
+        self.write_note("notes", "target.md", {"title": "Target", "summary": "t"})
+        self.write_note("notes", "source.md",
+                         {"title": "Source", "summary": "s",
+                          "links": ["[[target]]"]},
+                         body="see also [[target]] for details")
+        self.run_builder()
+        graph = self.graph()
+        self.assertEqual(graph["source"], ["target"])
+        self.assertEqual(graph["target"], [])
+
+    def test_link_resolution_is_case_insensitive(self):
+        self.write_note("notes", "widget.md", {"title": "Widget", "summary": "w"})
+        self.write_note("notes", "user.md", {"title": "User", "summary": "u"},
+                         body="uses [[Widget]] here")
+        self.run_builder()
+        self.assertEqual(self.graph()["user"], ["widget"])
+
+    def test_unresolved_link_recorded_not_fatal(self):
+        self.write_note("notes", "lonely.md", {"title": "Lonely", "summary": "l"},
+                         body="points at [[ghost]] which does not exist")
+        res = self.run_builder()
+        self.assertEqual(res.returncode, 0)
+        graph = self.graph()
+        self.assertEqual(graph["lonely"], [])
+        self.assertIn(["lonely", "ghost"], graph["_unresolved"])
+
+    def test_force_flag_accepted(self):
+        self.write_note("notes", "x.md", {"title": "X", "summary": "x"})
+        res = self.run_builder("--force")
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn("x", [r[0] for r in self.tsv_rows()])
+
+    def test_rebuild_is_deterministic(self):
+        self.write_note("notes", "a.md", {"title": "A", "tags": ["t1"],
+                                           "summary": "a", "links": ["[[b]]"]})
+        self.write_note("notes", "b.md", {"title": "B", "tags": ["t2"],
+                                           "summary": "b"})
+        self.run_builder()
+        first = (self.read_idx("graph.json"), self.read_idx("tags.json"),
+                 self.read_idx("summaries.tsv"))
+        self.run_builder()
+        second = (self.read_idx("graph.json"), self.read_idx("tags.json"),
+                  self.read_idx("summaries.tsv"))
+        self.assertEqual(first, second)
+
+
+if __name__ == "__main__":
+    unittest.main()
