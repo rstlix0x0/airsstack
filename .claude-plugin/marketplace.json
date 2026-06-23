@@ -20,6 +20,11 @@
       "name": "airsstack-guideline-rust",
       "source": "./plugins/airsstack-guideline-rust",
       "description": "Rust engineering guidelines and Definition-of-Done, delivered as a lazily-loaded skill."
+    },
+    {
+      "name": "airsstack-journal",
+      "source": "./plugins/airsstack-journal",
+      "description": "Transparent, note-based experiential memory for the development agent: an Obsidian-compatible journal vault with a deterministic, embedding-free recall index."
     }
   ]
 }
