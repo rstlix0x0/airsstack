@@ -1,0 +1,11 @@
+{
+  "name": "airsstack-journal",
+  "version": "0.1.0",
+  "description": "Transparent, note-based experiential memory: an Obsidian-compatible journal vault with a deterministic, embedding-free recall index.",
+  "author": { "name": "rstlix0x0", "email": "rstlix.dev@gmail.com" },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/rstlix0x0/airsstack",
+  "repository": "https://github.com/rstlix0x0/airsstack",
+  "keywords": ["memory", "zettelkasten", "second-brain", "journal", "knowledge"],
+  "dependencies": ["airsstack"]
+}
