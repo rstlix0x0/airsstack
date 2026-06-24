@@ -59,3 +59,59 @@ The builder reads `title`, `summary`, `project`, `helped`, `updated`, `tags`,
 ignores `type` and `created` (they are part of the note contract but not part of
 the derived index). Notes carry their `project` value as data; the builder never
 derives a project key — that derivation belongs to the capture phase.
+
+## Storytelling skeletons
+
+Phase 2 authors note **bodies** as grounded narrative within fixed `##`
+sections — a story, not a transcript replay, and never invented facts (it is
+narrated only from the session transcript). Bodies stay plain
+Obsidian-compatible Markdown: `##` headings, `[[wikilinks]]`, `#tags`. No
+HTML-comment sentinel regions are used.
+
+### Atomic note body
+
+```markdown
+## What it is
+<the idea in one paragraph>
+
+## Why it exists
+<the problem / context that birthed it>
+
+## The reasoning
+<how we arrived here; what was rejected and why>
+
+## Implications
+<what it affects; [[wikilinks]] to related notes>
+```
+
+### Session story body
+
+```markdown
+## Intent
+<what we set out to do>
+
+## What happened
+<the arc, grounded in the transcript>
+
+## Decisions
+<what we chose and WHY — the irreplaceable rationale>
+
+## Where it landed
+<outcome / current state>
+
+## Open threads
+<carryovers / next steps>
+
+## Notes spun off
+<[[wikilinks]] to notes authored this session>
+```
+
+## The `session:` join field
+
+An atomic note authored during a session carries a `session: <id8>`
+frontmatter scalar, where `<id8>` is the first eight characters of the Claude
+session id (the same `<id8>` used in the `session-<id8>` story stem). The
+session-story writer globs `notes/*.md` for notes whose `session` equals the
+current `<id8>` and lists them under **Notes spun off** as `[[wikilinks]]`.
+The two writers join on this metadata only; neither edits the other's file,
+and the atomic note remains fully standalone.
