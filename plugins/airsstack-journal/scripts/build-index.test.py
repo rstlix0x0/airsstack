@@ -268,6 +268,19 @@ class IndexBuilderTest(unittest.TestCase):
         self.run_builder()
         self.assertEqual(self.index()["backlinks"]["auth-v1"], ["auth-v2"])
 
+    def test_self_link_in_body_does_not_self_loop(self):
+        # A note that mentions its own stem in prose must not create a
+        # self-edge or self-backlink.
+        self.write_note("sessions", "session-ab12cd34.md",
+                        {"title": "S", "type": "session", "summary": "s"},
+                        body="appended [[session-ab12cd34]] to the daily note")
+        self.run_builder()
+        idx = self.index()
+        self.assertEqual(
+            [e for e in idx["edges"] if e["from"] == e["to"]], [])
+        self.assertNotIn("session-ab12cd34", idx["backlinks"])
+        self.assertEqual(self.graph()["session-ab12cd34"], [])
+
     def test_supersedes_absent_from_graph_json(self):
         self.write_note("notes", "auth-v1.md", {"title": "v1", "summary": "old"})
         self.write_note("notes", "auth-v2.md",
