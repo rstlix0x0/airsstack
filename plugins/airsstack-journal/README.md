@@ -43,3 +43,27 @@ sh plugins/airsstack-journal/scripts/provision.test.sh
 sh plugins/airsstack-journal/scripts/session-start.test.sh
 python3 plugins/airsstack-journal/scripts/build-index.test.py
 ```
+
+## Phase 2 — Capture (manual storytelling subagents)
+
+Phase 2 adds two **manual** capture surfaces. Each is a thin trigger skill that
+resolves the session id, transcript path (`scripts/transcript-path.sh`), and
+project floor on the main thread, then spawns an **isolated subagent** that
+reads the session transcript and writes a single grounded, Obsidian-compatible
+storytelling note. Only a one-line receipt returns to the main thread, so the
+transcript read never costs the main-thread context. There is no automatic
+capture and no SessionEnd hook — the user decides when to write.
+
+- `/airsstack-journal:journal-capture` — write the **session story**
+  (`sessions/session-<id8>.md`). Re-run anytime; each run **overwrites** the
+  story from the transcript (pure function, no merge).
+- `/airsstack-journal:journal-note <topic>` — write/update one **atomic note**
+  (`notes/<kebab>.md`) on a topic. Re-running the same topic **updates it in
+  place**; the reserved stem `_unresolved` is rejected. Notes carry a
+  `session: <id8>` field so the session story can list them under
+  "Notes spun off".
+
+Both writers link their note into the day's daily note (`scripts/daily-link.sh`)
+and refresh the derived index (`scripts/build-index.py`). The vault layout and
+`.index/` format are unchanged from Phase 1; typed-edge/backlink graph
+enrichment is deferred to Phase 3 (Recall).
