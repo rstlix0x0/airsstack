@@ -38,5 +38,25 @@ check $? "fails open when build errors (exit 0)"
 [ -d "$TMP2/journal/notes" ]; check $? "still provisions when build errors"
 rm -rf "$TMP2" "$STUBBIN"
 
+# 4. Orientation card: a project note surfaces in the SessionStart card as
+#    additionalContext. The note's project must match project-key.sh output.
+TMP3=$(mktemp -d); export AIRSSTACK_HOME="$TMP3"
+PROJ=$(sh "$SCRIPT_DIR/project-key.sh")
+mkdir -p "$TMP3/journal/notes"
+cat > "$TMP3/journal/notes/recall-card-note.md" <<EOF
+---
+title: Card Note
+type: insight
+project: $PROJ
+summary: shows up in the card
+updated: 2026-06-24 12:00
+---
+body
+EOF
+out=$(sh "$SCRIPT_DIR/session-start.sh" 2>/dev/null)
+printf '%s' "$out" | grep -q 'additionalContext'; check $? "emits additionalContext when card present"
+printf '%s' "$out" | grep -q 'recall-card-note'; check $? "card lists the project note"
+rm -rf "$TMP3"
+
 if [ "$fail" -eq 0 ]; then printf 'ALL PASS\n'; exit 0
 else printf 'FAILURES\n'; exit 1; fi

@@ -26,4 +26,17 @@ if [ "$needs_build" -eq 1 ] && command -v python3 >/dev/null 2>&1; then
   python3 "$here/build-index.py" >/dev/null 2>&1 || exit 0
 fi
 
+# 4. Orientation card (best-effort, fail-open): build a project-scoped
+#    recent-activity card and inject it as SessionStart additionalContext.
+#    JSON-encode with python3; if python3 is absent the card is simply skipped
+#    (the index also did not rebuild) — the session is never blocked.
+card=$(sh "$here/orientation.sh" 2>/dev/null) || card=""
+if [ -n "$card" ] && command -v python3 >/dev/null 2>&1; then
+  CARD="$card" python3 -c '
+import json, os
+ctx = os.environ.get("CARD", "")
+print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": ctx}}))
+' 2>/dev/null || exit 0
+fi
+
 exit 0
