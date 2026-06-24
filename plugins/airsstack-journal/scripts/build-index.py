@@ -172,7 +172,7 @@ def build(root: Path):
         edge_best = {}  # target -> best edge type for index.json (precedence)
         for raw in link_targets(frontmatter, body):
             target = normalize_target(raw)
-            if not target:
+            if not target or target == stem:
                 continue
             if target in known:
                 if target not in resolved:
@@ -182,7 +182,7 @@ def build(root: Path):
                 unresolved.add((stem, target))
         for raw, etype in typed_link_targets(frontmatter):
             target = normalize_target(raw)
-            if not target:
+            if not target or target == stem:
                 continue
             if target in known:
                 if EDGE_PRIORITY[etype] > EDGE_PRIORITY.get(edge_best.get(target), 0):
