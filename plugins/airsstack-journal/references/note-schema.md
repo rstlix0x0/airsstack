@@ -135,3 +135,38 @@ alongside the unchanged `graph.json`, `tags.json`, and `summaries.tsv`.
 
 The output is deterministic (sorted keys, sorted/deduped lists), so rebuilds
 are byte-reproducible.
+
+## Typed edges and the review layers (Phase 4)
+
+Phase 4 adds two **optional** frontmatter list fields that declare typed
+relationships the index builder cannot infer structurally:
+
+```yaml
+depends-on: ["[[graceful-shutdown]]"]   # this note builds on those
+supersedes: ["[[auth-v1]]"]             # this note replaces those (they are stale)
+```
+
+`build-index.py` resolves their targets exactly like `links:`/inline wikilinks
+(case-insensitive stem match, alias/heading stripped) and emits `index.json`
+edges typed `depends-on` / `supersedes`. When a `(from, to)` pair is reachable
+by more than one route, the most specific type wins:
+`supersedes` > `depends-on` > `contains` > `references` (one edge per pair).
+Typed edges surface **only in `index.json`** — `graph.json` keeps its untyped
+adjacency byte-unchanged. A dangling typed target lands in `unresolved`, not in
+`edges`. `backlinks` include typed edges, so a superseded note's backlinks show
+what replaced it.
+
+The review curator writes two **additive** body layers, never rewriting
+existing prose:
+
+- `## TL;DR` — a 2–4 line distilled layer prepended to an over-long note.
+- `## Narrative` — a one-paragraph day story appended to a daily note.
+
+### `.backups/`
+
+`/journal-review` snapshots the vault to `.backups/<YYYY-MM-DD-HHMMSS>.tar.gz`
+(the content dirs `daily/ sessions/ notes/ mocs/`, excluding `.index/` and
+`.backups/`) before any curator write, keeping the newest
+`AIRSSTACK_JOURNAL_BACKUP_KEEP` (default 10). Restore with
+`tar xzf .backups/<ts>.tar.gz -C <vault>`. Like `.index/`, `.backups/` is a
+dot-prefixed dir the builder does not scan.

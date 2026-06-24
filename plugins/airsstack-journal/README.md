@@ -103,3 +103,27 @@ summarisation, and the daily narrative are deferred to Phase 4 (Review).
 sh plugins/airsstack-journal/scripts/bump-helped.test.sh
 sh plugins/airsstack-journal/scripts/orientation.test.sh
 ```
+
+## Phase 4 — Review
+
+`/journal-review` tidies the vault in one command. It runs deterministic,
+model-free steps on the main thread — a vault backup (`journal-backup.sh`) and a
+graph-health report (`graph-health.py`) — then delegates judgment-bound tidying
+to the isolated opus `journal-curator` subagent, which applies **additive-only**
+changes: MOC index notes, a `## TL;DR` layer on long notes, a `## Narrative` on
+daily notes, typed `depends-on`/`supersedes` edges, and high-confidence missing
+links. The curator never deletes or overwrites existing prose, never touches
+`sessions/`, and never commits; a backup precedes every run, so any run is
+reversible (`tar xzf .backups/<ts>.tar.gz -C <vault>`). `build-index.py` now
+also resolves the typed frontmatter fields into typed `index.json` edges.
+
+`/journal-review` reviews the current project; `/journal-review all` reviews the
+whole vault.
+
+Run the Phase 4 tests:
+
+```sh
+python3 plugins/airsstack-journal/scripts/build-index.test.py
+sh plugins/airsstack-journal/scripts/journal-backup.test.sh
+sh plugins/airsstack-journal/scripts/graph-health.test.sh
+```
