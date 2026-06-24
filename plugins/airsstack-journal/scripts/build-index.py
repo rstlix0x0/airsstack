@@ -21,6 +21,7 @@ NOTE_DIRS = ("daily", "sessions", "notes", "mocs")
 WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
 UNRESOLVED_KEY = "_unresolved"
 CONTAINER_TYPES = ("session", "daily")
+EDGE_PRIORITY = {"supersedes": 4, "depends-on": 3, "contains": 2, "references": 1}
 
 
 def vault_root() -> Path:
@@ -117,6 +118,16 @@ def link_targets(frontmatter, body):
     return targets
 
 
+def typed_link_targets(frontmatter):
+    """(raw_target, edge_type) pairs from depends-on/supersedes frontmatter."""
+    typed = []
+    for raw in as_list(frontmatter.get("supersedes")):
+        typed.extend((t, "supersedes") for t in WIKILINK_RE.findall(raw))
+    for raw in as_list(frontmatter.get("depends-on")):
+        typed.extend((t, "depends-on") for t in WIKILINK_RE.findall(raw))
+    return typed
+
+
 def tsv_clean(value: str) -> str:
     return value.replace("\t", " ").replace("\r", " ").replace("\n", " ")
 
@@ -158,6 +169,7 @@ def build(root: Path):
         edge_type = "contains" if src_type in CONTAINER_TYPES else "references"
 
         resolved = []
+        edge_best = {}  # target -> best edge type for index.json (precedence)
         for raw in link_targets(frontmatter, body):
             target = normalize_target(raw)
             if not target:
@@ -165,12 +177,23 @@ def build(root: Path):
             if target in known:
                 if target not in resolved:
                     resolved.append(target)
-                    edges.append({"from": stem, "to": target, "type": edge_type})
-                    backlinks.setdefault(target, [])
-                    if stem not in backlinks[target]:
-                        backlinks[target].append(stem)
+                edge_best[target] = edge_type
             else:
                 unresolved.add((stem, target))
+        for raw, etype in typed_link_targets(frontmatter):
+            target = normalize_target(raw)
+            if not target:
+                continue
+            if target in known:
+                if EDGE_PRIORITY[etype] > EDGE_PRIORITY.get(edge_best.get(target), 0):
+                    edge_best[target] = etype
+            else:
+                unresolved.add((stem, target))
+        for target in sorted(edge_best):
+            edges.append({"from": stem, "to": target, "type": edge_best[target]})
+            backlinks.setdefault(target, [])
+            if stem not in backlinks[target]:
+                backlinks[target].append(stem)
         graph[stem] = sorted(resolved)
 
         for tag in as_list(frontmatter.get("tags")) + as_list(frontmatter.get("domains")):

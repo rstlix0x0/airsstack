@@ -223,5 +223,60 @@ class IndexBuilderTest(unittest.TestCase):
         self.assertEqual(first, second)
 
 
+    def test_supersedes_emits_typed_edge(self):
+        self.write_note("notes", "auth-v1.md", {"title": "v1", "summary": "old"})
+        self.write_note("notes", "auth-v2.md",
+                         {"title": "v2", "summary": "new",
+                          "supersedes": ["[[auth-v1]]"]})
+        self.run_builder()
+        self.assertIn({"from": "auth-v2", "to": "auth-v1", "type": "supersedes"},
+                      self.index()["edges"])
+
+    def test_depends_on_emits_typed_edge(self):
+        self.write_note("notes", "base.md", {"title": "B", "summary": "b"})
+        self.write_note("notes", "derived.md",
+                         {"title": "D", "summary": "d",
+                          "depends-on": ["[[base]]"]})
+        self.run_builder()
+        self.assertIn({"from": "derived", "to": "base", "type": "depends-on"},
+                      self.index()["edges"])
+
+    def test_typed_edge_takes_precedence_over_reference(self):
+        self.write_note("notes", "old.md", {"title": "O", "summary": "o"})
+        self.write_note("notes", "new.md",
+                         {"title": "N", "summary": "n",
+                          "links": ["[[old]]"], "supersedes": ["[[old]]"]},
+                         body="see [[old]]")
+        self.run_builder()
+        pair = [e for e in self.index()["edges"]
+                if e["from"] == "new" and e["to"] == "old"]
+        self.assertEqual(pair, [{"from": "new", "to": "old", "type": "supersedes"}])
+
+    def test_dangling_typed_target_is_unresolved(self):
+        self.write_note("notes", "x.md", {"title": "X", "summary": "x",
+                                          "depends-on": ["[[ghost]]"]})
+        self.run_builder()
+        self.assertIn(["x", "ghost"], self.index()["unresolved"])
+        self.assertEqual(
+            [e for e in self.index()["edges"] if e["to"] == "ghost"], [])
+
+    def test_typed_edge_appears_in_backlinks(self):
+        self.write_note("notes", "auth-v1.md", {"title": "v1", "summary": "old"})
+        self.write_note("notes", "auth-v2.md",
+                         {"title": "v2", "summary": "new",
+                          "supersedes": ["[[auth-v1]]"]})
+        self.run_builder()
+        self.assertEqual(self.index()["backlinks"]["auth-v1"], ["auth-v2"])
+
+    def test_supersedes_absent_from_graph_json(self):
+        self.write_note("notes", "auth-v1.md", {"title": "v1", "summary": "old"})
+        self.write_note("notes", "auth-v2.md",
+                         {"title": "v2", "summary": "new",
+                          "supersedes": ["[[auth-v1]]"]})
+        self.run_builder()
+        # graph.json stays untyped adjacency: a supersedes-only target is NOT a graph edge.
+        self.assertEqual(self.graph()["auth-v2"], [])
+
+
 if __name__ == "__main__":
     unittest.main()
