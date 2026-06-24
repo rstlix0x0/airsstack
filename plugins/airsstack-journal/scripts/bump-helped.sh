@@ -1,9 +1,10 @@
 #!/bin/sh
 # Increment the helped: counter of one journal note, then rebuild the index so
 # ranking reflects the new value. Usage: bump-helped.sh <stem>
-# Resolves notes/<stem>.md case-insensitively. Leaves `updated` alone (a usage
-# bump is not a content edit). Missing stem or non-integer helped: → stderr +
-# nonzero (a deliberate user action; surface the error rather than fail silent).
+# Resolves <stem>.md case-insensitively across notes/ sessions/ daily/ mocs/.
+# Leaves `updated` alone (a usage bump is not a content edit). Missing stem or
+# non-integer helped: → stderr + nonzero (a deliberate user action; surface the
+# error rather than fail silent).
 set -u
 
 stem_in="${1:-}"
@@ -15,19 +16,25 @@ fi
 here=$(CDPATH= cd "$(dirname "$0")" && pwd)
 root="${AIRSSTACK_HOME:-$HOME/.airsstack}/journal"
 
-# Case-insensitive resolve against notes/*.md stems.
+# Case-insensitive resolve against note stems across all note-bearing dirs.
 want=$(printf '%s' "$stem_in" | tr '[:upper:]' '[:lower:]')
 target=""
-for f in "$root"/notes/*.md; do
-  [ -e "$f" ] || continue
-  base=$(basename "$f" .md | tr '[:upper:]' '[:lower:]')
-  if [ "$base" = "$want" ]; then target="$f"; break; fi
+for d in notes sessions daily mocs; do
+  for f in "$root"/"$d"/*.md; do
+    [ -e "$f" ] || continue
+    base=$(basename "$f" .md | tr '[:upper:]' '[:lower:]')
+    if [ "$base" = "$want" ]; then target="$f"; break; fi
+  done
+  [ -n "$target" ] && break
 done
 
 if [ -z "$target" ]; then
-  printf 'bump-helped: no note notes/%s.md\n' "$stem_in" >&2
+  printf 'bump-helped: no note matching %s.md under notes/ sessions/ daily/ mocs/\n' "$stem_in" >&2
   exit 1
 fi
+
+# Relative path for receipts (e.g. sessions/session-5481f011.md).
+rel=${target#"$root"/}
 
 cur=$(awk -F': *' '/^helped:/ { print $2; exit }' "$target")
 case "$cur" in
@@ -43,11 +50,10 @@ awk -v new="$new" '
   { print }
 ' "$target" > "$tmp" && mv "$tmp" "$target"
 
-stem=$(basename "$target" .md)
 if command -v python3 >/dev/null 2>&1; then
   python3 "$here/build-index.py" --force >/dev/null 2>&1 || true
-  printf 'bumped helped to %s in notes/%s.md\n' "$new" "$stem"
+  printf 'bumped helped to %s in %s\n' "$new" "$rel"
 else
-  printf 'bumped helped to %s in notes/%s.md (index rebuild deferred: no python3)\n' "$new" "$stem"
+  printf 'bumped helped to %s in %s (index rebuild deferred: no python3)\n' "$new" "$rel"
 fi
 exit 0
