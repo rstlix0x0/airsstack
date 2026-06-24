@@ -115,3 +115,23 @@ session-story writer globs `notes/*.md` for notes whose `session` equals the
 current `<id8>` and lists them under **Notes spun off** as `[[wikilinks]]`.
 The two writers join on this metadata only; neither edits the other's file,
 and the atomic note remains fully standalone.
+
+## The enriched index (`index.json`)
+
+Phase 3 adds `.index/index.json`, a consolidated graph the recall subagent
+reads. It is fully derived from the corpus and rebuilt by `build-index.py`
+alongside the unchanged `graph.json`, `tags.json`, and `summaries.tsv`.
+
+- `nodes` — keyed by kebab stem: `type`, `title`, `summary`, `project`,
+  `domains`, `tags`, `helped` (integer), `updated`, `path` (`<dir>/<stem>.md`).
+- `edges` — one `{from, to, type}` per resolved outbound link. The `type` is
+  inferred structurally: a `session`- or `daily`-typed source yields
+  `contains`; any other source yields `references`. (`depends-on` /
+  `supersedes` are not inferred — no structural signal exists for them.)
+- `backlinks` — reverse adjacency over `edges`: stem → the stems that link to
+  it.
+- `unresolved` — the same `[stem, missing-target]` pairs `graph.json` records
+  under `_unresolved`.
+
+The output is deterministic (sorted keys, sorted/deduped lists), so rebuilds
+are byte-reproducible.

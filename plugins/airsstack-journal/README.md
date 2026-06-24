@@ -67,3 +67,39 @@ Both writers link their note into the day's daily note (`scripts/daily-link.sh`)
 and refresh the derived index (`scripts/build-index.py`). The vault layout and
 `.index/` format are unchanged from Phase 1; typed-edge/backlink graph
 enrichment is deferred to Phase 3 (Recall).
+
+## Phase 3 — Recall (read the vault back)
+
+Phase 3 lets the agent *read* prior notes instead of re-deriving them — the
+payoff of the token-efficiency mandate. It is additive: the Phase-1/2 storage
+contract is unchanged, and `build-index.py` now also emits the enriched
+`.index/index.json` (node metadata + structurally-typed edges + backlinks +
+unresolved) consumed by recall.
+
+- `/airsstack-journal:journal-recall <query>` — spawns the isolated
+  `journal-recall` subagent, which reads ONLY the derived index (never note
+  bodies) and returns a capped list of ranked pointers
+  (`stem · summary · path · why`). Ranks by tag/domain match, summary/title
+  text, the `helped` counter, and graph proximity. The main thread reads at
+  most the one note it picks. The skill also auto-triggers before the agent
+  re-derives something it may have noted.
+- `/airsstack-journal:journal-link <stem-or-topic>` — the same subagent in
+  `link` mode: suggests existing notes to `[[link]]` from a subject note
+  (subject excluded), reusing the recall machinery.
+- `/airsstack-journal:journal-helped <stem>` — confirms a recalled note aided
+  the work, incrementing its `helped:` counter (deterministic, no subagent)
+  via `scripts/bump-helped.sh` and refreshing the index.
+- **SessionStart orientation card** — `scripts/orientation.sh` prints a tight,
+  project-scoped recent-activity card (recent sessions + recently-updated
+  notes) from `summaries.tsv`; `session-start.sh` injects it as
+  `additionalContext`. Pure shell, no model, fail-open.
+
+Typed `depends-on` / `supersedes` edges, MOC promotion, progressive
+summarisation, and the daily narrative are deferred to Phase 4 (Review).
+
+### Tests (Phase 3 additions)
+
+```sh
+sh plugins/airsstack-journal/scripts/bump-helped.test.sh
+sh plugins/airsstack-journal/scripts/orientation.test.sh
+```
