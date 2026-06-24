@@ -58,6 +58,57 @@ class IndexBuilderTest(unittest.TestCase):
         text = self.read_idx("summaries.tsv")
         return [r.split("\t") for r in text.splitlines()]
 
+    def index(self):
+        return json.loads(self.read_idx("index.json"))
+
+    def test_index_node_carries_type_and_path(self):
+        self.write_note("notes", "alpha.md", {
+            "title": "Alpha", "type": "insight", "summary": "a",
+            "tags": ["tokio"], "domains": ["async-rust"],
+            "project": "clauders", "helped": "2",
+            "updated": "2026-06-23 10:00",
+        })
+        self.run_builder()
+        node = self.index()["nodes"]["alpha"]
+        self.assertEqual(node["type"], "insight")
+        self.assertEqual(node["path"], "notes/alpha.md")
+        self.assertEqual(node["helped"], 2)
+        self.assertEqual(node["tags"], ["tokio"])
+        self.assertEqual(node["domains"], ["async-rust"])
+
+    def test_session_source_edge_is_contains(self):
+        self.write_note("notes", "child.md", {"title": "Child", "summary": "c"})
+        self.write_note("sessions", "session-ab12cd34.md",
+                         {"title": "S", "type": "session", "summary": "s"},
+                         body="spun off [[child]]")
+        self.run_builder()
+        self.assertIn(
+            {"from": "session-ab12cd34", "to": "child", "type": "contains"},
+            self.index()["edges"])
+
+    def test_note_source_edge_is_references(self):
+        self.write_note("notes", "target.md", {"title": "T", "summary": "t"})
+        self.write_note("notes", "source.md",
+                         {"title": "S", "type": "insight", "summary": "s"},
+                         body="see [[target]]")
+        self.run_builder()
+        self.assertIn(
+            {"from": "source", "to": "target", "type": "references"},
+            self.index()["edges"])
+
+    def test_backlinks_reverse_edges(self):
+        self.write_note("notes", "target.md", {"title": "T", "summary": "t"})
+        self.write_note("notes", "source.md", {"title": "S", "summary": "s"},
+                         body="see [[target]]")
+        self.run_builder()
+        self.assertEqual(self.index()["backlinks"]["target"], ["source"])
+
+    def test_index_unresolved_mirrors_graph(self):
+        self.write_note("notes", "lonely.md", {"title": "L", "summary": "l"},
+                         body="points at [[ghost]]")
+        self.run_builder()
+        self.assertIn(["lonely", "ghost"], self.index()["unresolved"])
+
     def test_empty_vault_yields_valid_empty_index(self):
         res = self.run_builder()
         self.assertEqual(res.returncode, 0, res.stderr)

@@ -2,7 +2,9 @@
 """Build the airsstack-journal derived recall index from the Markdown corpus.
 
 Scans daily/, sessions/, notes/, mocs/ under the vault and writes
-.index/graph.json, .index/tags.json, .index/summaries.tsv.
+.index/graph.json, .index/tags.json, .index/summaries.tsv, and the enriched
+.index/index.json (nodes + structurally-typed edges + backlinks + unresolved)
+consumed by the recall subagent.
 
 Fail-open: a malformed note is skipped with a stderr diagnostic; the rest still
 index. The Markdown corpus is the sole source of truth and the output is fully
@@ -18,6 +20,7 @@ from pathlib import Path
 NOTE_DIRS = ("daily", "sessions", "notes", "mocs")
 WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
 UNRESOLVED_KEY = "_unresolved"
+CONTAINER_TYPES = ("session", "daily")
 
 
 def vault_root() -> Path:
@@ -82,6 +85,24 @@ def stem_of(path: Path) -> str:
     return path.stem.lower()
 
 
+def node_record(path: Path, frontmatter, root: Path):
+    try:
+        helped = int(scalar(frontmatter.get("helped", "0")) or "0")
+    except ValueError:
+        helped = 0
+    return {
+        "type": scalar(frontmatter.get("type", "")),
+        "title": scalar(frontmatter.get("title", "")),
+        "summary": scalar(frontmatter.get("summary", "")),
+        "project": scalar(frontmatter.get("project", "")),
+        "domains": [d.strip() for d in as_list(frontmatter.get("domains")) if d.strip()],
+        "tags": [t.strip() for t in as_list(frontmatter.get("tags")) if t.strip()],
+        "helped": helped,
+        "updated": scalar(frontmatter.get("updated", "")),
+        "path": path.relative_to(root).as_posix(),
+    }
+
+
 def normalize_target(text: str) -> str:
     text = text.split("|", 1)[0]
     text = text.split("#", 1)[0]
@@ -126,9 +147,15 @@ def build(root: Path):
     tags = {}
     unresolved = set()
     rows = []
+    nodes = {}
+    edges = []
+    backlinks = {}
 
     for (path, frontmatter, body) in notes:
         stem = stem_of(path)
+        nodes[stem] = node_record(path, frontmatter, root)
+        src_type = nodes[stem]["type"].strip().lower()
+        edge_type = "contains" if src_type in CONTAINER_TYPES else "references"
 
         resolved = []
         for raw in link_targets(frontmatter, body):
@@ -138,6 +165,10 @@ def build(root: Path):
             if target in known:
                 if target not in resolved:
                     resolved.append(target)
+                    edges.append({"from": stem, "to": target, "type": edge_type})
+                    backlinks.setdefault(target, [])
+                    if stem not in backlinks[target]:
+                        backlinks[target].append(stem)
             else:
                 unresolved.add((stem, target))
         graph[stem] = sorted(resolved)
@@ -163,25 +194,34 @@ def build(root: Path):
         graph[UNRESOLVED_KEY] = sorted([list(pair) for pair in unresolved])
     tags = {key: sorted(value) for key, value in tags.items()}
     rows.sort()
-    return graph, tags, rows
+
+    index = {
+        "nodes": nodes,
+        "edges": sorted(edges, key=lambda e: (e["from"], e["to"], e["type"])),
+        "backlinks": {key: sorted(value) for key, value in backlinks.items()},
+        "unresolved": sorted([list(pair) for pair in unresolved]),
+    }
+    return graph, tags, rows, index
 
 
-def write_outputs(root: Path, graph, tags, rows):
-    index = root / ".index"
-    index.mkdir(parents=True, exist_ok=True)
-    (index / "graph.json").write_text(
+def write_outputs(root: Path, graph, tags, rows, index):
+    index_dir = root / ".index"
+    index_dir.mkdir(parents=True, exist_ok=True)
+    (index_dir / "graph.json").write_text(
         json.dumps(graph, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    (index / "tags.json").write_text(
+    (index_dir / "tags.json").write_text(
         json.dumps(tags, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     lines = ["\t".join(tsv_clean(col) for col in row) for row in rows]
     text = "\n".join(lines) + ("\n" if lines else "")
-    (index / "summaries.tsv").write_text(text, encoding="utf-8")
+    (index_dir / "summaries.tsv").write_text(text, encoding="utf-8")
+    (index_dir / "index.json").write_text(
+        json.dumps(index, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def main(argv) -> int:
     root = vault_root()
-    graph, tags, rows = build(root)
-    write_outputs(root, graph, tags, rows)
+    graph, tags, rows, index = build(root)
+    write_outputs(root, graph, tags, rows, index)
     return 0
 
 
