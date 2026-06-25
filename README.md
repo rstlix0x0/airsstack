@@ -33,19 +33,20 @@ Standard Rust commands apply: `cargo build`, `cargo test -p <crate>`, `cargo cli
 
 ## The airsstack Claude Code plugin suite (the methodology)
 
-A marketplace (`.claude-plugin/marketplace.json`) of three plugins under `plugins/` that package this project's spec-driven, review-gated development methodology for [Claude Code](https://www.claude.com/product/claude-code):
+A marketplace (`.claude-plugin/marketplace.json`) of four plugins under `plugins/` that package this project's spec-driven, review-gated development methodology for [Claude Code](https://www.claude.com/product/claude-code):
 
 | Plugin | What it provides |
 | --- | --- |
-| **`airsstack`** | Execution engine: a TDD `coder`, a merged code+spec `reviewer`, a claim `verifier`, a read-only `explorer`, an `orchestrate` driver, process guidelines, project-local memory, and a `concise` output mode. |
-| **`airsstack-sdd`** | Spec-driven workflow: `brainstorm` an idea into a spec → `write-plan` (one objective per plan) → `execute-plan` with review checkpoints. |
+| **`airsstack`** | Execution engine: a TDD `coder`, a merged code+spec `reviewer`, a claim `verifier`, a read-only `explorer`, an `orchestrate` driver, process guidelines, project-local memory, and a `concise` output mode (inspired by the [caveman](https://github.com/juliusbrussee/caveman) plugin). |
+| **`airsstack-sdd`** | Spec-driven workflow: `brainstorm` an idea into a spec → `write-plan` (one objective per plan) → `execute-plan` with review checkpoints. Adapted from the [superpowers](https://github.com/obra/superpowers) plugin with airsstack-specific adjustments. |
 | **`airsstack-guideline-rust`** | Rust engineering guidelines + a strict Definition-of-Done, delivered as a lazily-loaded skill the execution agents consult when touching Rust. |
+| **`airsstack-journal`** | Transparent, note-based experiential memory: an Obsidian-compatible journal vault with a deterministic, embedding-free recall index (`capture` / `note` / `recall` / `review`). |
 
-The plugins are language-agnostic except for the guideline plugin: the agents obtain their Definition-of-Done and rules from whichever `*-guideline-*` skill is installed and degrade gracefully when none is present.
+The plugins are language-agnostic except for the guideline plugin: the agents obtain their Definition-of-Done and rules from whichever `*-guideline-*` skill is installed and degrade gracefully when none is present. Upstream attribution for `airsstack-sdd` (superpowers) and `airsstack` (caveman) lives in each plugin's own README.
 
 ### Using the plugin suite
 
-Working inside this repository, the suite loads automatically — `.claude/settings.json` registers the in-repo marketplace and enables all three plugins (restart Claude Code once to activate).
+Working inside this repository, the suite loads automatically — `.claude/settings.json` registers the in-repo marketplace and enables all four plugins (restart Claude Code once to activate).
 
 To use it in another project, install from the GitHub marketplace:
 
@@ -54,9 +55,10 @@ To use it in another project, install from the GitHub marketplace:
 /plugin install airsstack@airsstack
 /plugin install airsstack-sdd@airsstack
 /plugin install airsstack-guideline-rust@airsstack
+/plugin install airsstack-journal@airsstack
 ```
 
-Each plugin has its own README under `plugins/<name>/` with the full component list. Everything is namespaced (`airsstack:<name>`, `airsstack-sdd:<name>`, …).
+Each plugin has its own README under `plugins/<name>/` with the full component list. Everything is namespaced (`airsstack:<name>`, `airsstack-sdd:<name>`, `airsstack-journal:<name>`, …).
 
 ## License
 
