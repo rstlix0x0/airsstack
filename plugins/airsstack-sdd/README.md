@@ -8,6 +8,10 @@ This plugin ships three workflow skills, one SessionStart hook, and one setup co
 soft-couples to the `airsstack` plugin for execution and degrades to guided inline work
 when that plugin is absent.
 
+The `brainstorm → write-plan → execute-plan` workflow is **adapted from the
+[superpowers](https://github.com/obra/superpowers) plugin (`superpowers@claude-plugins-official`)**,
+with airsstack-specific adjustments — see [Attribution](#attribution).
+
 ## Install
 
 ```
@@ -56,6 +60,21 @@ the directory and surfaces what it finds, or you can name an RFC explicitly to l
 primary design input. When an RFC seeds a spec, the spec header records its provenance
 with a `Derived-from-RFC: rfcs/<file>` line. RFCs are read-only to the plugin — it never
 creates, edits, moves, or deletes them.
+
+## Attribution
+
+The core idea — a gated `brainstorm → write-plan → execute-plan` pipeline that settles
+design before code — is **adapted from the [superpowers](https://github.com/obra/superpowers)
+plugin** (`superpowers@claude-plugins-official`). airsstack-sdd is not a fork; it re-implements
+the workflow with adjustments for this stack:
+
+- **One objective per plan file**, with an explicit spec-vs-plan artifact lifecycle (specs are
+  the durable record; plans are disposable scaffolding).
+- A per-project, **git-ignored `.airsstack/` artifact tree** (`rfcs/`, `specs/`, `plans/`)
+  provisioned idempotently three ways (SessionStart hook, `setup` command, lazy pre-write).
+- **RFCs as first-class design input** scanned from `rfcs/`, with `Derived-from-RFC` provenance.
+- **Soft-coupling to the `airsstack` plugin's `orchestrate`** skill for execution, degrading to
+  guided inline work when that plugin is absent.
 
 ## License
 

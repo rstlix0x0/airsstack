@@ -36,7 +36,7 @@ Agents are leaves — they never spawn other agents. Chaining lives in `orchestr
 | --- | --- |
 | `orchestrate` | Drives `explorer → coder → reviewer → verifier → user` per task; routes findings through the orchestrator; the user is the only commit gate. |
 | `process-guidelines` | Conventional Commits (workspace-aware scope), model-routing, and the agent-orchestration flow. |
-| `concise` | Verbosity-reduction mode (lite / full / ultra). Clean professional terseness, not caveman-speak; persists across the session. |
+| `concise` | Verbosity-reduction mode (lite / full / ultra). Clean professional terseness, not caveman-speak; persists across the session. Inspired by the [caveman](https://github.com/juliusbrussee/caveman) plugin — see [Attribution](#attribution). |
 | `snapshot-load` | Reads the project-local snapshot(s) relevant to the current branch and reports the rehydrated state. |
 | `snapshot-save` | Captures a conversation snapshot (session summary + key snippets) into the project-local snapshot store, with a durability gate so thin sessions write nothing. |
 
@@ -117,6 +117,14 @@ rule visible at the moment it applies); the `reviewer` agent re-running the
 Definition of Done is the **retroactive** gate. The dispatcher is fail-open —
 a missing registry, an absent or malformed manifest, or a missing runtime all
 resolve to "do nothing," never to a blocked edit.
+
+## Attribution
+
+The `concise` skill is **inspired by the [caveman](https://github.com/juliusbrussee/caveman)
+plugin** — airsstack's professional-terseness take on the same idea. The adjustment is
+deliberate: where caveman compresses to caveman-speak, `concise` keeps readable prose and never
+touches code, shell, error text, or careful safety-critical instructions. The persistent
+level-based hook (lite / full / ultra) is airsstack's own.
 
 ## License
 
