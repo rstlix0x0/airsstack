@@ -1,4 +1,15 @@
 {
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "disableWorkflows": true,
+  "enabledPlugins": {
+    "airsstack@airsstack": true,
+    "airsstack-sdd@airsstack": true,
+    "airsstack-guideline-rust@airsstack": true,
+    "airsstack-journal@airsstack": true
+  },
   "extraKnownMarketplaces": {
     "airsstack": {
       "source": {
@@ -7,20 +18,10 @@
       }
     }
   },
-  "enabledPlugins": {
-    "airsstack@airsstack": true,
-    "airsstack-sdd@airsstack": true,
-    "airsstack-guideline-rust@airsstack": true
-  },
+  "feedbackSurveyRate": 0,
   "companyAnnouncements": [
     "airsstack is a custom AI-SDK for personal AI stacks.",
     "Utilizing Claude API and open-source models through OpenRouter"
   ],
-  "attribution": {
-    "commit": "",
-    "pr": ""
-  },
-  "disableWorkflows": true,
-  "editorMode": "vim",
-  "feedbackSurveyRate": 0
+  "editorMode": "vim"
 }
