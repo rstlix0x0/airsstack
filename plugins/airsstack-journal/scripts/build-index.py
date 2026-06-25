@@ -17,6 +17,12 @@ import re
 import sys
 from pathlib import Path
 
+try:
+    import yaml as _yaml
+    _YAML_AVAILABLE = True
+except ImportError:  # pragma: no cover — environment without PyYAML
+    _YAML_AVAILABLE = False
+
 NOTE_DIRS = ("daily", "sessions", "notes", "mocs")
 WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
 FENCED_CODE_RE = re.compile(r"(?s)(```|~~~).*?\1")
@@ -41,12 +47,51 @@ def parse_value(val: str):
     return val.strip('"').strip("'")
 
 
-def parse_frontmatter(text: str):
-    """Return (frontmatter_dict, body). Raise ValueError on malformed frontmatter.
+def _parse_frontmatter_yaml(text: str):
+    """parse_frontmatter backend that uses PyYAML (preferred).
 
-    Supports a leading '---' fence of flat 'key: value' pairs, where a value is
-    a scalar or an inline '[a, b, c]' list. A note without a fence yields
-    ({}, text).
+    Accepts scalar values, inline flow lists, and block-style lists — i.e.
+    everything Obsidian's Properties UI can emit.  list items are coerced to
+    str so downstream WIKILINK_RE.findall callers always receive strings.
+    """
+    if not text.startswith("---"):
+        return {}, text
+    lines = text.splitlines()
+    end = None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            end = i
+            break
+    if end is None:
+        raise ValueError("unterminated frontmatter fence")
+    yaml_src = "\n".join(lines[1:end])
+    body = "\n".join(lines[end + 1:])
+    try:
+        parsed = _yaml.safe_load(yaml_src)
+    except _yaml.YAMLError as exc:
+        raise ValueError("frontmatter YAML error: %s" % exc) from exc
+    if parsed is None:
+        # empty fence "---\n---" — treat as no frontmatter
+        return {}, body
+    if not isinstance(parsed, dict):
+        # e.g. a bare scalar like "this line has no colon" — not valid key-value frontmatter
+        raise ValueError("frontmatter is not a YAML mapping: %r" % type(parsed).__name__)
+    # Coerce list items to str; leave scalars as-is (as_list / scalar handle them).
+    frontmatter = {}
+    for key, val in parsed.items():
+        if isinstance(val, list):
+            frontmatter[key] = [str(item) for item in val]
+        elif val is None:
+            frontmatter[key] = ""
+        else:
+            frontmatter[key] = val
+    return frontmatter, body
+
+
+def _parse_frontmatter_lines(text: str):
+    """Fallback backend: line-based parser (no PyYAML dependency).
+
+    Handles scalar values and inline '[a, b, c]' flow lists only.
     """
     if not text.startswith("---"):
         return {}, text
@@ -68,6 +113,19 @@ def parse_frontmatter(text: str):
         frontmatter[key.strip()] = parse_value(val)
     body = "\n".join(lines[end + 1:])
     return frontmatter, body
+
+
+def parse_frontmatter(text: str):
+    """Return (frontmatter_dict, body). Raise ValueError on malformed frontmatter.
+
+    Uses PyYAML when available (supports block-style lists, inline flow lists,
+    scalars — all Obsidian frontmatter variants).  Falls back to the line-based
+    parser when PyYAML is not installed.  A note without a leading '---' fence
+    yields ({}, text).
+    """
+    if _YAML_AVAILABLE:
+        return _parse_frontmatter_yaml(text)
+    return _parse_frontmatter_lines(text)  # pragma: no cover
 
 
 def as_list(val):
