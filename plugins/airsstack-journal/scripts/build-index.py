@@ -19,6 +19,8 @@ from pathlib import Path
 
 NOTE_DIRS = ("daily", "sessions", "notes", "mocs")
 WIKILINK_RE = re.compile(r"\[\[([^\]]+)\]\]")
+FENCED_CODE_RE = re.compile(r"(?s)(```|~~~).*?\1")
+INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
 UNRESOLVED_KEY = "_unresolved"
 CONTAINER_TYPES = ("session", "daily")
 EDGE_PRIORITY = {"supersedes": 4, "depends-on": 3, "contains": 2, "references": 1}
@@ -110,11 +112,19 @@ def normalize_target(text: str) -> str:
     return text.strip().lower()
 
 
+def strip_code_spans(text):
+    """Remove fenced and inline code so [[links]] discussed in code prose
+    (not intended as real links) are not parsed as edges."""
+    text = FENCED_CODE_RE.sub(" ", text)
+    text = INLINE_CODE_RE.sub(" ", text)
+    return text
+
+
 def link_targets(frontmatter, body):
     targets = []
     for item in as_list(frontmatter.get("links")):
         targets.extend(WIKILINK_RE.findall(item))
-    targets.extend(WIKILINK_RE.findall(body))
+    targets.extend(WIKILINK_RE.findall(strip_code_spans(body)))
     return targets
 
 
