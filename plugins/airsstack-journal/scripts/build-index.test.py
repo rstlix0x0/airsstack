@@ -281,6 +281,32 @@ class IndexBuilderTest(unittest.TestCase):
         self.assertNotIn("session-ab12cd34", idx["backlinks"])
         self.assertEqual(self.graph()["session-ab12cd34"], [])
 
+    def test_inline_code_wikilink_is_not_an_edge(self):
+        # A [[target]] inside an inline-code span is prose ABOUT a link,
+        # not a real link — it must not create an edge.
+        self.write_note("notes", "target.md", {"title": "T", "summary": "t"})
+        self.write_note("notes", "doc.md", {"title": "D", "summary": "d"},
+                        body="write the `[[target]]` form in backticks")
+        self.run_builder()
+        self.assertEqual(self.graph()["doc"], [])
+        self.assertEqual(
+            [e for e in self.index()["edges"] if e["from"] == "doc"], [])
+
+    def test_fenced_code_wikilink_is_not_an_edge(self):
+        self.write_note("notes", "target.md", {"title": "T", "summary": "t"})
+        self.write_note("notes", "doc.md", {"title": "D", "summary": "d"},
+                        body="example:\n```\nsee [[target]] here\n```\ndone")
+        self.run_builder()
+        self.assertEqual(self.graph()["doc"], [])
+
+    def test_real_link_outside_code_still_resolves(self):
+        # Guard: stripping code must not eat genuine prose links.
+        self.write_note("notes", "target.md", {"title": "T", "summary": "t"})
+        self.write_note("notes", "doc.md", {"title": "D", "summary": "d"},
+                        body="real [[target]] and a `[[target]]` mention")
+        self.run_builder()
+        self.assertEqual(self.graph()["doc"], ["target"])
+
     def test_supersedes_absent_from_graph_json(self):
         self.write_note("notes", "auth-v1.md", {"title": "v1", "summary": "old"})
         self.write_note("notes", "auth-v2.md",
