@@ -24,13 +24,30 @@ class IndexBuilderTest(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+    # Characters that require quoting a scalar YAML value in the test helper.
+    _YAML_QUOTE_CHARS = set('[]{}#:\t\n\r"\'')
+
+    def _yaml_scalar(self, val: str) -> str:
+        """Return a YAML-safe representation of a scalar string value."""
+        needs_quoting = (
+            any(c in val for c in self._YAML_QUOTE_CHARS)
+            or val.startswith(" ")
+            or val.endswith(" ")
+        )
+        if needs_quoting:
+            return '"%s"' % val.replace("\\", "\\\\").replace('"', '\\"')
+        return val
+
     def write_note(self, sub, name, frontmatter, body=""):
         lines = ["---"]
         for key, val in frontmatter.items():
             if isinstance(val, list):
-                lines.append("%s: [%s]" % (key, ", ".join(val)))
+                # Quote items containing wikilink brackets or other special
+                # characters so PyYAML does not misparse them.
+                quoted = [self._yaml_scalar(item) for item in val]
+                lines.append("%s: [%s]" % (key, ", ".join(quoted)))
             else:
-                lines.append("%s: %s" % (key, val))
+                lines.append("%s: %s" % (key, self._yaml_scalar(str(val))))
         lines.append("---")
         text = "\n".join(lines) + "\n" + body
         (self.vault / sub / name).write_text(text, encoding="utf-8")
@@ -315,6 +332,58 @@ class IndexBuilderTest(unittest.TestCase):
         self.run_builder()
         # graph.json stays untyped adjacency: a supersedes-only target is NOT a graph edge.
         self.assertEqual(self.graph()["auth-v2"], [])
+
+    def test_block_style_depends_on_emits_typed_edges(self):
+        """Block-style YAML list in depends-on must produce typed edges (Obsidian compat)."""
+        self.write_note("notes", "session-5481f011.md",
+                        {"title": "S1", "summary": "s1"})
+        self.write_note("notes", "session-e06b6653.md",
+                        {"title": "S2", "summary": "s2"})
+        # Write raw so we control the exact YAML block-list syntax Obsidian emits.
+        self.write_raw(
+            "notes",
+            "derived.md",
+            (
+                "---\n"
+                "title: Derived\n"
+                "summary: derived note\n"
+                "depends-on:\n"
+                '  - "[[session-5481f011]]"\n'
+                '  - "[[session-e06b6653]]"\n'
+                "---\n"
+                "body text\n"
+            ),
+        )
+        res = self.run_builder()
+        self.assertEqual(res.returncode, 0, res.stderr)
+        # Note must NOT be skipped as malformed.
+        stems = [r[0] for r in self.tsv_rows()]
+        self.assertIn("derived", stems)
+        edges = self.index()["edges"]
+        self.assertIn(
+            {"from": "derived", "to": "session-5481f011", "type": "depends-on"},
+            edges,
+        )
+        self.assertIn(
+            {"from": "derived", "to": "session-e06b6653", "type": "depends-on"},
+            edges,
+        )
+
+    def test_inline_flow_list_still_parses_after_yaml_migration(self):
+        """Regression: inline [a, b] flow-style lists must still yield typed edges."""
+        self.write_note("notes", "auth-v1.md", {"title": "v1", "summary": "old"})
+        # write_note writes inline [a, b] style — ensure it still works.
+        self.write_note(
+            "notes",
+            "auth-v2.md",
+            {"title": "v2", "summary": "new", "supersedes": ["[[auth-v1]]"]},
+        )
+        res = self.run_builder()
+        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertIn(
+            {"from": "auth-v2", "to": "auth-v1", "type": "supersedes"},
+            self.index()["edges"],
+        )
 
 
 if __name__ == "__main__":
