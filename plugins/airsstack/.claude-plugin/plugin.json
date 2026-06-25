@@ -1,7 +1,7 @@
 {
   "name": "airsstack",
   "version": "0.1.0",
-  "description": "Execution engine: a TDD coder, a merged code+spec reviewer, a claim verifier, and a read-only explorer, plus an orchestration driver, process guidelines, project-local memory, and a concise output mode.",
+  "description": "Execution engine: a TDD coder, a merged code+spec reviewer, a claim verifier, and a read-only explorer, plus an orchestration driver, process guidelines, project-local memory, and a concise output mode (inspired by the caveman plugin, github.com/juliusbrussee/caveman).",
   "author": {
     "name": "rstlix0x0",
     "email": "rstlix.dev@gmail.com"

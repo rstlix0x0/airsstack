@@ -9,12 +9,12 @@
     {
       "name": "airsstack",
       "source": "./plugins/airsstack",
-      "description": "Execution engine: a TDD coder, a merged code+spec reviewer, a claim verifier, and a read-only explorer, plus an orchestration driver, process guidelines, project-local memory, and a concise output mode."
+      "description": "Execution engine: a TDD coder, a merged code+spec reviewer, a claim verifier, and a read-only explorer, plus an orchestration driver, process guidelines, project-local memory, and a concise output mode (inspired by the caveman plugin, github.com/juliusbrussee/caveman)."
     },
     {
       "name": "airsstack-sdd",
       "source": "./plugins/airsstack-sdd",
-      "description": "Spec-driven development workflow: brainstorm an idea into a spec, write a one-objective implementation plan, and execute it with review checkpoints."
+      "description": "Spec-driven development workflow: brainstorm an idea into a spec, write a one-objective implementation plan, and execute it with review checkpoints. Adapted from the superpowers plugin (superpowers@claude-plugins-official) with airsstack-specific adjustments."
     },
     {
       "name": "airsstack-guideline-rust",
