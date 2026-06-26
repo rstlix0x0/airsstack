@@ -31,5 +31,38 @@ class ExtractPluginRel(unittest.TestCase):
         self.assertIsNone(cache_sync.extract_plugin_rel(p))
 
 
+class ResolveInstallPaths(unittest.TestCase):
+    def test_dedupes_distinct_paths(self):
+        data = {"plugins": {"airsstack@airsstack": [
+            {"installPath": "/c/airsstack/airsstack/0.1.0"},
+            {"installPath": "/c/airsstack/airsstack/0.1.0"},
+        ]}}
+        self.assertEqual(
+            cache_sync.resolve_install_paths(data, "airsstack"),
+            ["/c/airsstack/airsstack/0.1.0"],
+        )
+
+    def test_missing_plugin_returns_empty(self):
+        self.assertEqual(
+            cache_sync.resolve_install_paths({"plugins": {}}, "ghost"), []
+        )
+
+    def test_non_airsstack_marketplace_not_selected(self):
+        data = {"plugins": {"airsstack@elsewhere": [{"installPath": "/c/x"}]}}
+        self.assertEqual(
+            cache_sync.resolve_install_paths(data, "airsstack"), []
+        )
+
+    def test_entry_without_install_path_skipped(self):
+        data = {"plugins": {"airsstack@airsstack": [
+            {"scope": "user"},
+            {"installPath": "/c/airsstack/airsstack/0.1.0"},
+        ]}}
+        self.assertEqual(
+            cache_sync.resolve_install_paths(data, "airsstack"),
+            ["/c/airsstack/airsstack/0.1.0"],
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

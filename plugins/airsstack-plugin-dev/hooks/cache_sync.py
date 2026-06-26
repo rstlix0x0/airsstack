@@ -45,3 +45,19 @@ def extract_plugin_rel(path):
                 return None
             return plugin, os.sep.join(rel_parts)
     return None
+
+
+def resolve_install_paths(installed_data, plugin):
+    """Distinct installPath values for `<plugin>@airsstack`, first-seen order.
+
+    The `@airsstack` suffix is the marketplace gate: plugins from any other
+    marketplace are never selected.
+    """
+    key = plugin + "@" + MARKETPLACE
+    entries = (installed_data.get("plugins") or {}).get(key) or []
+    seen = []
+    for entry in entries:
+        ip = entry.get("installPath")
+        if ip and ip not in seen:
+            seen.append(ip)
+    return seen
