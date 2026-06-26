@@ -61,3 +61,10 @@ def resolve_install_paths(installed_data, plugin):
         if ip and ip not in seen:
             seen.append(ip)
     return seen
+
+
+def is_within(child, parent):
+    """True if `child` is `parent` or nested under it (normalized paths)."""
+    parent_n = os.path.normpath(parent)
+    child_n = os.path.normpath(child)
+    return child_n == parent_n or child_n.startswith(parent_n + os.sep)

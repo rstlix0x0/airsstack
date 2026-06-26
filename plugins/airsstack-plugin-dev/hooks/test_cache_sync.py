@@ -64,5 +64,19 @@ class ResolveInstallPaths(unittest.TestCase):
         )
 
 
+class IsWithin(unittest.TestCase):
+    def test_nested_true(self):
+        self.assertTrue(cache_sync.is_within("/a/b/c", "/a/b"))
+
+    def test_same_path_true(self):
+        self.assertTrue(cache_sync.is_within("/a/b", "/a/b"))
+
+    def test_sibling_prefix_false(self):
+        self.assertFalse(cache_sync.is_within("/a/bc", "/a/b"))
+
+    def test_outside_false(self):
+        self.assertFalse(cache_sync.is_within("/etc/passwd", "/a/b"))
+
+
 if __name__ == "__main__":
     unittest.main()
