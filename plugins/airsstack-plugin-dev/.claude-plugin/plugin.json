@@ -1,0 +1,13 @@
+{
+  "name": "airsstack-plugin-dev",
+  "version": "0.1.0",
+  "description": "Plugin-development toolkit for the airsstack suite. v1: a PostToolUse hook that mirrors edited plugins/<plugin>/ files into the install cache at a fixed version, so plugin development needs no manual cp or reinstall.",
+  "author": {
+    "name": "rstlix0x0",
+    "email": "rstlix.dev@gmail.com"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/rstlix0x0/airsstack",
+  "repository": "https://github.com/rstlix0x0/airsstack",
+  "keywords": ["plugin-development", "cache-sync", "developer-experience", "hooks"]
+}
