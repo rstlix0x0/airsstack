@@ -68,3 +68,70 @@ def is_within(child, parent):
     parent_n = os.path.normpath(parent)
     child_n = os.path.normpath(child)
     return child_n == parent_n or child_n.startswith(parent_n + os.sep)
+
+
+def sync_one(src, rel, install_path):
+    """Copy src -> install_path/rel when dest is within CACHE_ROOT.
+
+    Returns the destination path on success, or None when the destination
+    falls outside the cache root (containment guard).
+    """
+    dest = os.path.normpath(os.path.join(install_path, rel))
+    if not is_within(dest, CACHE_ROOT):
+        _debug("skip (outside cache root): " + dest)
+        return None
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    shutil.copy2(src, dest)
+    _debug("synced: " + src + " -> " + dest)
+    return dest
+
+
+def _read_payload():
+    try:
+        raw = sys.stdin.read()
+    except Exception:
+        return None
+    if not raw.strip():
+        return None
+    try:
+        return json.loads(raw)
+    except (ValueError, TypeError):
+        return None
+
+
+def _load_installed():
+    try:
+        with open(INSTALLED_PLUGINS, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
+def main():
+    payload = _read_payload()
+    if not payload:
+        return 0
+    tool_input = payload.get("tool_input") or {}
+    src = tool_input.get("file_path")
+    if not src:
+        return 0
+    src = os.path.abspath(src)
+    if not os.path.isfile(src):
+        return 0
+    found = extract_plugin_rel(src)
+    if not found:
+        return 0
+    plugin, rel = found
+    installed = _load_installed()
+    if not installed:
+        return 0
+    for install_path in resolve_install_paths(installed, plugin):
+        try:
+            sync_one(src, rel, install_path)
+        except OSError as exc:
+            _debug("sync failed: " + str(exc))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
