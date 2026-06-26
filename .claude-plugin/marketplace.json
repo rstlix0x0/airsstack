@@ -25,6 +25,11 @@
       "name": "airsstack-journal",
       "source": "./plugins/airsstack-journal",
       "description": "Transparent, note-based experiential memory for the development agent: an Obsidian-compatible journal vault with a deterministic, embedding-free recall index."
+    },
+    {
+      "name": "airsstack-plugin-dev",
+      "source": "./plugins/airsstack-plugin-dev",
+      "description": "Plugin-development toolkit for the airsstack suite: a PostToolUse cache-sync hook that mirrors edited plugin files into the fixed-version install cache, removing the manual cp / reinstall dance during plugin development."
     }
   ]
 }
