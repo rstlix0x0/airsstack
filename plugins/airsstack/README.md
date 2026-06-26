@@ -37,8 +37,8 @@ Agents are leaves — they never spawn other agents. Chaining lives in `orchestr
 | `orchestrate` | Drives `explorer → coder → reviewer → verifier → user` per task; routes findings through the orchestrator; the user is the only commit gate. |
 | `process-guidelines` | Conventional Commits (workspace-aware scope), model-routing, and the agent-orchestration flow. |
 | `concise` | Verbosity-reduction mode (lite / full / ultra). Clean professional terseness, not caveman-speak; persists across the session. Inspired by the [caveman](https://github.com/juliusbrussee/caveman) plugin — see [Attribution](#attribution). |
-| `snapshot-load` | Reads the project-local snapshot(s) relevant to the current branch and reports the rehydrated state. |
-| `snapshot-save` | Captures a conversation snapshot (session summary + key snippets) into the project-local snapshot store, with a durability gate so thin sessions write nothing. |
+| `snapshot-load` | Reads the project-local snapshot(s) and reports the rehydrated state. No-arg loads the current branch's latest; an explicit topic does a branch-agnostic topic search. |
+| `snapshot-save` | Captures a conversation snapshot (session summary + key snippets) into the project-local snapshot store, with a durability gate so thin sessions write nothing. No-arg captures the whole session; an explicit topic focuses the capture and tags it. |
 
 ## Output style
 
@@ -76,6 +76,30 @@ and the index is named `index.md`, never `MEMORY.md`.
 This is deliberately **local persistence, not git-shareable** — snapshots do not travel to
 teammates, CI, or a fresh clone. If you need shared project knowledge, commit it as source (docs,
 ADRs), not as a snapshot.
+
+### Topic-focused snapshots
+
+Both skills take an **optional topic** that switches their mode. Save and load are symmetric: the
+saver tags a focus, the loader matches it across branches.
+
+| Command | Mode | What it does |
+| --- | --- | --- |
+| `/airsstack:snapshot-save` | whole-session | Captures the session as a whole — the default "where was I" record. `topic:` left empty. |
+| `/airsstack:snapshot-save streaming parser` | topic-focused | Biases the summary, snippets, and carryovers toward *streaming parser* and stamps `topic: streaming parser` (also added to the `index.md` line). |
+| `/airsstack:snapshot-load` | current-branch | Loads the latest snapshot(s) for the **current branch** — branch orientation. |
+| `/airsstack:snapshot-load streaming parser` | topic search | Ranks **all** snapshots (any branch) by the topic — matching the saved `topic:` key first, then the `summary`. Branch only breaks ties. |
+
+**When to use a topic.** Reach for topic-save when one session covered a discrete thread you'll want
+to resume on its own later — possibly from a different branch or session. Then topic-load pulls just
+that thread back. Example: save `/airsstack:snapshot-save retry backoff` on a spike branch; weeks
+later, on `main`, `/airsstack:snapshot-load retry backoff` rehydrates that thread without dragging in
+the rest of the spike.
+
+**Defaults stay simple.** No topic = today's behavior on both sides (whole-session save, current-branch
+load). The session hooks still nudge the no-arg forms; add a topic only when you want a focused slice.
+
+**Back-compat.** Snapshots saved before this feature have no `topic:` slot; topic-load falls back to
+matching their `summary`, so they remain findable.
 
 ## Enforcement dispatcher
 

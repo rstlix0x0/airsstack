@@ -1,6 +1,6 @@
 ---
 name: snapshot-save
-description: Use when ending a work session, before /clear, or when the user says "save a snapshot" / "save to memory" / "snapshot save" — captures a conversation snapshot (session summary + key snippets) into the project-local snapshot store, with a light durability gate so thin sessions write nothing.
+description: Use when ending a work session, before /clear, or when the user says "save a snapshot" / "save to memory" / "snapshot save" — captures a conversation snapshot (session summary + key snippets) into the project-local snapshot store, with a light durability gate so thin sessions write nothing. No-arg captures the whole session; an explicit topic argument focuses the capture on that topic and stamps it as a match key for topic-load.
 ---
 
 # Snapshot Save
@@ -10,6 +10,23 @@ capture of the current conversation — a curated session summary plus a few key
 one timestamped file in the project-local snapshot store **outside the repo**. This is the
 airsstack memory; it is **deliberately separate from Claude's native memory tool**, whose store has
 size limits we are working around.
+
+## Argument
+
+`/snapshot-save [topic]` — optional free-text topic. The argument switches the
+capture **mode** (mirrors `snapshot-load`):
+
+- **No topic (default):** whole-session orientation. Capture what a future reader
+  needs to resume the session as a whole. Leave `topic:` empty in the schema.
+- **Explicit topic:** **topic-focused capture.** Bias the summary, key snippets,
+  and carryovers toward that topic (what was decided/done/pending *about it*),
+  and stamp the topic as an explicit `topic:` key in frontmatter and the index
+  line. This is the half that makes branch-agnostic topic-load resolve cleanly:
+  the saver tags the focus, the loader matches it. Other threads from the session
+  may be summarized in one line, but the snapshot is *about* the topic.
+
+The topic only labels and focuses the snapshot; it never changes the store
+location or filename (still `<date>-<time>-<branch>.md`).
 
 ## Snapshot store location
 
@@ -87,7 +104,8 @@ commit.
 date: 2026-06-15 14:30:12
 branch: <branch>
 project-key: <project-key>
-summary: <one-line summary — what this session was about>
+topic: <the topic arg, verbatim — omit or leave empty when no topic was given>
+summary: <one-line summary — what this session (or, in topic mode, the topic) was about>
 ---
 
 # Snapshot — <date> — <branch>
@@ -108,7 +126,9 @@ Omit this section if nothing is worth quoting.>
 ## Procedure
 
 1. **Review the session** for what a future reader needs to resume: decisions, current state, key
-   commands/snippets, open carryovers.
+   commands/snippets, open carryovers. **If a topic arg was given,** scope this review to that
+   topic — pull the decisions/state/snippets/carryovers *about it*, and let it drive the `summary`
+   and `topic:` fields. With no topic, capture the session as a whole.
 
 2. **Durability gate.** If nothing meaningful happened — a thin session, only transient chatter, or
    only things already recorded in the repo / git history / project instructions — write **nothing**
@@ -121,8 +141,9 @@ Omit this section if nothing is worth quoting.>
 4. **Write one snapshot file** with the timestamped filename and the schema above.
 
 5. **Update `index.md`** — append one line:
-   `- <date> · <branch> · <summary> · [file](<filename>.md)`. Index is one line per snapshot, never
-   snapshot bodies.
+   `- <date> · <branch> · <topic> · <summary> · [file](<filename>.md)`. The `<topic>` slot carries
+   the topic arg, or `-` when none was given (keeps the column stable for the loader). Index is one
+   line per snapshot, never snapshot bodies.
 
 6. **Report**: the snapshot file written, or "nothing durable to save."
 
