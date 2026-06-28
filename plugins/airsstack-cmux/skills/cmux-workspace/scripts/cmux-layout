@@ -5,6 +5,11 @@
 # agents (that is the deferred super-agent's job); --provider is rejected.
 # Usage: cmux-layout --name <title> [--split left|right|up|down]... [--cmd <shell>]...
 # Commands map to panes in order: pane 0 = initial surface, then each split.
+#
+# Targeting is EXPLICIT: every cmux call is pinned to a surface ref captured
+# from the command that created it. The script never relies on the caller's
+# $CMUX_SURFACE_ID / focus, so splits and commands always land in the NEW
+# workspace — never leaked into the caller's interactive surface.
 set -u
 
 name=""
@@ -30,31 +35,56 @@ done
 
 [ -n "$name" ] || { printf 'cmux-layout: --name is required\n' >&2; exit 2; }
 
-# Create the workspace (focused so subsequent split/send target it via caller env).
-cmux new-workspace --name "$name" >/dev/null || {
+# Create the workspace WITHOUT stealing focus. Output is `OK workspace:N`
+# (no surface ref), so the initial surface is resolved separately below.
+ws_out=$(CMUX_QUIET=1 cmux new-workspace --name "$name" --focus false) || {
   printf 'cmux-layout: new-workspace failed\n' >&2; exit 1; }
+ws=$(printf '%s\n' "$ws_out" | grep -o 'workspace:[0-9][0-9]*' | head -1)
+[ -n "$ws" ] || { printf 'cmux-layout: could not parse new workspace ref\n' >&2; exit 1; }
 
-# Create each split in order.
+# Resolve the workspace's initial surface ref (pane 0). new-workspace does not
+# return it, so query the workspace's pane surfaces.
+init=$(CMUX_QUIET=1 cmux list-pane-surfaces --workspace "$ws" 2>/dev/null \
+  | grep -o 'surface:[0-9][0-9]*' | head -1)
+[ -n "$init" ] || { printf 'cmux-layout: could not resolve initial surface\n' >&2; exit 1; }
+
+# Ordered, newline-separated list of surface refs: line N = pane N (1-based),
+# in creation order (pane 0 = initial surface, then each split's new surface).
+surfaces="$init"
+
+# Create each split in the target workspace. Splits are addressed by --workspace
+# (not --surface): cmux rejects splitting a surface that belongs to a
+# backgrounded workspace, but a workspace-scoped split succeeds and returns the
+# new surface ref. Each split is captured for command routing. Geometry fans off
+# pane 0 (the workspace's active pane stays the initial one under --focus false).
 while IFS= read -r dir; do
   [ -n "$dir" ] || continue
-  cmux new-split "$dir" >/dev/null || {
+  sp_out=$(CMUX_QUIET=1 cmux new-split "$dir" --workspace "$ws" --focus false) || {
     printf 'cmux-layout: new-split %s failed\n' "$dir" >&2; exit 1; }
+  ns=$(printf '%s\n' "$sp_out" | grep -o 'surface:[0-9][0-9]*' | head -1)
+  [ -n "$ns" ] || { printf 'cmux-layout: could not parse split surface\n' >&2; exit 1; }
+  surfaces="${surfaces}
+${ns}"
 done <<EOF
 $splits
 EOF
 
-# Run each command in successive panes. After all splits, focus pane index i
-# and send the command. Pane refs are 1-based (pane:1 = first).
+# Run each command in its pane, addressed by the captured surface ref. The i-th
+# command maps to the i-th surface (1-based). An empty command leaves that pane
+# at a plain shell prompt but still consumes its slot.
 i=1
 while IFS= read -r c; do
-  [ -n "$c" ] || { i=$((i + 1)); continue; }
-  cmux focus-pane --pane "pane:$i" >/dev/null 2>&1 || true
-  cmux send "$c" >/dev/null || {
-    printf 'cmux-layout: send to pane:%s failed\n' "$i" >&2; exit 1; }
-  cmux send-key enter >/dev/null 2>&1 || true
+  sf=$(printf '%s\n' "$surfaces" | sed -n "${i}p")
+  if [ -n "$c" ] && [ -n "$sf" ]; then
+    CMUX_QUIET=1 cmux send --surface "$sf" "$c" >/dev/null || {
+      printf 'cmux-layout: send to %s failed\n' "$sf" >&2; exit 1; }
+    CMUX_QUIET=1 cmux send-key --surface "$sf" enter >/dev/null 2>&1 || true
+  fi
   i=$((i + 1))
 done <<EOF
 $cmds
 EOF
 
+# Report the workspace ref so callers can select/switch to it.
+printf '%s\n' "$ws"
 exit 0

@@ -24,7 +24,7 @@ explicitly only when you need to act on a different workspace.
 Core workspace lifecycle commands:
 
 ```sh
-cmux new-workspace --name <title> [--cwd <path>] [--command <cmd>] [--no-focus]
+cmux new-workspace --name <title> [--cwd <path>] [--command <cmd>] [--focus false]
 cmux select-workspace --workspace <id|ref|index>
 cmux current-workspace
 cmux rename-workspace [--workspace <id|ref>] <title>
@@ -38,7 +38,8 @@ Useful `new-workspace` flags:
 - `--command <cmd>` — shell command to run in the initial pane.
 - `--group <id|ref>` and `--group-placement afterCurrent|top|end` — place the new workspace
   directly into an existing group (see **Groups** below and `references/workspace-groups.md`).
-- `--no-focus` — create without stealing focus (recommended when scripting).
+- `--focus false` — create without stealing focus (recommended when scripting). There is
+  **no** `--no-focus` flag on `new-workspace`; use `--focus false`.
 
 ## Layouts
 
@@ -54,9 +55,12 @@ ${CLAUDE_PLUGIN_ROOT}/skills/cmux-workspace/scripts/cmux-layout \
 ```
 
 The helper is pure geometry plus optional per-pane commands — `--cmd` runs a shell command in
-that pane. It does **not** spawn agent sessions or coordinate agents. See
-`references/layouts.md` for more recipes and the equivalent raw-CLI sequences for cases where
-the helper is too rigid.
+that pane. It does **not** spawn agent sessions or coordinate agents. On success it prints the
+new workspace ref (e.g. `workspace:5`) so you can `cmux select-workspace --workspace <ref>`
+afterwards. Internally it pins every split and command to a captured surface ref — it never
+relies on the caller's focus or `$CMUX_SURFACE_ID`, so the layout always lands in the new
+workspace and is never leaked into the caller's surface. See `references/layouts.md` for more
+recipes and the equivalent raw-CLI sequences for cases where the helper is too rigid.
 
 ## Groups
 
@@ -74,10 +78,16 @@ cmux new-workspace --name feature-x --group workspace_group:1 --group-placement 
 
 1. **Scope to the caller workspace.** `CMUX_WORKSPACE_ID` is your boundary; act outside it only
    when the task explicitly requires cross-workspace coordination.
-2. **Use `--no-focus` during bulk creation.** Creating multiple workspaces or splits without
-   `--no-focus` will jump the user's active view; always prefer `--focus false` / `--no-focus`
-   when scripting.
-3. **Never spawn agent sessions here.** Starting Claude, Codex, or opencode agent sessions
+2. **Use `--focus false` during bulk creation.** Creating multiple workspaces or splits while
+   focusing them jumps the user's active view; always pass `--focus false` when scripting.
+   (`new-workspace` has no `--no-focus` flag — it is `--focus false`.)
+3. **Target surfaces explicitly; never rely on focus.** cmux CLI commands default
+   `--workspace`/`--surface` to the caller's `$CMUX_WORKSPACE_ID`/`$CMUX_SURFACE_ID`, NOT to
+   whatever is focused. A bare `cmux send "..."` goes to the caller's own surface — inside Claude
+   Code that injects text into the agent prompt. When acting on another workspace, capture its
+   surface refs and pass `--surface`/`--workspace` on every call. Note: a backgrounded
+   workspace's surface cannot be split via `--surface` (`not_found`); split it with `--workspace`.
+4. **Never spawn agent sessions here.** Starting Claude, Codex, or opencode agent sessions
    (`new-surface --type agent-session`, `claude-teams`) is out of scope for this skill — that is
    the deferred super-agent layer's responsibility. Use `--command` / `--cmd` for plain shell
    commands only.

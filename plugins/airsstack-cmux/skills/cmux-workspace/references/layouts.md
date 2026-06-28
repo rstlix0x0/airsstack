@@ -19,29 +19,29 @@ ${CLAUDE_PLUGIN_ROOT}/skills/cmux-workspace/scripts/cmux-layout \
 ```
 
 Equivalent raw-CLI sequence (drop to this when you need precise flags the helper doesn't
-expose, e.g. a specific `--cwd` per pane or `--no-focus` during bulk creation):
+expose, e.g. a specific `--cwd` per pane):
 
 ```sh
 # 1. Create the workspace without stealing focus.
-cmux new-workspace --name dev --no-focus
+#    NOTE: new-workspace takes `--focus false` — there is NO `--no-focus` flag on
+#    this command. It prints `OK workspace:N` (no surface ref).
+ws=$(cmux new-workspace --name dev --focus false | grep -o 'workspace:[0-9]*' | head -1)
 
-# 2. Add splits. Each new-split targets the caller workspace by default.
-cmux new-split right --no-focus
-cmux new-split down --no-focus
+# 2. Resolve the workspace's initial surface (pane 0); new-workspace does not return it.
+s0=$(cmux list-pane-surfaces --workspace "$ws" | grep -o 'surface:[0-9]*' | head -1)
 
-# 3. Send startup commands to each pane in order.
-#    Pane refs are assigned 1-based: pane:1 = first (initial), pane:2, pane:3, ...
-cmux focus-pane --pane pane:1
-cmux send "nvim ."
-cmux send-key enter
+# 3. Add splits SCOPED TO THE WORKSPACE. Splitting by `--surface` is rejected for a
+#    backgrounded workspace ("not_found: Surface not found"); use `--workspace`.
+#    Each split prints `OK surface:N workspace:<ws>` — capture the new surface ref.
+s1=$(cmux new-split right --workspace "$ws" --focus false | grep -o 'surface:[0-9]*' | head -1)
+s2=$(cmux new-split down  --workspace "$ws" --focus false | grep -o 'surface:[0-9]*' | head -1)
 
-cmux focus-pane --pane pane:2
-cmux send "npm run dev"
-cmux send-key enter
-
-cmux focus-pane --pane pane:3
-cmux send "npm test"
-cmux send-key enter
+# 4. Send startup commands, each PINNED to its surface ref. Never rely on focus or
+#    the caller's $CMUX_SURFACE_ID default — that targets the CALLER's surface and
+#    leaks the command into your own shell (or, inside Claude Code, the agent prompt).
+cmux send --surface "$s0" "nvim ."     ; cmux send-key --surface "$s0" enter
+cmux send --surface "$s1" "npm run dev"; cmux send-key --surface "$s1" enter
+cmux send --surface "$s2" "npm test"   ; cmux send-key --surface "$s2" enter
 ```
 
 ---
@@ -58,8 +58,8 @@ ${CLAUDE_PLUGIN_ROOT}/skills/cmux-workspace/scripts/cmux-layout \
 Raw-CLI equivalent:
 
 ```sh
-cmux new-workspace --name diff --no-focus
-cmux new-split right --no-focus
+ws=$(cmux new-workspace --name diff --focus false | grep -o 'workspace:[0-9]*' | head -1)
+cmux new-split right --workspace "$ws" --focus false
 ```
 
 ---
@@ -80,13 +80,13 @@ The empty `--cmd ""` for pane 1 leaves the left pane at a plain shell prompt.
 Raw-CLI equivalent:
 
 ```sh
-cmux new-workspace --name scratch --no-focus
-cmux new-split right --no-focus
+ws=$(cmux new-workspace --name scratch --focus false | grep -o 'workspace:[0-9]*' | head -1)
+s0=$(cmux list-pane-surfaces --workspace "$ws" | grep -o 'surface:[0-9]*' | head -1)
+s1=$(cmux new-split right --workspace "$ws" --focus false | grep -o 'surface:[0-9]*' | head -1)
 
-# Leave pane:1 at shell (no send needed).
-cmux focus-pane --pane pane:2
-cmux send "python -m http.server 8080"
-cmux send-key enter
+# Leave the left pane ($s0) at a shell; run the server in the right pane ($s1).
+cmux send --surface "$s1" "python -m http.server 8080"
+cmux send-key --surface "$s1" enter
 ```
 
 ---
@@ -112,6 +112,6 @@ cmux current-workspace
 | Situation | Recommendation |
 |---|---|
 | Simple geometry, optional per-pane command | Use `cmux-layout` |
-| Need `--cwd` per pane, or custom `--no-focus` logic | Drop to raw commands |
+| Need `--cwd` per pane, or custom per-surface targeting | Drop to raw commands |
 | Layout from a pre-built JSON spec (`--layout <json>`) | Use `cmux new-workspace --layout` directly |
 | More than 4-5 panes with complex ordering | Raw commands give more control |
