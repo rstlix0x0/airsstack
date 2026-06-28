@@ -9,7 +9,8 @@
     "airsstack-sdd@airsstack": true,
     "airsstack-guideline-rust@airsstack": true,
     "airsstack-journal@airsstack": true,
-    "airsstack-plugin-dev@airsstack": true
+    "airsstack-plugin-dev@airsstack": true,
+    "airsstack-cmux@airsstack": true
   },
   "extraKnownMarketplaces": {
     "airsstack": {
