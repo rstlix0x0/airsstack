@@ -1,0 +1,54 @@
+#!/bin/sh
+# cmux-preflight — assert the cmux control surface is usable before automation.
+# Checks: cmux binary on PATH; control socket present + reachable (cmux ping);
+# reports version and caller workspace/surface context. Human summary by
+# default, machine JSON with --json. Exits 0 when healthy, nonzero (with the
+# summary on stderr) when cmux is unavailable, so a caller can stop early.
+# Usage: cmux-preflight [--json]
+set -u
+
+json=0
+[ "${1:-}" = "--json" ] && json=1
+
+emit() {
+  # emit <fd-is-caller's> status bin version socket reachable ws sf
+  _status="$1"; _bin="$2"; _ver="$3"; _sock="$4"; _reach="$5"; _ws="$6"; _sf="$7"
+  if [ "$json" -eq 1 ]; then
+    printf '{"status":"%s","binary":"%s","version":"%s","socket":"%s","reachable":%s,"workspace":"%s","surface":"%s"}\n' \
+      "$_status" "$_bin" "$_ver" "$_sock" "$_reach" "$_ws" "$_sf"
+  else
+    printf 'cmux preflight: %s\n' "$_status"
+    printf '  binary:    %s\n' "$_bin"
+    printf '  version:   %s\n' "$_ver"
+    printf '  socket:    %s\n' "$_sock"
+    printf '  reachable: %s\n' "$_reach"
+    printf '  workspace: %s\n' "$_ws"
+    printf '  surface:   %s\n' "$_sf"
+  fi
+}
+
+bin=$(command -v cmux 2>/dev/null || true)
+sock="${CMUX_SOCKET_PATH:-$HOME/.local/state/cmux/cmux.sock}"
+ws="${CMUX_WORKSPACE_ID:-}"
+sf="${CMUX_SURFACE_ID:-}"
+
+if [ -z "$bin" ]; then
+  emit "unavailable" "" "" "$sock" "false" "$ws" "$sf" >&2
+  exit 1
+fi
+
+ver=$(cmux version 2>/dev/null | head -n1 || true)
+[ -n "$ver" ] || ver="unknown"
+
+if [ ! -S "$sock" ]; then
+  emit "no-socket" "$bin" "$ver" "$sock" "false" "$ws" "$sf" >&2
+  exit 1
+fi
+
+if cmux ping >/dev/null 2>&1; then
+  emit "ok" "$bin" "$ver" "$sock" "true" "$ws" "$sf"
+  exit 0
+fi
+
+emit "unreachable" "$bin" "$ver" "$sock" "false" "$ws" "$sf" >&2
+exit 1

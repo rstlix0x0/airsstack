@@ -1,0 +1,60 @@
+#!/bin/sh
+# cmux-layout — build a cmux workspace layout: create a named workspace, add
+# splits, and optionally run a shell command in each pane. Pure geometry plus
+# an optional per-pane command. It does NOT spawn agent sessions or coordinate
+# agents (that is the deferred super-agent's job); --provider is rejected.
+# Usage: cmux-layout --name <title> [--split left|right|up|down]... [--cmd <shell>]...
+# Commands map to panes in order: pane 0 = initial surface, then each split.
+set -u
+
+name=""
+splits=""   # newline-separated directions
+cmds=""     # newline-separated shell commands
+
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --name) name="${2:-}"; shift 2 ;;
+    --split)
+      case "${2:-}" in
+        left|right|up|down) splits="${splits}${2}
+"; shift 2 ;;
+        *) printf 'cmux-layout: --split must be left|right|up|down\n' >&2; exit 2 ;;
+      esac ;;
+    --cmd) cmds="${cmds}${2:-}
+"; shift 2 ;;
+    --provider|--agent|--claude-teams)
+      printf 'cmux-layout: %s is out of scope (no agent spawning)\n' "$1" >&2; exit 2 ;;
+    *) printf 'cmux-layout: unknown argument: %s\n' "$1" >&2; exit 2 ;;
+  esac
+done
+
+[ -n "$name" ] || { printf 'cmux-layout: --name is required\n' >&2; exit 2; }
+
+# Create the workspace (focused so subsequent split/send target it via caller env).
+cmux new-workspace --name "$name" >/dev/null || {
+  printf 'cmux-layout: new-workspace failed\n' >&2; exit 1; }
+
+# Create each split in order.
+while IFS= read -r dir; do
+  [ -n "$dir" ] || continue
+  cmux new-split "$dir" >/dev/null || {
+    printf 'cmux-layout: new-split %s failed\n' "$dir" >&2; exit 1; }
+done <<EOF
+$splits
+EOF
+
+# Run each command in successive panes. After all splits, focus pane index i
+# and send the command. Pane refs are 1-based (pane:1 = first).
+i=1
+while IFS= read -r c; do
+  [ -n "$c" ] || { i=$((i + 1)); continue; }
+  cmux focus-pane --pane "pane:$i" >/dev/null 2>&1 || true
+  cmux send "$c" >/dev/null || {
+    printf 'cmux-layout: send to pane:%s failed\n' "$i" >&2; exit 1; }
+  cmux send-key enter >/dev/null 2>&1 || true
+  i=$((i + 1))
+done <<EOF
+$cmds
+EOF
+
+exit 0

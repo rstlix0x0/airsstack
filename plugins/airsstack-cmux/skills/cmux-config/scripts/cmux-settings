@@ -1,0 +1,51 @@
+#!/bin/sh
+# cmux-settings — safe-edit helper for ~/.config/cmux/cmux.json. Backs the
+# config up to a timestamped .bak before any edit, runs the edit, then runs
+# `cmux config validate`; on an invalid result it restores the backup and
+# exits nonzero so a broken config is never left in place. Config path honors
+# CMUX_SETTINGS_FILE (default ~/.config/cmux/cmux.json).
+# Usage:
+#   cmux-settings backup
+#   cmux-settings validate
+#   cmux-settings backup-then <cmd> [args...]
+set -u
+
+cfg="${CMUX_SETTINGS_FILE:-$HOME/.config/cmux/cmux.json}"
+
+do_backup() {
+  [ -f "$cfg" ] || { printf 'cmux-settings: config not found: %s\n' "$cfg" >&2; return 1; }
+  bak="${cfg}.$(date +%Y%m%d-%H%M%S).bak"
+  cp "$cfg" "$bak" || { printf 'cmux-settings: backup failed\n' >&2; return 1; }
+  printf '%s\n' "$bak"
+}
+
+do_validate() {
+  cmux config validate >/dev/null 2>&1
+}
+
+cmd="${1:-}"
+case "$cmd" in
+  backup)
+    do_backup >/dev/null || exit 1
+    exit 0 ;;
+  validate)
+    do_validate || { printf 'cmux-settings: config invalid\n' >&2; exit 1; }
+    exit 0 ;;
+  backup-then)
+    shift
+    [ "$#" -gt 0 ] || { printf 'cmux-settings: backup-then needs a command\n' >&2; exit 2; }
+    bak=$(do_backup) || exit 1
+    if "$@"; then :; else
+      printf 'cmux-settings: edit command failed; restoring backup\n' >&2
+      cp "$bak" "$cfg"; exit 1
+    fi
+    if do_validate; then
+      exit 0
+    fi
+    printf 'cmux-settings: config invalid after edit; restoring backup\n' >&2
+    cp "$bak" "$cfg"
+    exit 1 ;;
+  *)
+    printf 'cmux-settings: unknown command: %s (use backup|validate|backup-then)\n' "$cmd" >&2
+    exit 2 ;;
+esac
