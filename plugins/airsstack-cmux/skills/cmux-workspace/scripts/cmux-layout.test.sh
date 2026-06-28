@@ -11,13 +11,16 @@ trap 'rm -rf "$TMP"' EXIT
 mkdir -p "$TMP/bin"
 LOG="$TMP/calls.log"
 
-# Stub cmux: log every invocation; emit a fake ref for new-workspace/new-split.
+# Stub cmux: log every invocation; emit fake refs. new-workspace returns only a
+# workspace ref (no surface); the initial surface is resolved via
+# list-pane-surfaces; each new-split returns a fresh surface ref.
 cat > "$TMP/bin/cmux" <<EOF
 #!/bin/sh
 echo "\$*" >> "$LOG"
 case "\$1" in
-  new-workspace) echo "workspace:1" ;;
-  new-split) echo "surface:2" ;;
+  new-workspace) echo "OK workspace:1" ;;
+  list-pane-surfaces) echo "* surface:1  init  [selected]" ;;
+  new-split) echo "OK surface:2 workspace:1" ;;
   *) : ;;
 esac
 exit 0
@@ -36,6 +39,14 @@ if [ "$(grep -c '^send ' "$LOG")" -eq 3 ]; then rc=0; else rc=1; fi; check $rc "
 grep -q 'send .*echo a' "$LOG"; check $? "cmd a sent"
 grep -q 'send .*echo c' "$LOG"; check $? "cmd c sent"
 
+# Regression: targeting must be EXPLICIT, never leaked to the caller surface.
+grep -q 'new-workspace .*--focus false' "$LOG"; check $? "new-workspace uses --focus false (not --no-focus)"
+grep -q '^list-pane-surfaces .*--workspace' "$LOG"; check $? "resolves initial surface via list-pane-surfaces"
+grep -q '^new-split right --workspace ' "$LOG"; check $? "split is scoped to the target workspace"
+# No send may be unpinned (a bare 'send <text>' would leak into the caller surface).
+if grep -E '^send ' "$LOG" | grep -qv -- '--surface'; then rc=1; else rc=0; fi
+check $rc "every send is pinned to --surface (no caller-surface leak)"
+
 # Reject agent-session crossing of the parked boundary.
 ! PATH="$TMP/bin:$PATH" sh "$SCRIPT" --name x --provider claude >/dev/null 2>&1
 check $? "rejects --provider (no agent spawning)"
@@ -49,7 +60,8 @@ cat > "$TMP/bin/cmux" <<EOF
 #!/bin/sh
 echo "\$*" >> "$LOG"
 case "\$1" in
-  new-workspace) echo "workspace:1" ;;
+  new-workspace) echo "OK workspace:1" ;;
+  list-pane-surfaces) echo "* surface:1  init  [selected]" ;;
   new-split) exit 1 ;;
   *) : ;;
 esac
@@ -64,8 +76,9 @@ cat > "$TMP/bin/cmux" <<EOF
 #!/bin/sh
 echo "\$*" >> "$LOG"
 case "\$1" in
-  new-workspace) echo "workspace:1" ;;
-  new-split) echo "surface:2" ;;
+  new-workspace) echo "OK workspace:1" ;;
+  list-pane-surfaces) echo "* surface:1  init  [selected]" ;;
+  new-split) echo "OK surface:2 workspace:1" ;;
   send) exit 1 ;;
   *) : ;;
 esac
