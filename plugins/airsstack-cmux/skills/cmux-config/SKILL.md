@@ -14,27 +14,44 @@ Grounded on `cmux 0.64.17`. If the installed version differs, run `cmux --help` 
 
 ## Safe editing
 
-**Always back up before editing.** Use the `cmux-settings` helper to do this automatically:
+cmux.json is **JSONC** (JSON with comments), and the default file cmux writes is a heavily
+commented template — every key ships commented out with an "uncomment to enable" note. **Edit it
+in place as text** (uncomment/modify the relevant block) so those comments survive. Do **not**
+pipe it through `jq`: `jq` parses strict JSON only, so it errors on the commented template
+(`Invalid numeric literal …`), and even on a comment-free config it rewrites the file as plain
+JSON, **destroying every comment**. See the `jq` caveat below.
+
+**Always back up before editing.** Take the timestamped `.bak` first, then edit in place, then
+validate and reload:
+
+```sh
+${CLAUDE_PLUGIN_ROOT}/skills/cmux-config/scripts/cmux-settings backup   # writes cmux.json.<ts>.bak
+# …edit ~/.config/cmux/cmux.json in place (text editor / Edit tool), preserving comments…
+${CLAUDE_PLUGIN_ROOT}/skills/cmux-config/scripts/cmux-settings validate # cmux config validate; nonzero on bad config
+cmux reload-config
+```
+
+If `validate` fails, restore the most recent `.bak` by hand (`cp …bak ~/.config/cmux/cmux.json`)
+and re-edit.
+
+For a fully **scripted, non-interactive** edit, the helper's `backup-then <cmd>` form backs up,
+runs `<cmd>`, then validates and **auto-restores the backup on failure** — the config is never
+left broken:
 
 ```sh
 ${CLAUDE_PLUGIN_ROOT}/skills/cmux-config/scripts/cmux-settings backup-then <cmd>
 ```
 
-The helper backs up `~/.config/cmux/cmux.json` to a timestamped `.bak` copy, runs
-`<cmd>`, then validates with `cmux config validate`. If validation fails it restores
-the backup and exits nonzero — the config is never left broken.
-
-Example — append a custom command via `jq`:
-
-```sh
-${CLAUDE_PLUGIN_ROOT}/skills/cmux-config/scripts/cmux-settings backup-then \
-  sh -c 'jq ".commands += [{\"name\":\"build\",\"command\":\"npm run build\"}]" \
-    ~/.config/cmux/cmux.json > /tmp/cmux.json.new && \
-    mv /tmp/cmux.json.new ~/.config/cmux/cmux.json'
-```
+`<cmd>` must be a JSONC-aware edit (e.g. `sed`/`patch` on the commented file, or a JSONC tool) —
+**not** a bare `jq` rewrite, for the reasons above. Only reach for `jq` if you have first
+confirmed the target config has no comments and you accept that any that exist will be stripped.
 
 Read-only commands (`cmux settings path`, `cmux config path`, `cmux config doctor`) inspect the
 current config without modifying it; no backup is needed before running them.
+
+> **`config validate` / `config check` are aliases for `config doctor`** in cmux 0.64.17 — they
+> print the same full doctor report (header `cmux config doctor`) rather than a terse pass/fail,
+> but still exit 0 on a valid config and nonzero on an invalid one, so they remain script-safe.
 
 For the preflight convention (asserting the socket is live before automation), see the
 cmux-control hub skill.
@@ -73,8 +90,10 @@ The full config command family (`doctor`, `check`, `validate`, `path`, `paths`, 
 
 ## Rules
 
-1. **Back up before every edit.** Use `cmux-settings backup-then <cmd>` for any mutating
-   command; never edit cmux.json in-place without a `.bak` copy.
+1. **Back up before every edit.** Run `cmux-settings backup` (manual in-place edit) or
+   `cmux-settings backup-then <cmd>` (scripted edit) for any mutation; never edit cmux.json
+   without a `.bak` copy. Edit the JSONC in place to preserve comments — never `jq`-rewrite it
+   (see "Safe editing").
 2. **Validate after every edit.** Run `cmux config validate` (or rely on `cmux-settings`,
    which does this automatically) before reloading.
 3. **Prefer Ghostty config for terminal behavior.** Font, cursor, theme, scrollback,
