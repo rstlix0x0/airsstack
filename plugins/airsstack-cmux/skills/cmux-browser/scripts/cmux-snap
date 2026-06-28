@@ -1,0 +1,22 @@
+#!/bin/sh
+# cmux-snap — snapshot-then-act wrapper for cmux browser surfaces. Captures a
+# fresh interactive snapshot, performs the requested browser action with
+# --snapshot-after, so the agent sees the view before and after acting and is
+# less likely to act on a stale snapshot.
+# Usage: cmux-snap <surface> <action> [args...]
+#   e.g. cmux-snap surface:2 click "button.submit"
+set -u
+
+surface="${1:-}"
+action="${2:-}"
+[ -n "$surface" ] || { printf 'cmux-snap: <surface> is required (e.g. surface:2)\n' >&2; exit 2; }
+[ -n "$action" ]  || { printf 'cmux-snap: <action> is required (e.g. click)\n' >&2; exit 2; }
+shift 2
+
+cmux browser "$surface" snapshot --interactive || {
+  printf 'cmux-snap: pre-snapshot failed\n' >&2; exit 1; }
+
+cmux browser "$surface" "$action" "$@" --snapshot-after || {
+  printf 'cmux-snap: action %s failed\n' "$action" >&2; exit 1; }
+
+exit 0
