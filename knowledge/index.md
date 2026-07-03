@@ -1,0 +1,74 @@
+---
+okf_version: "0.1"
+---
+
+# Index
+
+## crates
+
+- [clauders::agent::capabilities](/crates/clauders/agent/capabilities.md) — Capabilities — the feature manifest negotiated with the claude binary during the initialize handshake, and HookEvent, the closed set of hookable lifecycle events.
+- [clauders::agent::cli::argv](/crates/clauders/agent/cli/argv.md) — build_argv — maps session Options to the claude binary's full argument vector; permission_mode_wire renders a PermissionMode as the binary's camelCase wire spelling.
+- [clauders::agent::cli::demux](/crates/clauders/agent/cli/demux.md) — Demux — routes decoded inbound frames to the active turn's message channel or a pending control-response waiter, keyed by correlation id.
+- [clauders::agent::cli::discovery](/crates/clauders/agent/cli/discovery.md) — discover / check_version — locates the claude binary (override, PATH, per-user fallback) and gates its reported version against the SDK's supported minimum.
+- [clauders::agent::cli::dispatch](/crates/clauders/agent/cli/dispatch.md) — Dispatcher — answers inbound control requests (can_use_tool, hook_callback) by consulting the registered PermissionPolicy or Hook and enqueuing a correlated control response.
+- [clauders::agent::cli::handshake](/crates/clauders/agent/cli/handshake.md) — initialize_request / parse_capabilities — builds the SDK's first control request (declaring registered hooks) and tolerantly parses the binary's capability manifest response.
+- [clauders::agent::cli](/crates/clauders/agent/cli/overview.md) — The subprocess-backed Runtime adapter — locates and version-checks the claude binary, maps session options to its argv, runs the initialize handshake, and demultiplexes its output stream.
+- [clauders::agent::cli::runtime::CliRuntime](/crates/clauders/agent/cli/runtime.md) — The subprocess-backed Runtime implementation — orchestrates discovery, spawn, handshake, a single writer task owning stdin, and a background reader that dispatches control requests and demultiplexes everything else.
+- [clauders::agent::client](/crates/clauders/agent/client.md) — Client<R> — the stateful agent session handle over a Runtime; sends prompts, streams turns, and issues live control operations (interrupt, set_model, set_permission_mode, mcp_status).
+- [clauders::agent::content](/crates/clauders/agent/content.md) — ContentBlock — an exhaustive enum of content blocks (text, thinking, tool_use, tool_result, server_tool_use) making up an agent assistant or user message.
+- [clauders::agent::error](/crates/clauders/agent/error.md) — AgentError — the single error type crossing the public Agent SDK API, wrapping the protocol-blind ProcessError plus protocol/discovery/control-level failure modes.
+- [clauders::agent::hooks](/crates/clauders/agent/hooks.md) — In-loop hook handlers and their registry — Hook trait, HookOutput's camelCase wire shape, and HookRegistry, which mints hook_<n> callback ids for the initialize handshake.
+- [clauders::agent::message](/crates/clauders/agent/message.md) — Message — the exhaustive, internally-tagged enum of top-level frames streamed from the claude binary's stdout (Assistant, User, System, Result, StreamEvent).
+- [clauders::agent::mock](/crates/clauders/agent/mock.md) — MockRuntime — an in-memory Runtime test double with no subprocess, replaying scripted message turns and recording control operations for test assertions.
+- [clauders::agent::options](/crates/clauders/agent/options.md) — Options / OptionsBuilder — session configuration for a Client/query call, carrying everything the runtime needs to discover, spawn, and configure the backend binary.
+- [clauders::agent](/crates/clauders/agent/overview.md) — Claude Agent SDK surface — drives the `claude` Code CLI binary as a subprocess over its JSONL control protocol, exposing a session Client, Runtime port, Options, hooks, and permission policies.
+- [clauders::agent::permissions](/crates/clauders/agent/permissions.md) — Permission control for the agent — PermissionMode (forwarded to the binary), PermissionContext/PermissionDecision, and the PermissionPolicy trait consulted by the runtime's in-loop handler.
+- [clauders::agent::process::error::ProcessError](/crates/clauders/agent/process/error.md) — ProcessError — the closed set of subprocess-management failure modes (spawn, kill, timeout, already-shut-down), Clone so the supervisor can publish one outcome to multiple awaiters.
+- [clauders::agent::process::handle::ManagedProcess](/crates/clauders/agent/process/handle.md) — ManagedProcess — the owned handle to a supervised child process; its Drop impl requests teardown so a dropped handle can never orphan the child.
+- [clauders::agent::process::io::ProcessIo](/crates/clauders/agent/process/io.md) — ProcessIo — the three pipe ends (stdin, stdout, stderr) of a spawned child, bundled and handed to the caller at spawn time.
+- [clauders::agent::process](/crates/clauders/agent/process/overview.md) — Protocol-blind subprocess management for arbitrary child processes — spawn, supervise, and tear down a child with graceful-then-forced shutdown, independent of the claude binary or the JSONL control protocol.
+- [clauders::agent::process::pipes](/crates/clauders/agent/process/pipes.md) — StdoutLines (line-oriented stdout reader) and StderrBuffer (bounded, continuously-drained stderr snapshot) — the two pipe-reading views over a spawned child.
+- [clauders::agent::process::spawn](/crates/clauders/agent/process/spawn.md) — ProcessConfig — declarative spawn parameters (program, args, cwd, env, shutdown grace) and build_command, which assembles a tokio::process::Command with piped stdio and a Unix process-group leader.
+- [clauders::agent::process::supervisor::Supervisor](/crates/clauders/agent/process/supervisor.md) — Supervisor — owns the spawned Child for its whole life, the single site that calls wait(); drives a graceful-shutdown-then-forced-kill-then-reap sequence in a detached task.
+- [clauders::agent::protocol::codec](/crates/clauders/agent/protocol/codec.md) — Line framing and (de)serialization for the control protocol — RequestId/RequestIdGen mint correlation ids; decode_inbound and encode_line convert between JSON lines and frames.
+- [clauders::agent::protocol::frames](/crates/clauders/agent/protocol/frames.md) — Serde types for the control-protocol wire frames — InboundFrame (untagged union of control_response / control_request / message), and the outbound control request/response shapes.
+- [clauders::agent::protocol](/crates/clauders/agent/protocol/overview.md) — Control-protocol wire types and line codec — protocol-aware but transport-blind; describes the JSON frames riding over the subprocess pipes and turns lines into frames and back.
+- [clauders::agent::runtime::Runtime](/crates/clauders/agent/runtime.md) — Runtime — the single trait seam of the Agent SDK core; drives one agent session (send/stream a prompt, issue control operations, expose negotiated capabilities).
+- [clauders::agent::stream](/crates/clauders/agent/stream.md) — MessageStream — the boxed Stream<Item = Result<Message, AgentError>> every session surface returns, produced from a tokio mpsc receiver by the ReceiverStream adapter.
+- [clauders::agent::types::mcp](/crates/clauders/agent/types/mcp.md) — External MCP server configuration (opaque pass-through) and status types — McpServerConfig, ServerStatus, and the aggregate McpStatus returned by the mcp_status control request.
+- [clauders::agent::types](/crates/clauders/agent/types/overview.md) — Strongly-typed primitives specific to the Agent SDK — MCP server config/status, Prompt, and SessionId.
+- [clauders::agent::types::prompt::Prompt](/crates/clauders/agent/types/prompt.md) — Prompt — the text of one user turn sent to the agent; accepts plain UTF-8 text via From<&str>/From<String> so call sites can pass either through impl Into<Prompt>.
+- [clauders::agent::types::session_id::SessionId](/crates/clauders/agent/types/session-id.md) — SessionId — an opaque session identifier minted server-side by the claude binary and echoed back verbatim on control requests; the SDK does not validate or interpret its contents.
+- [clauders::auth](/crates/clauders/auth.md) — Auth — the closed set of authentication schemes attached to every outgoing Messages/Models API request.
+- [clauders::builder](/crates/clauders/builder.md) — Type-state builder for Client<T> that makes api_key-before-build a compile-time requirement rather than a runtime error.
+- [clauders::client](/crates/clauders/client.md) — Client<T> — the SDK handle every Messages/Models API call goes through, generic over the HTTP transport and cheap to clone via an internal Arc.
+- [clauders::config](/crates/clauders/config.md) — Static, non-secret request configuration (base URL, API version, beta headers, timeout) carried by every Client.
+- [clauders::error](/crates/clauders/error.md) — Layered SDK error hierarchy — Error wraps TransportError, ApiError, BuildError, and SDK-internal decode/protocol failures behind one Result<T, Error> return type.
+- [clauders::messages::batches](/crates/clauders/messages/batches/overview.md) — Message Batches API surface — submit, poll, list, cancel, and stream results for asynchronous batches of message requests.
+- [clauders::messages::batches::resource::BatchesResource](/crates/clauders/messages/batches/resource.md) — HTTP dispatch for the Message Batches API — create, get, list, results, cancel, delete against /v1/messages/batches.
+- [clauders::messages::batches::results](/crates/clauders/messages/batches/results.md) — BatchResultStream — an async JSONL line-splitting Stream over decoded BatchResultRow values from a batch results response body.
+- [clauders::messages::batches::types](/crates/clauders/messages/batches/types.md) — Wire types for the Message Batches API — BatchRequest input, Batch/BatchStatus status objects, and BatchResult/DeletedMessageBatch outputs.
+- [clauders::messages::content](/crates/clauders/messages/content.md) — ContentBlock — tagged union of message content shapes (text, thinking, tool use/result) shared by Messages API requests and responses.
+- [clauders::messages](/crates/clauders/messages/overview.md) — Messages API surface — request/response types plus MessagesResource, the entry point for POST /v1/messages, streaming, batches, and token counting.
+- [clauders::messages::request](/crates/clauders/messages/request.md) — MessageRequest and its type-state builder — the wire-format request body for POST /v1/messages, enforcing model and max_tokens at compile time.
+- [clauders::messages::resource::MessagesResource](/crates/clauders/messages/resource.md) — The Messages API HTTP dispatch handle — create (POST /v1/messages), stream (SSE), count_tokens, and batches() — borrowed from a Client.
+- [clauders::messages::response](/crates/clauders/messages/response.md) — Decoded Messages API response types — Message, StopReason, and Usage (with prompt-caching token breakdown).
+- [clauders::messages::streaming](/crates/clauders/messages/streaming.md) — SSE streaming wrapper for the Messages API — StreamEvent union, ContentDelta/MessageMetaDelta/UsageDelta sub-types, and the MessageStream Stream adapter.
+- [clauders::messages::structured_outputs](/crates/clauders/messages/structured-outputs.md) — Structured Outputs support — OutputConfig/OutputFormat constrain a Messages API response to a caller-supplied JSON Schema.
+- [clauders::messages::token_counting](/crates/clauders/messages/token-counting.md) — TokenCount response type and the CountTokensBody serialization projection backing POST /v1/messages/count_tokens.
+- [clauders::messages::tools](/crates/clauders/messages/tools.md) — Tool (function-calling) types for the Messages API — Tool definitions, ToolChoice policy, and ToolUseBlock/ToolResultBlock content shapes.
+- [clauders::models::resource::ModelsResource](/crates/clauders/models/resource.md) — HTTP dispatch handle for GET /v1/models and GET /v1/models/{id} — lists and fetches Claude model metadata.
+- [clauders::models::types](/crates/clauders/models/types.md) — Response types for the Models resource — ModelInfo per-model record, ModelInfoKind discriminant, and the paginated ModelList wrapper.
+- [clauders](/crates/clauders/overview.md) — Unofficial Rust SDK for the Anthropic Claude Messages API, with an optional Agent SDK that drives the `claude` Code CLI as a subprocess.
+- [clauders::prelude](/crates/clauders/prelude.md) — Pure re-export module grouping the imports most call sites need for a single `use clauders::prelude::*;`.
+- [clauders::retry](/crates/clauders/retry.md) — RetryPolicy and exponential-backoff arithmetic for the SDK request path — pure, deterministic, no I/O or clock.
+- [clauders::types::ApiKey](/crates/clauders/types/api-key.md) — Secret-protected newtype wrapping the Anthropic API key so it never appears in Debug output; validated non-empty ASCII-printable at construction.
+- [clauders::types::BaseUrl](/crates/clauders/types/base-url.md) — Validated base-URL newtype restricted to http/https schemes, keeping the raw url::Url type off the public SDK surface.
+- [clauders::types::BatchId](/crates/clauders/types/batch-id.md) — Opaque server-generated identifier for a message batch, non-empty-validated so it cannot be swapped for another identifier type at compile time.
+- [clauders::types::caching](/crates/clauders/types/caching.md) — Prompt-caching control values — CacheControl breakpoint marker and CacheTtl tier selector for the Messages API.
+- [clauders::types::CustomRequestId](/crates/clauders/types/custom-request-id.md) — Caller-supplied identifier correlating a batch row with its result, non-empty-validated and distinct from BatchId at the type level.
+- [clauders::types::ids](/crates/clauders/types/ids.md) — The id_newtype! macro-generated family of opaque non-empty string identifiers — MessageId, OrganizationId, RequestId, StopSequence, ToolName, ToolUseId, UserId.
+- [clauders::types::ModelId](/crates/clauders/types/model-id.md) — Claude model identifier newtype — ModelId::custom accepts any current or future non-whitespace identifier; claude_* constructors are a frozen-at-build-time convenience.
+- [clauders::types::numeric](/crates/clauders/types/numeric.md) — Bounded numeric newtypes used in MessageRequest sampling parameters — MaxTokens, Temperature, TopK, TopP.
+- [clauders::types::system](/crates/clauders/types/system.md) — System-prompt request types — SystemPrompt (bare string or typed segment array) and SystemSegment, the addressable-chunk system prompt shape.
+- [clauders::types::version](/crates/clauders/types/version.md) — Anthropic API version and beta-header newtypes — AnthropicVersion (anthropic-version header) and BetaHeader (anthropic-beta header values).
