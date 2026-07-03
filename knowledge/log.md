@@ -1,0 +1,69 @@
+## 2026-07-03
+
+- **Creation** — provisioned empty OKF bundle.
+- **Creation** — crates/clauders/overview: crate-level concept covering the clauders SDK's two surfaces (Messages/Models, Agent) and its feature flags.
+- **Creation** — crates/clauders/client: Client<T>, the transport-generic SDK handle.
+- **Creation** — crates/clauders/builder: ClientBuilder type-state builder for Client<T>.
+- **Creation** — crates/clauders/config: Config, static non-secret request configuration.
+- **Creation** — crates/clauders/auth: Auth, the closed set of authentication schemes.
+- **Creation** — crates/clauders/error: the layered Error/ApiError/BuildError/TransportError hierarchy.
+- **Creation** — crates/clauders/retry: RetryPolicy and ExpBackoff arithmetic.
+- **Creation** — crates/clauders/prelude: the `use clauders::prelude::*` re-export module.
+- **Creation** — crates/clauders/messages/overview: Messages API module map.
+- **Creation** — crates/clauders/messages/content: ContentBlock/TextBlock/ThinkingBlock.
+- **Creation** — crates/clauders/messages/request: MessageRequest and its type-state builder.
+- **Creation** — crates/clauders/messages/response: Message/StopReason/Usage response types.
+- **Creation** — crates/clauders/messages/resource: MessagesResource HTTP dispatch (create/stream/count_tokens/batches).
+- **Creation** — crates/clauders/messages/streaming: StreamEvent union and the MessageStream SSE adapter.
+- **Creation** — crates/clauders/messages/tools: Tool/ToolChoice/ToolUseBlock function-calling types.
+- **Creation** — crates/clauders/messages/token-counting: TokenCount and the CountTokensBody projection.
+- **Creation** — crates/clauders/messages/structured-outputs: OutputConfig/OutputFormat JSON-Schema constraints.
+- **Creation** — crates/clauders/messages/batches/overview: Message Batches API module map.
+- **Creation** — crates/clauders/messages/batches/types: BatchRequest/Batch/BatchStatus wire types.
+- **Creation** — crates/clauders/messages/batches/resource: BatchesResource HTTP dispatch.
+- **Creation** — crates/clauders/messages/batches/results: BatchResultStream JSONL streaming.
+- **Creation** — crates/clauders/models/resource: ModelsResource (GET /v1/models, GET /v1/models/{id}).
+- **Creation** — crates/clauders/models/types: ModelInfo/ModelInfoKind/ModelList.
+- **Creation** — crates/clauders/types/api-key: ApiKey secret-protected newtype.
+- **Creation** — crates/clauders/types/base-url: BaseUrl validated http/https newtype.
+- **Creation** — crates/clauders/types/batch-id: BatchId opaque batch identifier.
+- **Creation** — crates/clauders/types/caching: CacheControl/CacheTtl prompt-caching values.
+- **Creation** — crates/clauders/types/custom-request-id: CustomRequestId caller-supplied correlation id.
+- **Creation** — crates/clauders/types/ids: the id_newtype!-generated identifier family (MessageId, RequestId, ToolName, …).
+- **Creation** — crates/clauders/types/model-id: ModelId, with custom() as the primary constructor.
+- **Creation** — crates/clauders/types/numeric: MaxTokens/Temperature/TopK/TopP bounded newtypes.
+- **Creation** — crates/clauders/types/system: SystemPrompt/SystemSegment.
+- **Creation** — crates/clauders/types/version: AnthropicVersion/BetaHeader newtypes.
+- **Creation** — crates/clauders/agent/overview: Agent SDK module map (subprocess-driven Claude Code CLI client).
+- **Creation** — crates/clauders/agent/capabilities: Capabilities manifest and HookEvent.
+- **Creation** — crates/clauders/agent/client: agent Client<R>/AgentClientBuilder/query().
+- **Creation** — crates/clauders/agent/content: agent ContentBlock (tolerant-decode variant).
+- **Creation** — crates/clauders/agent/error: AgentError, the Agent SDK's public error type.
+- **Creation** — crates/clauders/agent/hooks: Hook trait and HookRegistry.
+- **Creation** — crates/clauders/agent/message: Message/AssistantMessage/ResultMessage frame types.
+- **Creation** — crates/clauders/agent/mock: MockRuntime subprocess-free test double.
+- **Creation** — crates/clauders/agent/options: Options/OptionsBuilder session configuration.
+- **Creation** — crates/clauders/agent/permissions: PermissionMode/PermissionPolicy/PermissionDecision.
+- **Creation** — crates/clauders/agent/runtime: the Runtime trait, the SDK's single seam.
+- **Creation** — crates/clauders/agent/stream: MessageStream and the ReceiverStream adapter.
+- **Creation** — crates/clauders/agent/cli/overview: subprocess-backed Runtime adapter module map.
+- **Creation** — crates/clauders/agent/cli/argv: build_argv/permission_mode_wire.
+- **Creation** — crates/clauders/agent/cli/demux: Demux, inbound frame routing.
+- **Creation** — crates/clauders/agent/cli/discovery: discover/check_version binary discovery.
+- **Creation** — crates/clauders/agent/cli/dispatch: Dispatcher, inbound control-request handling.
+- **Creation** — crates/clauders/agent/cli/handshake: initialize_request/parse_capabilities.
+- **Creation** — crates/clauders/agent/cli/runtime: CliRuntime, the subprocess-backed Runtime implementation.
+- **Creation** — crates/clauders/agent/process/overview: protocol-blind subprocess management module map.
+- **Creation** — crates/clauders/agent/process/error: ProcessError failure modes.
+- **Creation** — crates/clauders/agent/process/handle: ManagedProcess owned handle with Drop-safe teardown.
+- **Creation** — crates/clauders/agent/process/io: ProcessIo pipe-ends bundle.
+- **Creation** — crates/clauders/agent/process/pipes: StdoutLines/StderrBuffer.
+- **Creation** — crates/clauders/agent/process/spawn: ProcessConfig/build_command.
+- **Creation** — crates/clauders/agent/process/supervisor: Supervisor graceful-then-forced-kill lifecycle.
+- **Creation** — crates/clauders/agent/protocol/overview: control-protocol wire types and codec module map.
+- **Creation** — crates/clauders/agent/protocol/codec: RequestId/RequestIdGen/decode_inbound/encode_line.
+- **Creation** — crates/clauders/agent/protocol/frames: InboundFrame/ControlResponse/ControlRequest wire types.
+- **Creation** — crates/clauders/agent/types/overview: Agent-specific types module map.
+- **Creation** — crates/clauders/agent/types/mcp: McpServerConfig/McpStatus/ServerStatus.
+- **Creation** — crates/clauders/agent/types/prompt: Prompt newtype.
+- **Creation** — crates/clauders/agent/types/session-id: SessionId newtype.
