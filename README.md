@@ -33,7 +33,7 @@ Standard Rust commands apply: `cargo build`, `cargo test -p <crate>`, `cargo cli
 
 ## The airsstack Claude Code plugin suite (the methodology)
 
-A marketplace (`.claude-plugin/marketplace.json`) of six plugins under `plugins/` that package this project's spec-driven, review-gated development methodology for [Claude Code](https://www.claude.com/product/claude-code):
+A marketplace (`.claude-plugin/marketplace.json`) of seven plugins under `plugins/` that package this project's spec-driven, review-gated development methodology for [Claude Code](https://www.claude.com/product/claude-code):
 
 | Plugin | What it provides |
 | --- | --- |
@@ -43,12 +43,13 @@ A marketplace (`.claude-plugin/marketplace.json`) of six plugins under `plugins/
 | **`airsstack-journal`** | Transparent, note-based experiential memory: an Obsidian-compatible journal vault with a deterministic, embedding-free recall index (`capture` / `note` / `recall` / `review`). |
 | **`airsstack-plugin-dev`** | Plugin-development toolkit — the workshop the rest of the suite is built in. v1 `cache-sync` installs a `PostToolUse` hook that mirrors in-tree `plugins/<plugin>/` edits into the per-version install cache, so a `SKILL.md` body edit goes live mid-session without a reinstall. |
 | **`airsstack-cmux`** | Native [cmux](https://cmux.com) terminal control as four lazily-loaded skills (`cmux-control` hub, `cmux-workspace`, `cmux-browser`, `cmux-config`) over the real `cmux` CLI plus helper scripts. Requires a cmux install on the machine. |
+| **`airsstack-okf`** | Open Knowledge Format (OKF) v0.1 producer+consumer toolkit: provision a repo-local knowledge bundle, author/batch-enrich concept documents, recall with progressive disclosure, and lint conformance deterministically. |
 
 The plugins are language-agnostic except for the guideline plugin: the agents obtain their Definition-of-Done and rules from whichever `*-guideline-*` skill is installed and degrade gracefully when none is present. Upstream attribution for `airsstack-sdd` (superpowers) and `airsstack` (caveman) lives in each plugin's own README.
 
 ### Using the plugin suite
 
-Working inside this repository, the suite loads automatically — `.claude/settings.json` registers the in-repo marketplace and enables all six plugins (restart Claude Code once to activate).
+Working inside this repository, the suite loads automatically — `.claude/settings.json` registers the in-repo marketplace and enables all seven plugins (restart Claude Code once to activate).
 
 To use it in another project, install from the GitHub marketplace:
 
@@ -60,6 +61,7 @@ To use it in another project, install from the GitHub marketplace:
 /plugin install airsstack-journal@airsstack
 /plugin install airsstack-plugin-dev@airsstack
 /plugin install airsstack-cmux@airsstack
+/plugin install airsstack-okf@airsstack
 ```
 
 Each plugin has its own README under `plugins/<name>/` with the full component list. Everything is namespaced (`airsstack:<name>`, `airsstack-sdd:<name>`, `airsstack-journal:<name>`, …).
