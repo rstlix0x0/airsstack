@@ -31,6 +31,68 @@ full lifecycle against the v0.1 draft; the working contract ships as
 | `okf-lint` (skill) | Deterministic v0.1 conformance check: hard bar fails, everything else warns. |
 | `scripts/` | `okf-root.sh` (bundle detection), `gen-index.sh` (byte-reproducible index regeneration), `okf-lint.sh` — each with a sibling `.test.sh`. |
 
+## Usage
+
+The lifecycle is **provision → enrich → lint → recall**.
+
+1. **Provision the bundle** (once per repo):
+
+   ```
+   /airsstack-okf:okf-setup
+   ```
+
+   Creates `knowledge/` with the `okf_version: "0.1"` marker `index.md`
+   and an empty `log.md`. Idempotent — safe to re-run.
+
+2. **Produce knowledge.** Batch-enrich a whole source scope — any
+   package, module, service, or docs directory in any language:
+
+   ```
+   /okf-enrich <source-scope>
+   ```
+
+   e.g. `/okf-enrich src/auth`, `/okf-enrich packages/api`,
+   `/okf-enrich docs/architecture`. The isolated `okf-enricher` agent
+   writes one concept document per public asset (with cross-links and
+   citations), appends one `log.md` entry each, then the skill
+   regenerates `index.md` and lints. For a single document instead,
+   use `/okf-concept <topic>`.
+
+3. **Check conformance** anytime:
+
+   ```
+   /okf-lint
+   ```
+
+   Hard failures (spec violations) are listed separately from
+   permissive warnings (broken links, missing recommended fields).
+
+4. **Consume.** Ask the bundle instead of re-reading source:
+
+   ```
+   /okf-recall <question>
+   ```
+
+   Targeted questions (answer plausibly in ≤3 concepts) are answered
+   inline, index-first. Broad questions spawn the read-only
+   `okf-recall` agent, which returns compact pointers plus a grounded,
+   cited summary under a hard cap of 10 concept reads. Questions the
+   bundle does not cover get an honest "not in bundle", never
+   fabricated content.
+
+### Recall triggering
+
+The recall skill auto-triggers only when a prompt clearly refers to the
+knowledge bundle (e.g. "what does the knowledge bundle say about X").
+Plain free-text questions about covered code will usually be answered
+from source instead. To route them through the bundle, either invoke
+`/okf-recall` explicitly or add one line to the repo's `CLAUDE.md`:
+
+```
+Questions about code covered by `knowledge/` — consult /okf-recall
+before reading source.
+```
+
 ## Operating rules
 
 - **Strict division of labor.** Agents write concepts and `log.md`;
