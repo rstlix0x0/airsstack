@@ -35,6 +35,11 @@
       "name": "airsstack-cmux",
       "source": "./plugins/airsstack-cmux",
       "description": "Native cmux terminal control: four lazily-loaded skills (control, workspace, browser, config) that drive the cmux CLI for terminal, pane/workspace, browser, and config automation."
+    },
+    {
+      "name": "airsstack-okf",
+      "source": "./plugins/airsstack-okf",
+      "description": "Open Knowledge Format (OKF) v0.1 producer+consumer toolkit: bundle provisioning, concept authoring and batch enrichment, progressive-disclosure recall, and a deterministic conformance lint."
     }
   ]
 }
