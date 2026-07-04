@@ -6,6 +6,12 @@
 //! or retry runtime operations without altering the public surface.
 
 pub mod layer;
+pub mod meter;
+pub mod retry;
 pub(crate) mod tap;
+pub mod trace;
 
 pub use layer::{Layer, Stack};
+pub use meter::{MeterHandle, MeterRuntime, TokenMeter, UsageTotals};
+pub use retry::{Retry, RetryRuntime};
+pub use trace::{Trace, TraceRuntime};

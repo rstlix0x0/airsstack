@@ -28,13 +28,6 @@ where
     F: FnMut(&Result<Message, AgentError>),
 {
     /// Wrap `inner`, observing each item with `f`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "the observing runtime wrappers are its only non-test callers and none are present in this build"
-        )
-    )]
     pub(crate) const fn new(inner: S, f: F) -> Self {
         Self { inner, f }
     }
