@@ -53,25 +53,11 @@ impl SdkMcpServer {
     }
 
     /// Look up a tool by name.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "called by the registry/router landing in a later task"
-        )
-    )]
     pub(crate) fn tool(&self, name: &str) -> Option<Arc<dyn Tool>> {
         self.tools.get(name).map(Arc::clone)
     }
 
     /// Iterate the registered tools (for `tools/list`).
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "called by the registry/router landing in a later task"
-        )
-    )]
     pub(crate) fn tools(&self) -> impl Iterator<Item = &Arc<dyn Tool>> {
         self.tools.values()
     }

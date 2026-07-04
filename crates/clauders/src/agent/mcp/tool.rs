@@ -62,13 +62,6 @@ impl ToolResult {
     }
 
     /// The MCP `tools/call` result object: `{content:[…], isError:bool}`.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "called by the JSON-RPC router landing in a later task"
-        )
-    )]
     pub(crate) fn to_wire(&self) -> serde_json::Value {
         serde_json::json!({
             "content": self.content.iter().map(ToolContent::to_wire).collect::<Vec<_>>(),
@@ -94,13 +87,6 @@ pub struct ToolAnnotations {
 impl ToolAnnotations {
     /// The camelCase MCP wire object, omitting unset fields. Returns `None`
     /// when no hint is set so callers can skip the field entirely.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "called by the JSON-RPC router landing in a later task"
-        )
-    )]
     pub(crate) fn to_wire(&self) -> Option<serde_json::Value> {
         let mut map = serde_json::Map::new();
         if let Some(v) = self.read_only_hint {

@@ -5,6 +5,7 @@
 //! JSON-RPC router that answers the methods the backend drives.
 
 pub mod registry;
+pub(crate) mod router;
 pub mod server;
 pub mod tool;
 
