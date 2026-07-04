@@ -15,6 +15,7 @@ pub mod error;
 pub mod hooks;
 pub mod mcp;
 pub mod message;
+pub mod middleware;
 pub mod options;
 pub mod permissions;
 pub mod process;
