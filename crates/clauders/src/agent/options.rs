@@ -7,6 +7,7 @@ use std::time::Duration;
 
 use crate::agent::capabilities::HookEvent;
 use crate::agent::hooks::{Hook, HookRegistry};
+use crate::agent::mcp::{SdkMcpRegistry, SdkMcpServer};
 use crate::agent::permissions::{PermissionMode, PermissionPolicy};
 use crate::agent::types::McpServerConfig;
 use crate::types::ModelId;
@@ -52,6 +53,8 @@ pub struct Options {
     pub hooks: HookRegistry,
     /// Optional tool-permission policy.
     pub permission_policy: Option<Arc<dyn PermissionPolicy>>,
+    /// Registered in-process MCP servers, held by the SDK.
+    pub sdk_mcp_servers: SdkMcpRegistry,
 }
 
 impl fmt::Debug for Options {
@@ -75,6 +78,13 @@ impl fmt::Debug for Options {
                 &format_args!("<{} registered>", i32::from(!self.hooks.is_empty())),
             )
             .field("permission_policy", &self.permission_policy.is_some())
+            .field(
+                "sdk_mcp_servers",
+                &format_args!(
+                    "<{} registered>",
+                    i32::from(!self.sdk_mcp_servers.is_empty())
+                ),
+            )
             .finish()
     }
 }
@@ -111,6 +121,7 @@ pub struct OptionsBuilder {
     shutdown_grace: Option<Duration>,
     hooks: HookRegistry,
     permission_policy: Option<Arc<dyn PermissionPolicy>>,
+    sdk_mcp_servers: SdkMcpRegistry,
 }
 
 impl fmt::Debug for OptionsBuilder {
@@ -234,6 +245,13 @@ impl OptionsBuilder {
         self
     }
 
+    /// Register an in-process MCP server for this session.
+    #[must_use]
+    pub fn sdk_mcp_server(mut self, server: SdkMcpServer) -> Self {
+        self.sdk_mcp_servers.register(server);
+        self
+    }
+
     /// Finalize into an [`Options`].
     #[must_use]
     pub fn build(self) -> Options {
@@ -253,6 +271,7 @@ impl OptionsBuilder {
             shutdown_grace: self.shutdown_grace.unwrap_or(DEFAULT_SHUTDOWN_GRACE),
             hooks: self.hooks,
             permission_policy: self.permission_policy,
+            sdk_mcp_servers: self.sdk_mcp_servers,
         }
     }
 }
@@ -357,5 +376,19 @@ mod tests {
         let opts = Options::default();
         assert!(opts.hooks.is_empty());
         assert!(opts.permission_policy.is_none());
+    }
+
+    #[test]
+    fn builder_accumulates_sdk_mcp_servers() {
+        use crate::agent::mcp::SdkMcpServer;
+        let opts = Options::builder()
+            .sdk_mcp_server(SdkMcpServer::builder("calc").build())
+            .build();
+        assert!(!opts.sdk_mcp_servers.is_empty());
+    }
+
+    #[test]
+    fn default_options_have_no_sdk_mcp_servers() {
+        assert!(Options::default().sdk_mcp_servers.is_empty());
     }
 }
