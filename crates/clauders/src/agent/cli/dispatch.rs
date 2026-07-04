@@ -69,6 +69,10 @@ impl Dispatcher {
                 input,
                 tool_use_id,
             } => self.hook_outcome(&callback_id, input, tool_use_id).await,
+            // Reject a forwarded message whose target in-process server is not registered.
+            InboundRequestBody::McpMessage { server_name, .. } => {
+                Err(format!("no in-process MCP server named {server_name}"))
+            }
         };
         self.write_response(request_id, outcome);
     }
@@ -305,6 +309,33 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(&line).expect("json");
         assert_eq!(value["response"]["subtype"], "success");
         assert_eq!(value["response"]["response"], serde_json::json!({}));
+    }
+
+    fn mcp_message_request(server: &str) -> crate::agent::protocol::InboundControlRequest {
+        let line = format!(
+            r#"{{"type":"control_request","request_id":"srv_9","request":{{"subtype":"mcp_message","server_name":"{server}","message":{{"jsonrpc":"2.0","id":1,"method":"tools/list"}}}}}}"#
+        );
+        match decode_inbound(&line).expect("decode") {
+            crate::agent::protocol::InboundFrame::ControlRequest(req) => req,
+            _ => unreachable!("decoded a control request"),
+        }
+    }
+
+    #[tokio::test]
+    async fn mcp_message_for_unregistered_server_errors() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let dispatcher = Dispatcher::new(Arc::new(HookRegistry::default()), None, tx);
+        dispatcher.handle(mcp_message_request("ghost")).await;
+        let line = rx.recv().await.expect("a response line");
+        let value: serde_json::Value = serde_json::from_str(&line).expect("json");
+        assert_eq!(value["response"]["subtype"], "error");
+        assert!(
+            value["response"]["error"]
+                .as_str()
+                .expect("error string")
+                .contains("ghost"),
+            "error should name the missing server"
+        );
     }
 
     #[tokio::test]
