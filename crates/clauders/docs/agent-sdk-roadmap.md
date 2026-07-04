@@ -22,12 +22,12 @@ new crate**.
 | Subprocess transport + bidirectional control protocol (initialize handshake + correlated control req/resp) | ✅ done |
 | Public API, core types, CLI runtime (`query()` one-shot + stateful `Client`) | ✅ done |
 | In-loop extension points — **hooks** + **permission policy** | ✅ done (PR #10) |
-| In-loop **in-process MCP tools** (`tool()` / `createSdkMcpServer`) | ⛔ deferred — spec cut to a later phase |
+| In-loop **in-process MCP tools** (`tool()` / `createSdkMcpServer`) | ✅ done (a31f249) |
 
-**Status: effectively complete.** The RFC gantt grouped "hooks, tools, permissions" in one
-Phase-1 row, but the implemented spec deliberately scoped *in-process MCP tools* out (external MCP
-servers stay as opaque pass-through to the binary). Hooks + permissions shipped; in-process tools
-still owed.
+**Status: complete.** The RFC gantt grouped "hooks, tools, permissions" in one Phase-1 row; the
+initial spec deliberately scoped *in-process MCP tools* out (external MCP servers stay as opaque
+pass-through to the binary), and they landed in a follow-on plan. Hooks + permissions + in-process
+tools all shipped.
 
 Delivered across 3 plans:
 
@@ -41,7 +41,6 @@ Delivered across 3 plans:
 
 **Phase-1 carryovers**
 
-- In-process MCP custom tools (`tool()` / `createSdkMcpServer`) — first item to schedule next.
 - Real-binary e2e (`CLAUDERS_AGENT_E2E=1`) leaves 2 facts CI-unverified: binary accepting
   `--permission-prompt-tool stdio`, and the initialize `hooks` shape. Inherent to opt-in e2e.
 - Windows full-descendant kill via Job Object (`KILL_ON_JOB_CLOSE`) — documented Phase-1 gap,
@@ -55,7 +54,7 @@ Delivered across 3 plans:
 
 | Workstream | Status |
 |---|---|
-| Middleware backbone + thin installer | ⬜ not started |
+| Middleware backbone + thin installer | ✅ done (9ea1429) — middleware-only; AgentBuilder facade deferred |
 | Evals harness (runtime-agnostic) | ⬜ not started |
 | Multi-process orchestration | ⬜ not started |
 
