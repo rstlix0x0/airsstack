@@ -4,8 +4,10 @@
 //! that groups tools, the registry that holds servers for a session, and the
 //! JSON-RPC router that answers the methods the backend drives.
 
+pub mod registry;
 pub mod server;
 pub mod tool;
 
+pub use registry::SdkMcpRegistry;
 pub use server::{SdkMcpServer, SdkMcpServerBuilder};
 pub use tool::{FnTool, Tool, ToolAnnotations, ToolContent, ToolResult, tool};
