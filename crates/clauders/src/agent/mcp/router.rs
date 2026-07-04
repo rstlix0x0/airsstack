@@ -13,13 +13,6 @@ const PROTOCOL_VERSION: &str = "2024-11-05";
 
 /// Handle one inbound MCP JSON-RPC `message` against `server`, returning the
 /// full JSON-RPC response value to nest under `mcp_response`.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "only reached from unit tests until the session dispatcher is wired"
-    )
-)]
 pub(crate) async fn handle_mcp_message(
     server: &SdkMcpServer,
     message: &serde_json::Value,

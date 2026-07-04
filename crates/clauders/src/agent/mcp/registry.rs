@@ -29,26 +29,12 @@ impl SdkMcpRegistry {
     }
 
     /// Look up a server by name.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "only reached from unit tests until the session dispatcher is wired"
-        )
-    )]
     pub(crate) fn lookup(&self, server_name: &str) -> Option<Arc<SdkMcpServer>> {
         self.servers.get(server_name).map(Arc::clone)
     }
 
     /// The `--mcp-config` declaration objects (`{"<name>":{"type":"sdk"}}`),
     /// one per registered server.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "only reached from unit tests until the argv builder is wired"
-        )
-    )]
     pub(crate) fn declarations(&self) -> impl Iterator<Item = serde_json::Value> + '_ {
         self.servers
             .keys()
