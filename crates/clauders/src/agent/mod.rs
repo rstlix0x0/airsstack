@@ -37,6 +37,10 @@ pub use mcp::{
 pub use message::{
     AssistantMessage, Message, ResultMessage, StreamEvent, SystemMessage, Usage, UserMessage,
 };
+pub use middleware::{
+    Layer, MeterHandle, MeterRuntime, Retry, RetryRuntime, Stack, TokenMeter, Trace, TraceRuntime,
+    UsageTotals,
+};
 pub use options::{Options, OptionsBuilder};
 pub use permissions::{PermissionContext, PermissionDecision, PermissionMode, PermissionPolicy};
 pub use runtime::Runtime;

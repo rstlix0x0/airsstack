@@ -4,6 +4,19 @@
 //! so a composed stack drops into the generic `Client`. The `Layer` trait and
 //! `Stack` builder compose layers at the type level; the shipped layers observe
 //! or retry runtime operations without altering the public surface.
+//!
+//! ```
+//! use clauders::agent::{Retry, Stack, TokenMeter, Trace};
+//!
+//! fn compose<R: clauders::agent::Runtime>(base: R) -> impl clauders::agent::Runtime {
+//!     let (meter, _usage) = TokenMeter::new();
+//!     Stack::new(base)
+//!         .layer(Retry::new(3)) // innermost: retries the transport
+//!         .layer(meter)         // meters real usage
+//!         .layer(Trace::new())  // outermost: observes the final behavior
+//!         .build()
+//! }
+//! ```
 
 pub mod layer;
 pub mod meter;
