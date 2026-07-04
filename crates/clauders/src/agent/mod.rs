@@ -13,6 +13,7 @@ pub mod client;
 pub mod content;
 pub mod error;
 pub mod hooks;
+pub mod mcp;
 pub mod message;
 pub mod options;
 pub mod permissions;
@@ -28,6 +29,7 @@ pub use client::{AgentClientBuilder, Client, query};
 pub use content::ContentBlock;
 pub use error::AgentError;
 pub use hooks::{Hook, HookDecision, HookInput, HookOutput, HookRegistry};
+pub use mcp::{FnTool, Tool, ToolAnnotations, ToolContent, ToolResult, tool};
 pub use message::{
     AssistantMessage, Message, ResultMessage, StreamEvent, SystemMessage, Usage, UserMessage,
 };
