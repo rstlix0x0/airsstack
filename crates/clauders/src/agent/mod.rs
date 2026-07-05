@@ -18,6 +18,7 @@ pub mod mcp;
 pub mod message;
 pub mod middleware;
 pub mod options;
+pub mod orchestration;
 pub mod permissions;
 pub mod process;
 pub mod protocol;
