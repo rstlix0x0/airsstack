@@ -110,7 +110,13 @@ mod tests {
         let judge = Judge::new(Canned(Ok("0.9".into()))).threshold(0.8);
         let score = judge.score(&outcome()).await;
         assert!(score.passed);
-        assert_eq!(score.value, 0.9);
+        #[expect(
+            clippy::float_cmp,
+            reason = "score.value is parsed from the literal \"0.9\" with no intervening arithmetic, so exact equality is the intended check"
+        )]
+        {
+            assert_eq!(score.value, 0.9);
+        }
     }
 
     #[tokio::test]

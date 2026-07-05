@@ -21,13 +21,6 @@ pub struct Report {
 
 impl Report {
     /// Build a report from per-case results.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "consumed by the sequential eval runner assembling per-case reports, not yet added"
-        )
-    )]
     pub(crate) const fn new(cases: Vec<CaseReport>) -> Self {
         Self { cases }
     }

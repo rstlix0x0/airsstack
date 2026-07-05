@@ -63,7 +63,7 @@ mod tests {
 
     #[async_trait]
     impl Scorer for Always {
-        fn label(&self) -> &str {
+        fn label(&self) -> &'static str {
             "always"
         }
         async fn score(&self, _outcome: &Outcome) -> Score {
@@ -95,7 +95,13 @@ mod tests {
 
     #[test]
     fn boolean_maps_to_extremes() {
-        assert_eq!(Score::boolean(true).value, 1.0);
+        #[expect(
+            clippy::float_cmp,
+            reason = "Score::boolean maps to the exact constants 1.0/0.0, so exact equality is the intended check"
+        )]
+        {
+            assert_eq!(Score::boolean(true).value, 1.0);
+        }
         assert!(!Score::boolean(false).passed);
     }
 }

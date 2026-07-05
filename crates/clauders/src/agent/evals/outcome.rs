@@ -10,13 +10,6 @@ pub struct Outcome {
 
 impl Outcome {
     /// Build an outcome from the drained message frames of one turn.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "consumed by the sequential eval runner that drains a turn's messages, not yet added"
-        )
-    )]
     pub(crate) const fn from_messages(messages: Vec<Message>) -> Self {
         Self { messages }
     }
