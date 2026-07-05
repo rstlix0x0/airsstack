@@ -6,9 +6,18 @@
 //! runtime is underneath.
 
 pub mod error;
+pub mod judge;
 pub mod outcome;
+pub mod report;
 pub mod score;
+pub mod scorers;
 
 pub use error::EvalError;
+pub use judge::{Grader, Judge};
 pub use outcome::Outcome;
+pub use report::{CaseReport, Report};
 pub use score::{Score, Scorer};
+pub use scorers::{
+    Contains, Equals, NoError, Predicate, TokenBudget, ToolCalled, contains, equals, no_error,
+    predicate, token_budget, tool_called,
+};
