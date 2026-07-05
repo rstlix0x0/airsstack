@@ -10,12 +10,6 @@ use futures_core::Stream;
 /// Ids at or beyond `len`, and gaps left by ids never seen, are dropped: the
 /// caller sizes `len` to the number of submitted jobs, and the engine emits each
 /// id exactly once, so a well-formed run fills every slot.
-// `dead_code` fires on a lib-only build (no non-test caller yet: the orchestration
-// Pool facade that consumes this lands next), but NOT when the test target is
-// included, where this module's own tests call it. `#[allow]` is correct for a
-// lint that fires in one build configuration and not another; `#[expect]` would
-// error as "unfulfilled" on the passing configuration.
-#[allow(dead_code)]
 pub(crate) async fn collect_ordered<S, O>(stream: &mut S, len: usize) -> Vec<O>
 where
     S: Stream<Item = (usize, O)> + Unpin,

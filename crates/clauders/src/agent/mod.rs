@@ -48,6 +48,7 @@ pub use middleware::{
     UsageTotals,
 };
 pub use options::{Options, OptionsBuilder};
+pub use orchestration::{Limiter, Pool, SemaphoreLimiter};
 pub use permissions::{PermissionContext, PermissionDecision, PermissionMode, PermissionPolicy};
 pub use runtime::Runtime;
 pub use stream::MessageStream;
