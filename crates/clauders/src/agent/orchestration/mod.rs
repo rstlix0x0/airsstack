@@ -5,5 +5,6 @@
 //! finishes. Concrete adapters — a semaphore limiter, the typed [`pool::Pool`]
 //! facade, and an ordered-collect helper — build on that core.
 
+pub mod collect;
 pub mod core;
 pub mod limit;
