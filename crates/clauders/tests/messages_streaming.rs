@@ -1,6 +1,5 @@
 //! End-to-end SSE streaming tests against a local mock HTTP server.
 
-#![cfg(all(feature = "messages-streaming", feature = "transport-reqwest"))]
 #![expect(
     clippy::unwrap_used,
     reason = "tests unwrap known-valid fixtures; a panic is the intended failure signal"

@@ -4,7 +4,6 @@
 //! that cloning a `Client` shares the internal `Arc` rather than
 //! duplicating state.
 
-#![cfg(feature = "transport-reqwest")]
 #![allow(clippy::expect_used)]
 
 use std::time::Duration;

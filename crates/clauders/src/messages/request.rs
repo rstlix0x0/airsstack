@@ -168,15 +168,12 @@ pub struct MessageRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Metadata>,
     /// Tools the model may call during generation.
-    #[cfg(feature = "messages-tools")]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<crate::messages::tools::Tool>,
     /// Controls which tool, if any, the model must call.
-    #[cfg(feature = "messages-tools")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_choice: Option<crate::messages::tools::ToolChoice>,
     /// Output-shape constraint applied to the response.
-    #[cfg(feature = "messages-structured-outputs")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_config: Option<crate::messages::structured_outputs::OutputConfig>,
     /// Whether to stream the response. Managed by the resource layer;
@@ -214,11 +211,8 @@ struct MessageRequestFields {
     top_k: Option<TopK>,
     stop_sequences: Vec<StopSequence>,
     metadata: Option<Metadata>,
-    #[cfg(feature = "messages-tools")]
     tools: Vec<crate::messages::tools::Tool>,
-    #[cfg(feature = "messages-tools")]
     tool_choice: Option<crate::messages::tools::ToolChoice>,
-    #[cfg(feature = "messages-structured-outputs")]
     output_config: Option<crate::messages::structured_outputs::OutputConfig>,
 }
 
@@ -234,11 +228,8 @@ impl MessageRequestFields {
             top_k: None,
             stop_sequences: Vec::new(),
             metadata: None,
-            #[cfg(feature = "messages-tools")]
             tools: Vec::new(),
-            #[cfg(feature = "messages-tools")]
             tool_choice: None,
-            #[cfg(feature = "messages-structured-outputs")]
             output_config: None,
         }
     }
@@ -377,7 +368,6 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
     ///
     /// Accepts any iterable of [`crate::messages::tools::Tool`] values.
     /// The collected tools replace any previously set value.
-    #[cfg(feature = "messages-tools")]
     #[must_use]
     pub fn tools(mut self, tools: impl IntoIterator<Item = crate::messages::tools::Tool>) -> Self {
         self.fields.tools = tools.into_iter().collect();
@@ -385,7 +375,6 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
     }
 
     /// Set the tool-choice policy for this request.
-    #[cfg(feature = "messages-tools")]
     #[must_use]
     pub fn tool_choice(mut self, c: crate::messages::tools::ToolChoice) -> Self {
         self.fields.tool_choice = Some(c);
@@ -393,7 +382,6 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
     }
 
     /// Constrain the response to a JSON Schema.
-    #[cfg(feature = "messages-structured-outputs")]
     #[must_use]
     pub fn output_config(mut self, c: crate::messages::structured_outputs::OutputConfig) -> Self {
         self.fields.output_config = Some(c);
@@ -439,11 +427,8 @@ impl MessageRequestBuilder<Present, Present> {
             top_k: self.fields.top_k,
             stop_sequences: self.fields.stop_sequences,
             metadata: self.fields.metadata,
-            #[cfg(feature = "messages-tools")]
             tools: self.fields.tools,
-            #[cfg(feature = "messages-tools")]
             tool_choice: self.fields.tool_choice,
-            #[cfg(feature = "messages-structured-outputs")]
             output_config: self.fields.output_config,
             stream: false,
         }
@@ -569,7 +554,6 @@ mod tests {
         assert_eq!(j["stop_sequences"], serde_json::json!(["STOP"]));
     }
 
-    #[cfg(feature = "messages-structured-outputs")]
     #[test]
     fn output_config_serializes_when_set() {
         use crate::messages::structured_outputs::OutputConfig;
@@ -593,7 +577,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "messages-structured-outputs")]
     #[test]
     fn output_config_omitted_when_unset() {
         let req = MessageRequest::builder()
@@ -609,7 +592,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "messages-structured-outputs")]
     #[test]
     fn output_config_survives_model_and_max_tokens_transitions() {
         // Regression guard: setting output_config before .model() and

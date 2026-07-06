@@ -5,7 +5,7 @@
 //! Run:
 //!
 //! ```text
-//! ANTHROPIC_API_KEY=sk-... cargo run --example 02_streaming --features messages-streaming,transport-reqwest
+//! ANTHROPIC_API_KEY=sk-... cargo run --example 02_streaming
 //! ```
 
 use std::pin::Pin;

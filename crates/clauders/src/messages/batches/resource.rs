@@ -42,7 +42,6 @@ const BATCHES_PATH: &str = "v1/messages/batches";
 /// # Examples
 ///
 /// ```no_run
-/// # #[cfg(feature = "transport-reqwest")]
 /// # async fn example() -> Result<(), clauders::error::Error> {
 /// # use clauders::Client;
 /// # use clauders::messages::{BatchRequest, MessageRequest};
@@ -256,7 +255,7 @@ where
     }
 }
 
-#[cfg(all(test, feature = "__test-mocks"))]
+#[cfg(test)]
 mod tests {
     //! Tests for the decode branches and URL construction in
     //! `BatchesResource`. Covers 2xx success, non-2xx error, and
@@ -280,7 +279,8 @@ mod tests {
 
     use crate::error::{Error, TransportError};
     use crate::messages::request::MessageRequest;
-    use crate::transport::{BodyStream, MockHttpTransport};
+    use crate::test_support::MockHttpTransport;
+    use crate::transport::BodyStream;
     use crate::types::{ApiKey, BaseUrl, BatchId, CustomRequestId, MaxTokens, ModelId};
 
     use super::super::types::{BatchRequest, BatchStatus};

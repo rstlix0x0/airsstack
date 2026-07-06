@@ -6,7 +6,6 @@
 //! NOT a transport error — it surfaces as `Ok` and the layer above
 //! decides what to do with the status.
 
-#![cfg(feature = "transport-reqwest")]
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use bytes::Bytes;

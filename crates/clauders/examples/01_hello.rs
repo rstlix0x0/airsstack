@@ -3,7 +3,7 @@
 //! Run:
 //!
 //! ```text
-//! ANTHROPIC_API_KEY=sk-... cargo run --example 01_hello --features messages,transport-reqwest
+//! ANTHROPIC_API_KEY=sk-... cargo run --example 01_hello
 //! ```
 
 use clauders::messages::ContentBlock;

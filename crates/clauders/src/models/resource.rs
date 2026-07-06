@@ -34,7 +34,6 @@ use super::types::{ModelInfo, ModelList};
 /// # Examples
 ///
 /// ```no_run
-/// # #[cfg(feature = "transport-reqwest")]
 /// # async fn example() -> Result<(), clauders::error::Error> {
 /// # use clauders::Client;
 /// # use clauders::types::{ApiKey, ModelId};
@@ -156,7 +155,7 @@ impl<T: HttpTransport> ModelsResource<'_, T> {
     }
 }
 
-#[cfg(all(test, feature = "__test-mocks"))]
+#[cfg(test)]
 mod tests {
     //! Tests for the decode branches and URL construction in
     //! `ModelsResource`. The body-collection and error-decoding helpers are
@@ -180,7 +179,8 @@ mod tests {
     use http::{Response, StatusCode};
 
     use crate::error::{Error, TransportError};
-    use crate::transport::{BodyStream, MockHttpTransport};
+    use crate::test_support::MockHttpTransport;
+    use crate::transport::BodyStream;
     use crate::types::{ApiKey, BaseUrl, ModelId};
 
     fn body_from_bytes(payload: Vec<u8>) -> BodyStream {

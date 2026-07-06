@@ -31,26 +31,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-## Features
+## Capabilities
 
-Default features (no opt-in required):
+The crate carries no Cargo features; every capability below is always compiled.
 
-| Feature | What it enables |
+| Capability | What it provides |
 |---|---|
-| `messages` | `POST /v1/messages` request/response types and `MessagesResource` |
-| `messages-streaming` | SSE streaming via `MessageStream` |
-| `messages-tools` | Tool (function calling) types |
-| `messages-caching` | Prompt-caching fields and cache-hit counters on `Usage` |
-| `transport-reqwest` | Default HTTP transport backed by `reqwest` with `rustls` |
-
-Optional features (add to `Cargo.toml` features list):
-
-| Feature | What it enables |
-|---|---|
-| `messages-token-counting` | `POST /v1/messages/count_tokens` helper |
-| `messages-batches` | Message Batches API (`/v1/messages/batches`) |
-| `messages-structured-outputs` | Constrain responses to a JSON Schema via `OutputConfig` |
-| `models` | `GET /v1/models` and `GET /v1/models/{id}` |
+| Messages | `POST /v1/messages` request/response types and `MessagesResource` |
+| Streaming | SSE streaming via `MessageStream` |
+| Tools | Tool (function calling) types |
+| Caching | Prompt-caching fields and cache-hit counters on `Usage` |
+| Transport | Default HTTP transport backed by `reqwest` with `rustls` |
+| Token counting | `POST /v1/messages/count_tokens` helper |
+| Batches | Message Batches API (`/v1/messages/batches`) |
+| Structured outputs | Constrain responses to a JSON Schema via `OutputConfig` |
+| Models | `GET /v1/models` and `GET /v1/models/{id}` |
 
 ## Examples
 

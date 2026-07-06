@@ -1,8 +1,8 @@
 //! Token-counting response type and request projection for
 //! `POST /v1/messages/count_tokens`.
 //!
-//! Exists as its own module so the token-counting surface is only compiled
-//! when the `messages-token-counting` feature is enabled.
+//! Exists as its own module so the token-counting surface is scoped
+//! separately from the rest of the messages surface.
 //!
 //! Responsibilities:
 //! - Define [`TokenCount`], the response body returned by the endpoint.
@@ -54,15 +54,9 @@ pub(crate) struct CountTokensBody<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) system: Option<&'a SystemPrompt>,
     /// Tool definitions available to the model.
-    ///
-    /// Only serialized when the `messages-tools` feature is enabled.
-    #[cfg(feature = "messages-tools")]
     #[serde(skip_serializing_if = "<[_]>::is_empty")]
     pub(crate) tools: &'a [crate::messages::tools::Tool],
     /// Tool-choice policy.
-    ///
-    /// Only serialized when the `messages-tools` feature is enabled.
-    #[cfg(feature = "messages-tools")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) tool_choice: Option<&'a crate::messages::tools::ToolChoice>,
 }
@@ -79,9 +73,7 @@ impl<'a> CountTokensBody<'a> {
             model: &req.model,
             messages: &req.messages,
             system: req.system.as_ref(),
-            #[cfg(feature = "messages-tools")]
             tools: &req.tools,
-            #[cfg(feature = "messages-tools")]
             tool_choice: req.tool_choice.as_ref(),
         }
     }

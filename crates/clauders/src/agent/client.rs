@@ -178,7 +178,6 @@ mod builder_tests {
 }
 
 #[cfg(test)]
-#[cfg(feature = "__test-mocks")]
 mod tests {
     #![expect(clippy::expect_used, reason = "test assertions use expect for context")]
 

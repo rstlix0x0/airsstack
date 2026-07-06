@@ -1,6 +1,5 @@
 //! Tool round-trip: send tools, receive `tool_use`, send `tool_result`.
 
-#![cfg(all(feature = "messages-tools", feature = "transport-reqwest"))]
 #![expect(
     clippy::unwrap_used,
     reason = "tests unwrap known-valid fixtures; a panic is the intended failure signal"
@@ -69,9 +68,7 @@ async fn tool_round_trip() {
         input_schema: serde_json::json!({
             "type":"object","properties":{"city":{"type":"string"}},"required":["city"]
         }),
-        #[cfg(feature = "messages-caching")]
         cache_control: None,
-        #[cfg(all(feature = "messages-tools", feature = "messages-structured-outputs"))]
         strict: None,
     };
 

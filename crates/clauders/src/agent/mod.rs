@@ -1,7 +1,7 @@
 //! Claude Agent SDK surface for `clauders`.
 //!
 //! This module tree drives the `claude` Code CLI binary as a subprocess
-//! over the control protocol. It is gated behind the `agent` feature.
+//! over the control protocol.
 //!
 //! The data layer covers the error hierarchy, strong types, message and
 //! content frames, the capability manifest, `Options`, and the control-protocol
@@ -53,8 +53,5 @@ pub use permissions::{PermissionContext, PermissionDecision, PermissionMode, Per
 pub use runtime::Runtime;
 pub use stream::MessageStream;
 
-#[cfg(feature = "__test-mocks")]
+#[cfg(test)]
 pub mod mock;
-
-#[cfg(feature = "__test-mocks")]
-pub use mock::{ControlCall, MockRuntime};

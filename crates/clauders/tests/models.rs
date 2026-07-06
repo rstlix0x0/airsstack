@@ -3,7 +3,6 @@
 //! These tests lock the `GET /v1/models` (list) and `GET /v1/models/{id}`
 //! (get-by-id) request dispatch and response-decoding behaviour.
 
-#![cfg(all(feature = "models", feature = "transport-reqwest"))]
 #![expect(
     clippy::unwrap_used,
     reason = "tests unwrap known-valid fixtures; a panic is the intended failure signal"

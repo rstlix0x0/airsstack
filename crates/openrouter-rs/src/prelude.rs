@@ -30,10 +30,6 @@ pub use crate::chat::{
 
 pub use crate::models::{Model, Pricing};
 
-#[cfg(feature = "streaming")]
-#[cfg_attr(docsrs, doc(cfg(feature = "streaming")))]
 pub use crate::chat::{ChatStream, StreamChunk};
 
-#[cfg(feature = "transport-reqwest")]
-#[cfg_attr(docsrs, doc(cfg(feature = "transport-reqwest")))]
 pub use crate::client::DefaultClient;

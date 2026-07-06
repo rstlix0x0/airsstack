@@ -240,7 +240,6 @@ mod tests {
     /// This is the regression guard for the field-copy pattern: if a new field
     /// is added to the builder but the transition method forgets to copy it,
     /// this test catches the omission.
-    #[cfg(feature = "__test-mocks")]
     #[test]
     fn optional_fields_survive_api_key_transition() {
         #![expect(
@@ -251,7 +250,7 @@ mod tests {
         use std::time::Duration;
 
         use crate::retry::RetryPolicy;
-        use crate::transport::MockHttpTransport;
+        use crate::test_support::MockHttpTransport;
         use crate::types::{AnthropicVersion, ApiKey, BaseUrl, BetaHeader};
 
         let transport = MockHttpTransport::new();

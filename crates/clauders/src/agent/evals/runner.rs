@@ -86,7 +86,7 @@ impl EvalSuite {
     }
 }
 
-#[cfg(all(test, feature = "__test-mocks"))]
+#[cfg(test)]
 mod tests {
     #![expect(clippy::expect_used, reason = "test assertions use expect for context")]
 

@@ -66,10 +66,8 @@ pub enum StopReason {
     /// Generation stopped because a stop sequence was matched.
     StopSequence,
     /// Model stopped to call one or more tools.
-    #[cfg(feature = "messages-tools")]
     ToolUse,
     /// Model declined to produce the constrained output.
-    #[cfg(feature = "messages-structured-outputs")]
     Refusal,
 }
 
@@ -77,10 +75,6 @@ pub enum StopReason {
 ///
 /// The sum `ephemeral_5m_input_tokens + ephemeral_1h_input_tokens` equals
 /// `Usage::cache_creation_input_tokens`.
-///
-/// Requires the `messages-caching` feature.
-#[cfg(feature = "messages-caching")]
-#[cfg_attr(docsrs, doc(cfg(feature = "messages-caching")))]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
 pub struct CacheCreation {
     /// Tokens written into the 5-minute ephemeral cache tier.
@@ -91,8 +85,7 @@ pub struct CacheCreation {
 
 /// Input and output token counts for a request-response pair.
 ///
-/// When the `messages-caching` feature is enabled, the additional
-/// `cache_creation_input_tokens`, `cache_read_input_tokens`, and
+/// The `cache_creation_input_tokens`, `cache_read_input_tokens`, and
 /// `cache_creation` fields are populated from caching-aware responses.
 /// Use [`Usage::total_input_tokens`] to obtain the full input-side total
 /// (regular + cache creation + cache read).
@@ -110,21 +103,12 @@ pub struct Usage {
     /// Number of tokens generated in the response.
     pub output_tokens: u32,
     /// Tokens written into the cache during this request.
-    ///
-    /// Requires the `messages-caching` feature.
-    #[cfg(feature = "messages-caching")]
     #[serde(default)]
     pub cache_creation_input_tokens: Option<u32>,
     /// Tokens read from the cache during this request.
-    ///
-    /// Requires the `messages-caching` feature.
-    #[cfg(feature = "messages-caching")]
     #[serde(default)]
     pub cache_read_input_tokens: Option<u32>,
     /// Per-tier breakdown of cache-creation token counts.
-    ///
-    /// Requires the `messages-caching` feature.
-    #[cfg(feature = "messages-caching")]
     #[serde(default)]
     pub cache_creation: Option<CacheCreation>,
 }
@@ -135,12 +119,9 @@ impl Usage {
     /// Returns `input_tokens` when no cache fields are present (all count as 0).
     /// Addition is saturating to guard against malformed server values.
     ///
-    /// Requires the `messages-caching` feature.
-    ///
     /// # Examples
     ///
     /// ```
-    /// # #[cfg(feature = "messages-caching")] {
     /// use clauders::messages::response::Usage;
     /// let u: Usage = serde_json::from_str(r#"{
     ///     "input_tokens": 100,
@@ -149,10 +130,7 @@ impl Usage {
     ///     "cache_read_input_tokens": 50
     /// }"#).unwrap();
     /// assert_eq!(u.total_input_tokens(), 350);
-    /// # }
     /// ```
-    #[cfg(feature = "messages-caching")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "messages-caching")))]
     #[must_use]
     pub fn total_input_tokens(&self) -> u32 {
         self.input_tokens
@@ -192,7 +170,6 @@ mod tests {
         assert_eq!(msg.content.len(), 1);
     }
 
-    #[cfg(feature = "messages-caching")]
     #[test]
     fn usage_decodes_cache_fields() {
         let j = r#"{"input_tokens":100,"output_tokens":5,"cache_creation_input_tokens":200,"cache_read_input_tokens":50}"#;
@@ -201,7 +178,6 @@ mod tests {
         assert_eq!(u.cache_read_input_tokens, Some(50));
     }
 
-    #[cfg(feature = "messages-caching")]
     #[test]
     fn usage_without_cache_fields_defaults_to_none() {
         let j = r#"{"input_tokens":10,"output_tokens":5}"#;
@@ -211,7 +187,6 @@ mod tests {
         assert_eq!(u.cache_creation, None);
     }
 
-    #[cfg(feature = "messages-caching")]
     #[test]
     fn total_input_tokens_sums_all_input_counts() {
         let j = r#"{"input_tokens":100,"output_tokens":5,"cache_creation_input_tokens":200,"cache_read_input_tokens":50}"#;
@@ -219,7 +194,6 @@ mod tests {
         assert_eq!(u.total_input_tokens(), 350);
     }
 
-    #[cfg(feature = "messages-caching")]
     #[test]
     fn total_input_tokens_without_cache_equals_input_tokens() {
         let j = r#"{"input_tokens":42,"output_tokens":5}"#;
@@ -227,7 +201,6 @@ mod tests {
         assert_eq!(u.total_input_tokens(), 42);
     }
 
-    #[cfg(feature = "messages-structured-outputs")]
     #[test]
     fn refusal_stop_reason_decodes() {
         let j = r#"{
@@ -244,7 +217,6 @@ mod tests {
         assert_eq!(msg.stop_reason, Some(StopReason::Refusal));
     }
 
-    #[cfg(feature = "messages-caching")]
     #[test]
     fn cache_creation_breakdown_decodes() {
         let j = r#"{

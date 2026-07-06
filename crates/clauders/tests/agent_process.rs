@@ -1,4 +1,4 @@
-#![cfg(all(unix, feature = "agent"))]
+#![cfg(unix)]
 #![expect(clippy::expect_used, reason = "tests assert via expect")]
 
 //! Lifecycle tests for `clauders::agent::process` against the controllable

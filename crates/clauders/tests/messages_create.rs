@@ -4,7 +4,6 @@
 //! These tests lock the request-header propagation and response-decoding
 //! behaviour without hitting the real Anthropic API.
 
-#![cfg(all(feature = "messages", feature = "transport-reqwest"))]
 #![expect(
     clippy::unwrap_used,
     reason = "tests unwrap known-valid fixtures; a panic is the intended failure signal"

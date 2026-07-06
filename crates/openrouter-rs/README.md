@@ -34,17 +34,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-## Features
+## Capabilities
 
-| Feature | Default | What it enables |
-|---|:---:|---|
-| `streaming` | ✓ | SSE streaming via `ChatResource::stream` / `ChatStream` |
-| `transport-reqwest` | ✓ | Default HTTP transport backed by `reqwest` with `rustls` |
-| `__test-mocks` | | Internal: exposes `MockHttpTransport` for downstream tests |
+The crate carries no Cargo features; every capability below is always compiled.
 
-All API capabilities — tool calling, structured outputs, provider routing
-preferences, caching, and the model catalog — are part of the core surface and
-require no feature flag.
+| Capability | What it provides |
+|---|---|
+| Streaming | SSE streaming via `ChatResource::stream` / `ChatStream` |
+| Transport | Default HTTP transport backed by `reqwest` with `rustls` |
+
+All other API capabilities — tool calling, structured outputs, provider routing
+preferences, caching, and the model catalog — are part of the core surface too.
 
 ## Examples
 

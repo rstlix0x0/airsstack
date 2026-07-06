@@ -27,15 +27,9 @@ use crate::auth::Auth;
 use crate::config::Config;
 use crate::transport::HttpTransport;
 
-#[cfg(not(feature = "transport-reqwest"))]
-use crate::transport::Transport;
-
-#[cfg(feature = "transport-reqwest")]
 use crate::transport::ReqwestTransport;
 
 /// `Client` specialized to the default reqwest transport.
-#[cfg(feature = "transport-reqwest")]
-#[cfg_attr(docsrs, doc(cfg(feature = "transport-reqwest")))]
 pub type DefaultClient = Client<ReqwestTransport>;
 
 /// SDK client generic over the HTTP transport.
@@ -52,37 +46,8 @@ where
 
 /// Default transport substituted into `Client<T = DefaultTransportPlaceholder>`.
 ///
-/// Aliases [`ReqwestTransport`] when `transport-reqwest` is enabled; otherwise
-/// a stand-in whose `send` always errors, so the default type parameter
-/// resolves to a concrete `HttpTransport` impl under every feature set.
-#[cfg(feature = "transport-reqwest")]
-#[cfg_attr(docsrs, doc(cfg(feature = "transport-reqwest")))]
+/// Aliases [`ReqwestTransport`].
 pub type DefaultTransportPlaceholder = ReqwestTransport;
-
-/// Default-transport stand-in used when no transport feature is enabled.
-///
-/// Every `send` returns [`crate::error::TransportError::Other`] explaining no
-/// transport is configured. Keeping one default type parameter across both
-/// feature configurations keeps `Client<T>`'s signature stable for rustdoc and
-/// downstream generic code.
-#[cfg(not(feature = "transport-reqwest"))]
-pub struct DefaultTransportPlaceholder;
-
-#[cfg(not(feature = "transport-reqwest"))]
-#[async_trait::async_trait]
-impl Transport for DefaultTransportPlaceholder {
-    type Request = http::Request<bytes::Bytes>;
-    type Response = http::Response<crate::transport::BodyStream>;
-    type Error = crate::error::TransportError;
-    async fn send(
-        &self,
-        _req: http::Request<bytes::Bytes>,
-    ) -> Result<http::Response<crate::transport::BodyStream>, crate::error::TransportError> {
-        Err(crate::error::TransportError::Other(
-            "no transport configured: enable feature `transport-reqwest` or supply a custom transport via the client builder".into(),
-        ))
-    }
-}
 
 pub(crate) struct ClientInner<T: HttpTransport> {
     pub(crate) config: Config,
@@ -163,8 +128,6 @@ impl<T: HttpTransport> Client<T> {
     }
 }
 
-#[cfg(feature = "transport-reqwest")]
-#[cfg_attr(docsrs, doc(cfg(feature = "transport-reqwest")))]
 impl Client<ReqwestTransport> {
     /// Begin building a client with the default `ReqwestTransport`.
     ///

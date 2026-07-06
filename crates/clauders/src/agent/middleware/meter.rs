@@ -135,7 +135,6 @@ impl<R: Runtime> Runtime for MeterRuntime<R> {
 }
 
 #[cfg(test)]
-#[cfg(feature = "__test-mocks")]
 mod tests {
     #![expect(clippy::expect_used, reason = "test assertions use expect for context")]
 

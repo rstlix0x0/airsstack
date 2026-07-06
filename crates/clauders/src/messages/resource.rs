@@ -44,7 +44,6 @@ const MESSAGES_PATH: &str = "v1/messages";
 /// # Examples
 ///
 /// ```no_run
-/// # #[cfg(feature = "transport-reqwest")]
 /// # async fn example() -> Result<(), clauders::error::Error> {
 /// # use clauders::Client;
 /// # use clauders::messages::MessageRequest;
@@ -170,8 +169,6 @@ impl<T: HttpTransport> MessagesResource<'_, T> {
     ///   body cannot be parsed as a known error envelope.
     /// - [`Error::InvalidRequest`] — the configured base URL cannot be joined with
     ///   the messages path, or the HTTP request cannot be constructed.
-    #[cfg(feature = "messages-streaming")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "messages-streaming")))]
     pub async fn stream(
         &self,
         mut req: MessageRequest,
@@ -251,7 +248,6 @@ impl<T: HttpTransport> MessagesResource<'_, T> {
     /// # Examples
     ///
     /// ```no_run
-    /// # #[cfg(feature = "transport-reqwest")]
     /// # async fn example() -> Result<(), clauders::error::Error> {
     /// # use clauders::Client;
     /// # use clauders::messages::{BatchRequest, MessageRequest};
@@ -263,8 +259,6 @@ impl<T: HttpTransport> MessagesResource<'_, T> {
     /// # Ok(())
     /// # }
     /// ```
-    #[cfg(feature = "messages-batches")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "messages-batches")))]
     #[must_use]
     pub const fn batches(&self) -> super::batches::resource::BatchesResource<'_, T> {
         super::batches::resource::BatchesResource {
@@ -290,8 +284,6 @@ impl<T: HttpTransport> MessagesResource<'_, T> {
     ///   whose body cannot be parsed.
     /// - [`Error::InvalidRequest`] — the base URL cannot be joined with the
     ///   count-tokens path, or the HTTP request cannot be constructed.
-    #[cfg(feature = "messages-token-counting")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "messages-token-counting")))]
     pub async fn count_tokens(
         &self,
         req: MessageRequest,
@@ -369,7 +361,7 @@ impl<T: HttpTransport> MessagesResource<'_, T> {
     }
 }
 
-#[cfg(all(test, feature = "__test-mocks"))]
+#[cfg(test)]
 mod tests {
     //! Tests for the decode branches in `MessagesResource`: 2xx success
     //! path and non-2xx error path. The body-collection and error-decoding
@@ -395,7 +387,8 @@ mod tests {
 
     use crate::error::{Error, TransportError};
     use crate::messages::MessageRequest;
-    use crate::transport::{BodyStream, MockHttpTransport};
+    use crate::test_support::MockHttpTransport;
+    use crate::transport::BodyStream;
     use crate::types::{ApiKey, MaxTokens, ModelId};
 
     /// Build a single-chunk in-memory `BodyStream` from a byte slice.
@@ -477,7 +470,6 @@ mod tests {
 
     // ── count_tokens ─────────────────────────────────────────────────────────
 
-    #[cfg(feature = "messages-token-counting")]
     #[tokio::test]
     async fn count_tokens_2xx_decodes_token_count() {
         let mut transport = MockHttpTransport::new();
@@ -498,7 +490,6 @@ mod tests {
         assert_eq!(tc.input_tokens, 77);
     }
 
-    #[cfg(feature = "messages-token-counting")]
     #[tokio::test]
     async fn count_tokens_non_2xx_returns_api_error() {
         let mut transport = MockHttpTransport::new();

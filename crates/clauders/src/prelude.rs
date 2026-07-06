@@ -11,10 +11,6 @@ pub use crate::types::{
 };
 pub use crate::{ApiError, BuildError, Client, Error, TransportError};
 
-#[cfg(feature = "messages")]
-#[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
 pub use crate::messages::{ContentBlock, Message, MessageRequest, Role, StopReason};
 
-#[cfg(feature = "messages-streaming")]
-#[cfg_attr(docsrs, doc(cfg(feature = "messages-streaming")))]
 pub use crate::messages::{MessageStream, StreamEvent};

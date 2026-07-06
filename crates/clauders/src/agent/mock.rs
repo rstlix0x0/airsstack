@@ -2,8 +2,8 @@
 //!
 //! Replays scripted message turns and records the control operations it
 //! receives, so session and client logic can be exercised with no backend
-//! binary present. Available to downstream crates through the `__test-mocks`
-//! feature, mirroring the crate's mock HTTP transport.
+//! binary present. Compiled only under `cfg(test)`, mirroring the crate's
+//! mock HTTP transport in [`crate::test_support`].
 
 use std::collections::VecDeque;
 use std::sync::{Mutex, PoisonError};
@@ -51,20 +51,6 @@ impl MockRuntime {
             capabilities: Capabilities::default(),
             mcp_status: McpStatus::default(),
         }
-    }
-
-    /// Override the capabilities the mock reports.
-    #[must_use]
-    pub fn with_capabilities(mut self, capabilities: Capabilities) -> Self {
-        self.capabilities = capabilities;
-        self
-    }
-
-    /// Override the MCP status the mock returns from `mcp_status`.
-    #[must_use]
-    pub fn with_mcp_status(mut self, status: McpStatus) -> Self {
-        self.mcp_status = status;
-        self
     }
 
     /// The control operations recorded so far, in call order.

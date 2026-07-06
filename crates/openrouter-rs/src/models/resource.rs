@@ -37,7 +37,6 @@ const MODELS_PATH: &str = "models";
 /// # Examples
 ///
 /// ```no_run
-/// # #[cfg(feature = "transport-reqwest")]
 /// # async fn example() -> Result<(), openrouter_rs::error::Error> {
 /// use openrouter_rs::Client;
 /// use openrouter_rs::types::ApiKey;
@@ -150,7 +149,7 @@ impl<T: HttpTransport> ModelsResource<'_, T> {
     }
 }
 
-#[cfg(all(test, feature = "__test-mocks"))]
+#[cfg(test)]
 mod tests {
     #![expect(
         clippy::unwrap_used,
@@ -170,7 +169,8 @@ mod tests {
 
     use crate::client::Client;
     use crate::error::{Error, TransportError};
-    use crate::transport::{BodyStream, MockHttpTransport};
+    use crate::test_support::MockHttpTransport;
+    use crate::transport::BodyStream;
     use crate::types::ApiKey;
 
     fn body_from(payload: Vec<u8>) -> BodyStream {

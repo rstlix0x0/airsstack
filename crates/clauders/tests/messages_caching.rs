@@ -1,7 +1,6 @@
 //! Caching round-trip: send `cache_control` on the system prompt, receive
 //! cache token counts in the response `Usage`.
 
-#![cfg(all(feature = "messages-caching", feature = "transport-reqwest"))]
 #![expect(
     clippy::unwrap_used,
     reason = "tests unwrap known-valid fixtures; a panic is the intended failure signal"
