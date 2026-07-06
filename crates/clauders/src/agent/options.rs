@@ -10,10 +10,13 @@ use crate::agent::hooks::{Hook, HookRegistry};
 use crate::agent::mcp::{SdkMcpRegistry, SdkMcpServer};
 use crate::agent::permissions::{PermissionMode, PermissionPolicy};
 use crate::agent::types::McpServerConfig;
-use crate::types::ModelId;
+use crate::types::{MaxTokens, ModelId};
 
 /// Default graceful-shutdown window before the supervisor forces a kill.
 const DEFAULT_SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
+
+/// Default per-request output-token ceiling when the caller sets none.
+const DEFAULT_MAX_TOKENS: u32 = 4096;
 
 /// Configuration for a `Client` / `query` session.
 ///
@@ -27,6 +30,8 @@ pub struct Options {
     pub system_prompt: Option<String>,
     /// Model override.
     pub model: Option<ModelId>,
+    /// Per-request output-token ceiling forwarded to the Messages API.
+    pub max_tokens: MaxTokens,
     /// Tool-gating mode.
     pub permission_mode: PermissionMode,
     /// Tool allowlist forwarded to the binary.
@@ -62,6 +67,7 @@ impl fmt::Debug for Options {
         f.debug_struct("Options")
             .field("system_prompt", &self.system_prompt)
             .field("model", &self.model)
+            .field("max_tokens", &self.max_tokens)
             .field("permission_mode", &self.permission_mode)
             .field("allowed_tools", &self.allowed_tools)
             .field("disallowed_tools", &self.disallowed_tools)
@@ -108,6 +114,7 @@ impl Default for Options {
 pub struct OptionsBuilder {
     system_prompt: Option<String>,
     model: Option<ModelId>,
+    max_tokens: Option<MaxTokens>,
     permission_mode: PermissionMode,
     allowed_tools: Vec<String>,
     disallowed_tools: Vec<String>,
@@ -151,6 +158,13 @@ impl OptionsBuilder {
     #[must_use]
     pub fn model(mut self, model: ModelId) -> Self {
         self.model = Some(model);
+        self
+    }
+
+    /// Set the per-request output-token ceiling.
+    #[must_use]
+    pub const fn max_tokens(mut self, max_tokens: MaxTokens) -> Self {
+        self.max_tokens = Some(max_tokens);
         self
     }
 
@@ -253,11 +267,23 @@ impl OptionsBuilder {
     }
 
     /// Finalize into an [`Options`].
+    ///
+    /// # Panics
+    ///
+    /// Never panics in practice: the fallback `max_tokens` default is built
+    /// from a non-zero constant, so [`MaxTokens::new`] cannot fail there.
     #[must_use]
     pub fn build(self) -> Options {
         Options {
             system_prompt: self.system_prompt,
             model: self.model,
+            max_tokens: self.max_tokens.unwrap_or_else(|| {
+                #[expect(
+                    clippy::expect_used,
+                    reason = "DEFAULT_MAX_TOKENS is a non-zero constant; construction is infallible"
+                )]
+                MaxTokens::new(DEFAULT_MAX_TOKENS).expect("DEFAULT_MAX_TOKENS is non-zero")
+            }),
             permission_mode: self.permission_mode,
             allowed_tools: self.allowed_tools,
             disallowed_tools: self.disallowed_tools,
@@ -327,6 +353,20 @@ mod tests {
         assert!(!opts.require_min_version);
         assert!(opts.model.is_none());
         assert!(opts.allowed_tools.is_empty());
+    }
+
+    #[test]
+    fn default_max_tokens_is_the_documented_constant() {
+        let opts = Options::builder().build();
+        assert_eq!(opts.max_tokens.get(), 4096);
+    }
+
+    #[test]
+    fn builder_overrides_max_tokens() {
+        let opts = Options::builder()
+            .max_tokens(crate::types::MaxTokens::new(512).expect("non-zero"))
+            .build();
+        assert_eq!(opts.max_tokens.get(), 512);
     }
 
     #[test]
