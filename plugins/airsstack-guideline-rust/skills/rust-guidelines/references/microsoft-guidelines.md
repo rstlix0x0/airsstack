@@ -7,7 +7,7 @@ Each item below is identified by its upstream code (`M-*`). Use these codes verb
 ## Universal — apply everywhere
 
 - **M-UPSTREAM-GUIDELINES** — Follow the upstream [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/), [Style Guide](https://doc.rust-lang.org/nightly/style-guide/), and [Reference](https://doc.rust-lang.org/reference/) before inventing local conventions.
-- **M-STATIC-VERIFICATION** — Run `cargo fmt`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo check`, and where applicable `cargo audit`, `cargo hack`, `cargo udeps`, `miri`. Block PRs on these.
+- **M-STATIC-VERIFICATION** — Run `cargo fmt`, `cargo clippy --all-targets --all-features -- -D warnings`, `cargo check`, and where applicable `cargo audit`, `cargo udeps`, `miri`. Block PRs on these.
 - **M-LINT-OVERRIDE-EXPECT** — Prefer `#[expect(lint_name, reason = "...")]` over `#[allow(...)]`. `#[expect]` errors if the lint stops firing, preventing stale suppressions. Always include the `reason` attribute.
 - **M-PUBLIC-DEBUG** — Every public type implements `Debug`. Derive when possible; hand-roll when secrets must be masked. No silent `Debug` gaps in public APIs.
 - **M-PUBLIC-DISPLAY** — Types intended for human consumption (errors, string newtypes, IDs, units) implement `Display`. Do NOT implement `Display` as a debug substitute.

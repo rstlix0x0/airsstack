@@ -15,11 +15,6 @@ categories  = ["web-programming::http-client", "asynchronous"]
 [lints]
 workspace = true
 
-[features]
-default           = []
-transport-reqwest = ["dep:reqwest"]
-__test-mocks      = ["dep:mockall"]
-
 [dependencies]
 http             = { workspace = true }
 bytes            = { workspace = true }
@@ -27,13 +22,8 @@ futures-core     = { workspace = true }
 pin-project-lite = { workspace = true }
 async-trait      = { workspace = true }
 thiserror        = { workspace = true }
-reqwest          = { workspace = true, optional = true }
-mockall          = { workspace = true, optional = true }
+reqwest          = { workspace = true }
 
 [dev-dependencies]
 tokio        = { workspace = true, features = ["full", "test-util"] }
 futures-util = { workspace = true }
-
-[package.metadata.docs.rs]
-all-features = true
-rustdoc-args = ["--cfg", "docsrs"]

@@ -23,7 +23,7 @@ bytes            = { workspace = true }
 futures-core     = { workspace = true }
 pin-project-lite = { workspace = true }
 async-trait      = { workspace = true }
-airs-transport   = { path = "../airs-transport", features = ["transport-reqwest"] }
+airs-transport   = { path = "../airs-transport" }
 eventsource-stream = { workspace = true }
 
 [dev-dependencies]

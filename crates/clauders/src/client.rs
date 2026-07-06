@@ -38,8 +38,7 @@ pub type DefaultClient = Client<ReqwestTransport>;
 /// transport is a generic parameter (per the static-dispatch policy);
 /// cloning the client shares state via an internal `Arc` rather than
 /// duplicating it. The default type parameter is the placeholder transport
-/// that resolves to `ReqwestTransport` when the `transport-reqwest`
-/// feature is on.
+/// that resolves to `ReqwestTransport`.
 pub struct Client<T = DefaultTransportPlaceholder>
 where
     T: HttpTransport,
