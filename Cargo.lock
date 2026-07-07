@@ -145,6 +145,7 @@ dependencies = [
  "insta",
  "mockall",
  "nix",
+ "openrouter-rs",
  "pin-project-lite",
  "secrecy",
  "serde",

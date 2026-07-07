@@ -4,6 +4,7 @@
 //! that groups tools, the registry that holds servers for a session, and the
 //! JSON-RPC router that answers the methods the backend drives.
 
+pub(crate) mod naming;
 pub mod registry;
 pub(crate) mod router;
 pub mod server;

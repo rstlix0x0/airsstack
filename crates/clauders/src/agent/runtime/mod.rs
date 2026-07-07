@@ -7,6 +7,7 @@
 
 pub mod api;
 pub mod cli;
+pub mod openrouter;
 mod port;
 
 pub use port::Runtime;

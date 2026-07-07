@@ -17,6 +17,7 @@ workspace = true
 
 [dependencies]
 airs-transport = { path = "../airs-transport" }
+openrouter-rs  = { path = "../openrouter-rs" }
 serde          = { workspace = true }
 serde_json     = { workspace = true }
 thiserror      = { workspace = true }
