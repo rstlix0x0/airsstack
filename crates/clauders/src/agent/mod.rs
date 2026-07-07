@@ -24,6 +24,7 @@ pub mod process;
 pub mod protocol;
 pub mod runtime;
 mod runtime_api;
+pub use runtime_api::ApiRuntime;
 pub mod stream;
 pub mod types;
 

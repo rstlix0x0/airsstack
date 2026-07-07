@@ -41,6 +41,7 @@
 #![forbid(unsafe_code)]
 
 pub mod agent;
+pub use agent::ApiRuntime;
 
 pub mod messages;
 

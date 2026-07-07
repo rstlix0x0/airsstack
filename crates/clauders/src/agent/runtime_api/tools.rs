@@ -1,13 +1,6 @@
 //! Bridge the in-process MCP registry to the Messages API tool surface:
 //! declare every registered tool as a namespaced wire `Tool`, and dispatch a
 //! model tool call back to the owning `SdkMcpServer`.
-// `dead_code` fires on the lib target (nothing outside `#[cfg(test)]` calls
-// these yet) but not on the test target (every item is exercised by `tests`
-// below). Because the lint fires conditionally across targets, `#[expect]`
-// would be reported "unfulfilled" by the test-target pass; per
-// M-LINT-OVERRIDE-EXPECT, `#[allow]` is the correct suppression for a
-// conditionally-firing lint. Drop it once a runtime caller makes these live.
-#![allow(dead_code)]
 
 use crate::agent::mcp::SdkMcpRegistry;
 use crate::agent::mcp::tool::{ToolContent, ToolResult};

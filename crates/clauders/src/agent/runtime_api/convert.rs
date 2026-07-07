@@ -1,13 +1,6 @@
 //! Pure impedance mapping between the wire Messages API and the agent frame
 //! surface: tool-name namespacing, content-block and usage conversion, and
 //! error mapping. No I/O, no transport — the unit-test seam of the runtime.
-// `dead_code` fires on the lib target (nothing outside `#[cfg(test)]` calls
-// these yet) but not on the test target (every item is exercised by `tests`
-// below). Because the lint fires conditionally across targets, `#[expect]`
-// would be reported "unfulfilled" by the test-target pass; per
-// M-LINT-OVERRIDE-EXPECT, `#[allow]` is the correct suppression for a
-// conditionally-firing lint. Drop it once a runtime caller makes these live.
-#![allow(dead_code)]
 
 use crate::agent::content::ContentBlock as AgentBlock;
 use crate::agent::error::AgentError;
