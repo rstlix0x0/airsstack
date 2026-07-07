@@ -170,10 +170,10 @@ mod tests {
     use crate::agent::error::AgentError;
     use crate::agent::message::{Message, ResultMessage};
     use crate::agent::middleware::layer::Layer;
-    use crate::agent::mock::MockRuntime;
     use crate::agent::permissions::PermissionMode;
     use crate::agent::process::ProcessError;
     use crate::agent::runtime::Runtime;
+    use crate::agent::runtime::mock::MockRuntime;
     use crate::agent::stream::MessageStream;
     use crate::agent::types::{McpStatus, Prompt, SessionId};
     use crate::types::ModelId;

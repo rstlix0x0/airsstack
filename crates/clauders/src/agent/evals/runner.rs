@@ -96,7 +96,7 @@ mod tests {
     use crate::agent::evals::case::Case;
     use crate::agent::evals::scorers::{contains, no_error};
     use crate::agent::message::{AssistantMessage, Message, ResultMessage};
-    use crate::agent::mock::MockRuntime;
+    use crate::agent::runtime::mock::MockRuntime;
     use crate::agent::types::SessionId;
 
     fn assistant(text: &str) -> Message {

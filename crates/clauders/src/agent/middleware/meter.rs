@@ -141,8 +141,8 @@ mod tests {
     use super::{TokenMeter, UsageTotals};
     use crate::agent::message::{Message, ResultMessage, Usage};
     use crate::agent::middleware::layer::Layer;
-    use crate::agent::mock::MockRuntime;
     use crate::agent::runtime::Runtime;
+    use crate::agent::runtime::mock::MockRuntime;
     use crate::agent::types::{Prompt, SessionId};
     use futures_util::StreamExt;
 

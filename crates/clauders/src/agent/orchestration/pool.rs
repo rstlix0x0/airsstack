@@ -95,8 +95,8 @@ mod tests {
     use super::Pool;
     use crate::agent::error::AgentError;
     use crate::agent::message::{Message, ResultMessage};
-    use crate::agent::mock::MockRuntime;
     use crate::agent::orchestration::limit::semaphore::SemaphoreLimiter;
+    use crate::agent::runtime::mock::MockRuntime;
     use crate::agent::types::{Prompt, SessionId};
 
     fn result(is_error: bool) -> Message {

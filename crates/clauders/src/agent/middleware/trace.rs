@@ -91,8 +91,8 @@ mod tests {
     use super::Trace;
     use crate::agent::message::{Message, ResultMessage};
     use crate::agent::middleware::layer::{Layer, Stack};
-    use crate::agent::mock::{ControlCall, MockRuntime};
     use crate::agent::runtime::Runtime;
+    use crate::agent::runtime::mock::{ControlCall, MockRuntime};
     use crate::agent::types::{Prompt, SessionId};
     use futures_util::StreamExt;
 
