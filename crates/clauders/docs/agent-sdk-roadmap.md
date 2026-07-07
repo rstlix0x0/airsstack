@@ -6,8 +6,8 @@ Phase-1 spec (`.airsstack/cc/plugins/sdd/specs/2026-06-09-clauders-agent-core-fo
 
 The work is sequenced so a usable, compatible artifact ships early and the expensive native
 runtime arrives only after the public surface is proven and instrumented. All of it lives in the
-existing `clauders` crate (sibling `agent/` module tree, behind the `agent` Cargo feature) — **no
-new crate**.
+existing `clauders` crate (sibling `agent/` module tree, compiled unconditionally — the crate carries
+no Cargo features) — **no new crate**.
 
 ---
 
@@ -55,8 +55,8 @@ Delivered across 3 plans:
 | Workstream | Status |
 |---|---|
 | Middleware backbone + thin installer | ✅ done (9ea1429) — middleware-only; AgentBuilder facade deferred |
-| Evals harness (runtime-agnostic) | ⬜ not started |
-| Multi-process orchestration | ⬜ not started |
+| Evals harness (runtime-agnostic) | ✅ done (0410a86) |
+| Multi-process orchestration | ✅ done (cde5e33) — bounded-concurrency pool, ports-and-adapters |
 
 Typed extension *shapes* (runtime adapters, middleware, in-loop bundles, orchestrators, tool packs)
 composed by a thin installer, with first-party defaults. Tower-style middleware model.
@@ -71,7 +71,7 @@ bounded concurrency + backpressure.
 
 | Workstream | Status |
 |---|---|
-| `ApiRuntime` on `clauders` (second `Runtime` adapter) | ⬜ not started |
+| `ApiRuntime` on `clauders` (second `Runtime` adapter) | ✅ done (41d2a02) — native `POST /v1/messages` loop, in-process tools, control ops |
 | OpenRouter routing + token-efficiency | ⬜ not started |
 
 **This is where the README's north star lands** — mixed routing (cheaper/alternative models via
