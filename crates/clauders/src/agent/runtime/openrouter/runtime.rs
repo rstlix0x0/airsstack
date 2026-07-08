@@ -54,6 +54,7 @@ pub struct OpenRouterRuntime<T: HttpTransport = DefaultTransportPlaceholder> {
     turn_cap: u32,
     session_id: SessionId,
     capabilities: Capabilities,
+    identity: Option<ModelId>,
     model: Mutex<OrModelId>,
     permission_mode: Mutex<PermissionMode>,
     interrupt: Arc<AtomicBool>,
@@ -71,6 +72,7 @@ impl<T: HttpTransport> OpenRouterRuntime<T> {
         let model = options.model.ok_or_else(|| AgentError::Protocol {
             detail: "OpenRouterRuntime requires Options.model to be set".to_string(),
         })?;
+        let identity = model.clone();
         let model = to_or_model(&model)?;
         let max_tokens =
             OrMaxTokens::new(options.max_tokens.get()).map_err(|e| AgentError::Protocol {
@@ -85,6 +87,7 @@ impl<T: HttpTransport> OpenRouterRuntime<T> {
             turn_cap: options.max_turns.unwrap_or(DEFAULT_MAX_TURNS),
             session_id: SessionId::new(format!("openrouter-session-{n}")),
             capabilities: build_capabilities(),
+            identity: Some(identity),
             model: Mutex::new(model),
             permission_mode: Mutex::new(options.permission_mode),
             interrupt: Arc::new(AtomicBool::new(false)),
@@ -179,6 +182,10 @@ impl<T: HttpTransport> Runtime for OpenRouterRuntime<T> {
 
     fn capabilities(&self) -> &Capabilities {
         &self.capabilities
+    }
+
+    fn model(&self) -> Option<&ModelId> {
+        self.identity.as_ref()
     }
 }
 
@@ -594,5 +601,15 @@ mod tests {
         rt.set_model(ModelId::custom("qwen/qwen-2.5-72b-instruct").expect("model"))
             .await
             .expect("set_model");
+    }
+
+    #[test]
+    fn model_reports_construction_identity() {
+        let rt = OpenRouterRuntime::new(or_client(MockHttpTransport::new()), options_with_model())
+            .expect("runtime");
+        assert_eq!(
+            rt.model(),
+            Some(&ModelId::custom("deepseek/deepseek-chat").expect("model"))
+        );
     }
 }
