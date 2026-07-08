@@ -55,6 +55,15 @@ pub trait Runtime: Send + Sync {
 
     /// The capabilities negotiated with the backend at construction.
     fn capabilities(&self) -> &Capabilities;
+
+    /// The stable model identity this runtime was constructed with, if any.
+    ///
+    /// Defaults to `None`: a runtime with no fixed model — or a decorator that
+    /// does not forward one — has no routing identity. Model-backed runtimes
+    /// override this to expose the model they were built with.
+    fn model(&self) -> Option<&ModelId> {
+        None
+    }
 }
 
 #[cfg(test)]

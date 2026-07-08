@@ -39,6 +39,7 @@ pub struct MockRuntime {
     calls: Mutex<Vec<ControlCall>>,
     capabilities: Capabilities,
     mcp_status: McpStatus,
+    model: Option<ModelId>,
 }
 
 impl MockRuntime {
@@ -50,6 +51,7 @@ impl MockRuntime {
             calls: Mutex::new(Vec::new()),
             capabilities: Capabilities::default(),
             mcp_status: McpStatus::default(),
+            model: None,
         }
     }
 
@@ -60,6 +62,20 @@ impl MockRuntime {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
+    }
+
+    /// Set the routing identity this mock reports from `model()`.
+    #[must_use]
+    pub fn with_model(mut self, model: ModelId) -> Self {
+        self.model = Some(model);
+        self
+    }
+
+    /// Override the capability manifest this mock advertises.
+    #[must_use]
+    pub fn with_capabilities(mut self, capabilities: Capabilities) -> Self {
+        self.capabilities = capabilities;
+        self
     }
 
     fn record(&self, call: ControlCall) {
@@ -111,6 +127,10 @@ impl Runtime for MockRuntime {
 
     fn capabilities(&self) -> &Capabilities {
         &self.capabilities
+    }
+
+    fn model(&self) -> Option<&ModelId> {
+        self.model.as_ref()
     }
 }
 
@@ -174,5 +194,14 @@ mod tests {
         let mock = MockRuntime::new(vec![]);
         let mut s = mock.run(Prompt::new("p")).await.expect("run");
         assert!(s.next().await.is_none());
+    }
+
+    #[test]
+    fn model_defaults_to_none_and_reflects_with_model() {
+        let mock = MockRuntime::new(vec![]);
+        assert!(mock.model().is_none());
+        let id = ModelId::custom("deepseek/deepseek-chat").expect("model");
+        let mock = mock.with_model(id.clone());
+        assert_eq!(mock.model(), Some(&id));
     }
 }
