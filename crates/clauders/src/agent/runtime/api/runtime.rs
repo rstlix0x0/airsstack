@@ -51,6 +51,7 @@ pub struct ApiRuntime<T: HttpTransport = DefaultTransportPlaceholder> {
     turn_cap: u32,
     session_id: SessionId,
     capabilities: Capabilities,
+    identity: Option<ModelId>,
     model: Mutex<ModelId>,
     permission_mode: Mutex<PermissionMode>,
     interrupt: std::sync::Arc<AtomicBool>,
@@ -76,6 +77,7 @@ impl<T: HttpTransport> ApiRuntime<T> {
             turn_cap: options.max_turns.unwrap_or(DEFAULT_MAX_TURNS),
             session_id: SessionId::new(format!("api-session-{n}")),
             capabilities: build_capabilities(),
+            identity: Some(model.clone()),
             model: Mutex::new(model),
             permission_mode: Mutex::new(options.permission_mode),
             interrupt: std::sync::Arc::new(AtomicBool::new(false)),
@@ -165,6 +167,10 @@ impl<T: HttpTransport> Runtime for ApiRuntime<T> {
 
     fn capabilities(&self) -> &Capabilities {
         &self.capabilities
+    }
+
+    fn model(&self) -> Option<&ModelId> {
+        self.identity.as_ref()
     }
 }
 
@@ -577,5 +583,12 @@ mod tests {
             out.push(item.expect("frame ok"));
         }
         out
+    }
+
+    #[test]
+    fn model_reports_construction_identity() {
+        let rt = ApiRuntime::new(client_with(MockHttpTransport::new()), options_with_model())
+            .expect("runtime");
+        assert_eq!(rt.model(), Some(&ModelId::claude_sonnet_4_5()));
     }
 }
