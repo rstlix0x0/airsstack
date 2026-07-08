@@ -228,6 +228,7 @@ mod tests {
             Some(Usage {
                 input_tokens: 3,
                 output_tokens: 2,
+                ..Default::default()
             }),
         );
         let over = result_outcome(
@@ -235,6 +236,7 @@ mod tests {
             Some(Usage {
                 input_tokens: 30,
                 output_tokens: 20,
+                ..Default::default()
             }),
         );
         assert!(token_budget(10).score(&within).await.passed);

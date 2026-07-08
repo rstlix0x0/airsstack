@@ -28,6 +28,10 @@ pub struct UsageTotals {
     pub input_tokens: u64,
     /// Summed output tokens across result frames that reported usage.
     pub output_tokens: u64,
+    /// Summed prompt-cache creation tokens across result frames.
+    pub cache_creation_input_tokens: u64,
+    /// Summed prompt-cache read tokens across result frames.
+    pub cache_read_input_tokens: u64,
     /// Summed `total_cost_usd` across result frames that reported it.
     pub total_cost_usd: f64,
     /// Count of result frames observed.
@@ -92,6 +96,8 @@ fn accumulate(totals: &Arc<Mutex<UsageTotals>>, message: &Message) {
         if let Some(usage) = &result.usage {
             totals.input_tokens += usage.input_tokens;
             totals.output_tokens += usage.output_tokens;
+            totals.cache_creation_input_tokens += usage.cache_creation_input_tokens.unwrap_or(0);
+            totals.cache_read_input_tokens += usage.cache_read_input_tokens.unwrap_or(0);
         }
         if let Some(cost) = result.total_cost_usd {
             totals.total_cost_usd += cost;
@@ -155,10 +161,44 @@ mod tests {
             usage: Some(Usage {
                 input_tokens: input,
                 output_tokens: output,
+                ..Default::default()
             }),
             session_id: SessionId::new("s1"),
             num_turns: 1,
         })
+    }
+
+    fn result_with_cache(input: u64, output: u64, creation: u64, read: u64) -> Message {
+        Message::Result(ResultMessage {
+            result: "done".into(),
+            is_error: false,
+            total_cost_usd: None,
+            stop_reason: None,
+            usage: Some(Usage {
+                input_tokens: input,
+                output_tokens: output,
+                cache_creation_input_tokens: Some(creation),
+                cache_read_input_tokens: Some(read),
+            }),
+            session_id: SessionId::new("s1"),
+            num_turns: 1,
+        })
+    }
+
+    #[tokio::test]
+    async fn aggregates_cache_counters_across_result_frames() {
+        let (meter, handle) = TokenMeter::new();
+        let runtime = meter.layer(MockRuntime::new(vec![
+            vec![result_with_cache(10, 5, 100, 0)],
+            vec![result_with_cache(3, 1, 0, 100)],
+        ]));
+        for _ in 0..2 {
+            let mut stream = runtime.run(Prompt::from("hi")).await.expect("run");
+            while stream.next().await.is_some() {}
+        }
+        let totals = handle.totals();
+        assert_eq!(totals.cache_creation_input_tokens, 100);
+        assert_eq!(totals.cache_read_input_tokens, 100);
     }
 
     #[tokio::test]
@@ -180,6 +220,8 @@ mod tests {
             UsageTotals {
                 input_tokens: 17,
                 output_tokens: 8,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
                 total_cost_usd: 0.03,
                 result_frames: 2,
             }

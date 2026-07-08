@@ -21,6 +21,7 @@ pub(super) fn usage(u: &OrUsage) -> AgentUsage {
     AgentUsage {
         input_tokens: u64::from(u.prompt_tokens),
         output_tokens: u64::from(u.completion_tokens),
+        ..AgentUsage::default()
     }
 }
 

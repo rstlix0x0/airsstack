@@ -33,11 +33,14 @@ pub(super) fn content_block(block: &WireBlock) -> AgentBlock {
     }
 }
 
-/// The agent-frame usage subset (input/output tokens) from a wire `Usage`.
+/// The agent-frame usage subset from a wire `Usage`, including the prompt-cache
+/// token counters when the response reported them.
 pub(super) fn usage(u: &WireUsage) -> AgentUsage {
     AgentUsage {
         input_tokens: u64::from(u.input_tokens),
         output_tokens: u64::from(u.output_tokens),
+        cache_creation_input_tokens: u.cache_creation_input_tokens.map(u64::from),
+        cache_read_input_tokens: u.cache_read_input_tokens.map(u64::from),
     }
 }
 
@@ -117,6 +120,26 @@ mod tests {
         let agent = usage(&wire);
         assert_eq!(agent.input_tokens, 25);
         assert_eq!(agent.output_tokens, 5);
+    }
+
+    #[test]
+    fn maps_cache_counters_when_present() {
+        let wire: WireUsage = serde_json::from_str(
+            r#"{"input_tokens":3,"output_tokens":1,"cache_creation_input_tokens":200,"cache_read_input_tokens":50}"#,
+        )
+        .expect("usage");
+        let agent = usage(&wire);
+        assert_eq!(agent.cache_creation_input_tokens, Some(200));
+        assert_eq!(agent.cache_read_input_tokens, Some(50));
+    }
+
+    #[test]
+    fn maps_absent_cache_counters_as_none() {
+        let wire: WireUsage =
+            serde_json::from_str(r#"{"input_tokens":3,"output_tokens":1}"#).expect("usage");
+        let agent = usage(&wire);
+        assert_eq!(agent.cache_creation_input_tokens, None);
+        assert_eq!(agent.cache_read_input_tokens, None);
     }
 
     #[test]

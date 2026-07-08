@@ -126,6 +126,12 @@ pub struct Usage {
     /// Output tokens produced.
     #[serde(default)]
     pub output_tokens: u64,
+    /// Input tokens written to the prompt cache on this turn, when reported.
+    #[serde(default)]
+    pub cache_creation_input_tokens: Option<u64>,
+    /// Input tokens served from the prompt cache on this turn, when reported.
+    #[serde(default)]
+    pub cache_read_input_tokens: Option<u64>,
 }
 
 /// Pull the `content` array out of the binary's nested `message` object.
@@ -150,7 +156,23 @@ mod tests {
     #![expect(clippy::expect_used, reason = "test assertions use expect for context")]
     #![expect(clippy::panic, reason = "test failure signal via panic in match arms")]
 
-    use super::Message;
+    use super::{Message, Usage};
+
+    #[test]
+    fn usage_carries_cache_counters_when_present() {
+        let json = r#"{"input_tokens":10,"output_tokens":2,"cache_creation_input_tokens":100,"cache_read_input_tokens":40}"#;
+        let u: Usage = serde_json::from_str(json).expect("usage");
+        assert_eq!(u.cache_creation_input_tokens, Some(100));
+        assert_eq!(u.cache_read_input_tokens, Some(40));
+    }
+
+    #[test]
+    fn usage_cache_counters_default_to_none() {
+        let json = r#"{"input_tokens":10,"output_tokens":2}"#;
+        let u: Usage = serde_json::from_str(json).expect("usage");
+        assert_eq!(u.cache_creation_input_tokens, None);
+        assert_eq!(u.cache_read_input_tokens, None);
+    }
 
     #[test]
     fn deserializes_assistant_message() {

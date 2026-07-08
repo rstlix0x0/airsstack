@@ -123,6 +123,7 @@ mod tests {
             Some(Usage {
                 input_tokens: 10,
                 output_tokens: 5,
+                ..Default::default()
             }),
         )]);
         assert!(o.is_error());

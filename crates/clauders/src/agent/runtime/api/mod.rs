@@ -28,8 +28,10 @@
 //! # }
 //! ```
 
+mod cache;
 mod convert;
 mod runtime;
 mod tools;
 
+pub use cache::CachePolicy;
 pub use runtime::ApiRuntime;
