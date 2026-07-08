@@ -52,4 +52,8 @@ pub use runtime::Runtime;
 pub use runtime::api::ApiRuntime;
 pub use runtime::cli::CliRuntime;
 pub use runtime::openrouter::OpenRouterRuntime;
+pub use runtime::routing::{
+    Classifier, ModelCard, RoutingError, RoutingRuntime, RoutingRuntimeBuilder, RoutingSummary,
+    RuntimeClassifier,
+};
 pub use stream::MessageStream;
