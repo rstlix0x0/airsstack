@@ -12,19 +12,11 @@ use crate::agent::message::Usage as AgentUsage;
 
 /// The assistant text of a response message, or `""` for a tool-only turn
 /// (OpenRouter sends `content: null` when the model emits only tool calls).
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "wired by the runtime loop in a later task")
-)]
 pub(super) fn content_text(message: &ResponseMessage) -> String {
     message.content.clone().unwrap_or_default()
 }
 
 /// The agent-frame usage subset (input/output tokens) from an OpenRouter usage.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "wired by the runtime loop in a later task")
-)]
 pub(super) fn usage(u: &OrUsage) -> AgentUsage {
     AgentUsage {
         input_tokens: u64::from(u.prompt_tokens),
@@ -34,10 +26,6 @@ pub(super) fn usage(u: &OrUsage) -> AgentUsage {
 
 /// The result-frame `stop_reason` string for a finish reason, aligned with the
 /// vocabulary the `api` runtime already emits.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "wired by the runtime loop in a later task")
-)]
 pub(super) const fn finish_reason_wire(reason: FinishReason) -> &'static str {
     match reason {
         FinishReason::Stop => "end_turn",
@@ -50,10 +38,6 @@ pub(super) const fn finish_reason_wire(reason: FinishReason) -> &'static str {
 }
 
 /// Fold an OpenRouter client error into the agent error surface.
-#[cfg_attr(
-    not(test),
-    expect(dead_code, reason = "wired by the runtime loop in a later task")
-)]
 pub(super) fn map_or_error(error: OrError) -> AgentError {
     match error {
         OrError::Transport(_) => AgentError::TransportClosed,

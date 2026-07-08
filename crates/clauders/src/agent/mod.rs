@@ -51,4 +51,5 @@ pub use permissions::{PermissionContext, PermissionDecision, PermissionMode, Per
 pub use runtime::Runtime;
 pub use runtime::api::ApiRuntime;
 pub use runtime::cli::CliRuntime;
+pub use runtime::openrouter::OpenRouterRuntime;
 pub use stream::MessageStream;

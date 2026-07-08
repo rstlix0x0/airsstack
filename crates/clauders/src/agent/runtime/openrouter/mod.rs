@@ -6,3 +6,7 @@
 //! agent loop.
 
 mod convert;
+mod runtime;
+mod tools;
+
+pub use runtime::OpenRouterRuntime;
