@@ -8,7 +8,7 @@
 //! ```no_run
 //! # async fn example() -> Result<(), clauders::agent::AgentError> {
 //! use clauders::agent::Client as AgentClient;
-//! use clauders::agent::{ApiRuntime, Options};
+//! use clauders::agent::{ApiRuntime, CachePolicy, Options};
 //! use clauders::Client as WireClient;
 //! use clauders::types::{ApiKey, MaxTokens, ModelId};
 //!
@@ -21,7 +21,7 @@
 //!     .model(ModelId::claude_sonnet_4_5())
 //!     .max_tokens(MaxTokens::new(1024).expect("non-zero"))
 //!     .build();
-//! let runtime = ApiRuntime::new(wire, options)?;
+//! let runtime = ApiRuntime::new(wire, options)?.with_cache_policy(CachePolicy::Prefix);
 //! let agent = AgentClient::with_runtime(runtime);
 //! let _stream = agent.query("Hello").await?;
 //! # Ok(())

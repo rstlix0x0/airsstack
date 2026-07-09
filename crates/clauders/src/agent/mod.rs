@@ -49,7 +49,7 @@ pub use options::{Options, OptionsBuilder};
 pub use orchestration::{Limiter, Pool, SemaphoreLimiter};
 pub use permissions::{PermissionContext, PermissionDecision, PermissionMode, PermissionPolicy};
 pub use runtime::Runtime;
-pub use runtime::api::ApiRuntime;
+pub use runtime::api::{ApiRuntime, CachePolicy};
 pub use runtime::cli::CliRuntime;
 pub use runtime::openrouter::OpenRouterRuntime;
 pub use runtime::routing::{

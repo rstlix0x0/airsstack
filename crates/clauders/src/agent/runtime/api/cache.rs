@@ -101,6 +101,7 @@ fn mark_last_cacheable_block(blocks: &mut [ContentBlock]) -> bool {
 #[cfg(test)]
 mod tests {
     #![expect(clippy::expect_used, reason = "test assertions use expect for context")]
+    #![expect(clippy::panic, reason = "test failure signal via panic in match arms")]
 
     use super::{CachePolicy, apply_conversation, apply_prefix};
     use crate::messages::content::{ContentBlock, TextBlock, ThinkingBlock};

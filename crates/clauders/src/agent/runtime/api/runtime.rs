@@ -10,7 +10,7 @@ use crate::agent::capabilities::Capabilities;
 use crate::agent::content::ContentBlock as AgentBlock;
 use crate::agent::error::AgentError;
 use crate::agent::mcp::SdkMcpRegistry;
-use crate::agent::message::{AssistantMessage, Message, ResultMessage};
+use crate::agent::message::{AssistantMessage, Message, ResultMessage, Usage as AgentUsage};
 use crate::agent::options::Options;
 use crate::agent::permissions::PermissionMode;
 use crate::agent::runtime::Runtime;
@@ -20,12 +20,13 @@ use crate::client::Client;
 use crate::client::DefaultTransportPlaceholder;
 use crate::messages::content::ContentBlock as WireBlock;
 use crate::messages::request::{InputMessage, MessageContent, MessageRequest, Role};
-use crate::messages::response::{Message as WireMessage, StopReason};
+use crate::messages::response::{Message as WireMessage, StopReason, Usage as WireUsage};
 use crate::messages::tools::Tool as WireTool;
 use crate::transport::HttpTransport;
 use crate::types::{MaxTokens, ModelId, SystemPrompt};
 
-use super::{convert, tools};
+use super::cache::CachePolicy;
+use super::{cache, convert, tools};
 
 /// Per-turn message channel capacity (natural backpressure beyond this).
 const TURN_CHANNEL_CAPACITY: usize = 64;
@@ -55,6 +56,7 @@ pub struct ApiRuntime<T: HttpTransport = DefaultTransportPlaceholder> {
     model: Mutex<ModelId>,
     permission_mode: Mutex<PermissionMode>,
     interrupt: std::sync::Arc<AtomicBool>,
+    cache_policy: CachePolicy,
 }
 
 impl<T: HttpTransport> ApiRuntime<T> {
@@ -81,7 +83,17 @@ impl<T: HttpTransport> ApiRuntime<T> {
             model: Mutex::new(model),
             permission_mode: Mutex::new(options.permission_mode),
             interrupt: std::sync::Arc::new(AtomicBool::new(false)),
+            cache_policy: CachePolicy::default(),
         })
+    }
+
+    /// Set the prompt-cache policy for this runtime, consuming and returning it.
+    ///
+    /// Defaults to [`CachePolicy::PrefixAndConversation`]; call this to override.
+    #[must_use]
+    pub const fn with_cache_policy(mut self, policy: CachePolicy) -> Self {
+        self.cache_policy = policy;
+        self
     }
 
     /// Read the current model, recovering from a poisoned lock.
@@ -127,6 +139,7 @@ impl<T: HttpTransport> Runtime for ApiRuntime<T> {
             turn_cap: self.turn_cap,
             session_id: self.session_id.clone(),
             interrupt: std::sync::Arc::clone(&self.interrupt),
+            cache_policy: self.cache_policy,
         };
         tokio::spawn(drive(ctx, prompt, tx));
         Ok(ReceiverStream::new(rx).boxed())
@@ -184,6 +197,7 @@ struct TurnContext<T: HttpTransport> {
     turn_cap: u32,
     session_id: SessionId,
     interrupt: std::sync::Arc<AtomicBool>,
+    cache_policy: CachePolicy,
 }
 
 /// Drive the agent loop, pushing frames into `tx` until the turn ends, the
@@ -198,6 +212,7 @@ async fn drive<T: HttpTransport>(
         role: Role::User,
         content: MessageContent::Text(prompt.as_str().to_string()),
     }];
+    let mut usage_total = AgentUsage::default();
 
     for turn in 0..ctx.turn_cap {
         if ctx.interrupt.load(Ordering::SeqCst) {
@@ -212,6 +227,7 @@ async fn drive<T: HttpTransport>(
                 return;
             }
         };
+        accumulate_usage(&mut usage_total, &response.usage);
 
         if emit_assistant(&tx, &response).await.is_err() {
             return; // receiver dropped
@@ -231,33 +247,65 @@ async fn drive<T: HttpTransport>(
         }
 
         let _ = tx
-            .send(Ok(terminal_result(&ctx, &response, turn + 1, false)))
+            .send(Ok(terminal_result(
+                &ctx,
+                &response,
+                turn + 1,
+                false,
+                usage_total,
+            )))
             .await;
         return;
     }
 
     // Turn cap exhausted without a terminal stop reason.
     let _ = tx
-        .send(Ok(exhausted_result(&ctx.session_id, ctx.turn_cap)))
+        .send(Ok(exhausted_result(
+            &ctx.session_id,
+            ctx.turn_cap,
+            usage_total,
+        )))
         .await;
 }
 
-/// Build the next `MessageRequest` from the running history and tool set.
+/// Fold one wire response's usage into the running per-run total.
+fn accumulate_usage(total: &mut AgentUsage, wire: &WireUsage) {
+    let turn = convert::usage(wire);
+    total.input_tokens += turn.input_tokens;
+    total.output_tokens += turn.output_tokens;
+    if let Some(created) = turn.cache_creation_input_tokens {
+        total.cache_creation_input_tokens =
+            Some(total.cache_creation_input_tokens.unwrap_or(0) + created);
+    }
+    if let Some(read) = turn.cache_read_input_tokens {
+        total.cache_read_input_tokens = Some(total.cache_read_input_tokens.unwrap_or(0) + read);
+    }
+}
+
+/// Build the next `MessageRequest` from the running history and tool set,
+/// applying the runtime's prompt-cache breakpoints.
 fn build_request<T: HttpTransport>(
     ctx: &TurnContext<T>,
     history: &[InputMessage],
     tool_defs: &[WireTool],
 ) -> MessageRequest {
+    let mut system = ctx.system.clone();
+    let mut tools: Vec<WireTool> = tool_defs.to_vec();
+    cache::apply_prefix(ctx.cache_policy, &mut system, &mut tools);
+
+    let mut history: Vec<InputMessage> = history.to_vec();
+    cache::apply_conversation(ctx.cache_policy, &mut history);
+
     let mut builder = MessageRequest::builder()
         .model(ctx.model.clone())
         .max_tokens(ctx.max_tokens);
-    if let Some(system) = ctx.system.clone() {
+    if let Some(system) = system {
         builder = builder.system(system);
     }
     for message in history {
-        builder = builder.add_message(message.role, message.content.clone());
+        builder = builder.add_message(message.role, message.content);
     }
-    builder.tools(tool_defs.iter().cloned()).build()
+    builder.tools(tools).build()
 }
 
 /// Emit the assistant turn as an agent frame.
@@ -296,6 +344,7 @@ fn terminal_result<T: HttpTransport>(
     response: &WireMessage,
     num_turns: u32,
     is_error: bool,
+    usage: AgentUsage,
 ) -> Message {
     Message::Result(ResultMessage {
         result: convert::last_text(&response.content),
@@ -304,20 +353,20 @@ fn terminal_result<T: HttpTransport>(
         stop_reason: response
             .stop_reason
             .map(|r| convert::stop_reason_wire(r).to_string()),
-        usage: Some(convert::usage(&response.usage)),
+        usage: Some(usage),
         session_id: ctx.session_id.clone(),
         num_turns,
     })
 }
 
 /// The terminal `Result` frame when the turn cap is exhausted.
-fn exhausted_result(session_id: &SessionId, turn_cap: u32) -> Message {
+fn exhausted_result(session_id: &SessionId, turn_cap: u32, usage: AgentUsage) -> Message {
     Message::Result(ResultMessage {
         result: String::new(),
         is_error: true,
         total_cost_usd: None,
         stop_reason: Some("max_turns".to_string()),
-        usage: None,
+        usage: Some(usage),
         session_id: session_id.clone(),
         num_turns: turn_cap,
     })
@@ -590,5 +639,87 @@ mod tests {
         let rt = ApiRuntime::new(client_with(MockHttpTransport::new()), options_with_model())
             .expect("runtime");
         assert_eq!(rt.model(), Some(&ModelId::claude_sonnet_4_5()));
+    }
+
+    use crate::agent::runtime::api::CachePolicy;
+
+    fn capturing_transport(sink: std::sync::Arc<std::sync::Mutex<Vec<u8>>>) -> MockHttpTransport {
+        let mut transport = MockHttpTransport::new();
+        transport.expect_send().times(1).returning(move |req| {
+            *sink.lock().unwrap() = req.body().to_vec();
+            let mut resp = Response::new(body(END_TURN));
+            *resp.status_mut() = StatusCode::OK;
+            Ok(resp)
+        });
+        transport
+    }
+
+    #[tokio::test]
+    async fn prefix_policy_marks_the_request_with_cache_control() {
+        let sink = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let rt = ApiRuntime::new(
+            client_with(capturing_transport(sink.clone())),
+            calc_options(),
+        )
+        .expect("runtime")
+        .with_cache_policy(CachePolicy::Prefix);
+        let mut stream = rt.run("hi".into()).await.expect("run");
+        let _ = collect(&mut stream).await;
+        let sent = String::from_utf8(sink.lock().unwrap().clone()).expect("utf8");
+        assert!(
+            sent.contains("cache_control"),
+            "request should carry a breakpoint: {sent}"
+        );
+    }
+
+    #[tokio::test]
+    async fn off_policy_leaves_the_request_uncached() {
+        let sink = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let rt = ApiRuntime::new(
+            client_with(capturing_transport(sink.clone())),
+            calc_options(),
+        )
+        .expect("runtime")
+        .with_cache_policy(CachePolicy::Off);
+        let mut stream = rt.run("hi".into()).await.expect("run");
+        let _ = collect(&mut stream).await;
+        let sent = String::from_utf8(sink.lock().unwrap().clone()).expect("utf8");
+        assert!(
+            !sent.contains("cache_control"),
+            "Off must not cache: {sent}"
+        );
+    }
+
+    const CACHE_TOOL_TURN: &str = r#"{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"tool_use","id":"toolu_1","name":"mcp__calc__add","input":{"a":2,"b":3}}],"stop_reason":"tool_use","stop_sequence":null,"usage":{"input_tokens":10,"output_tokens":2,"cache_creation_input_tokens":100}}"#;
+    const CACHE_FINAL_TURN: &str = r#"{"id":"msg_2","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"text","text":"5"}],"stop_reason":"end_turn","stop_sequence":null,"usage":{"input_tokens":3,"output_tokens":1,"cache_read_input_tokens":100}}"#;
+
+    #[tokio::test]
+    async fn terminal_usage_sums_across_tool_loop_turns() {
+        let mut transport = MockHttpTransport::new();
+        let mut turn = 0u8;
+        transport.expect_send().times(2).returning(move |_req| {
+            turn += 1;
+            let payload = if turn == 1 {
+                CACHE_TOOL_TURN
+            } else {
+                CACHE_FINAL_TURN
+            };
+            let mut resp = Response::new(body(payload));
+            *resp.status_mut() = StatusCode::OK;
+            Ok(resp)
+        });
+        let rt = ApiRuntime::new(client_with(transport), calc_options()).expect("runtime");
+        let mut stream = rt.run("add 2 and 3".into()).await.expect("run");
+        let frames = collect(&mut stream).await;
+        match frames.last().expect("terminal") {
+            Message::Result(r) => {
+                let usage = r.usage.as_ref().expect("usage");
+                assert_eq!(usage.input_tokens, 13);
+                assert_eq!(usage.output_tokens, 3);
+                assert_eq!(usage.cache_creation_input_tokens, Some(100));
+                assert_eq!(usage.cache_read_input_tokens, Some(100));
+            }
+            other => panic!("expected Result, got {other:?}"),
+        }
     }
 }

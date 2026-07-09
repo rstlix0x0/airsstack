@@ -41,7 +41,7 @@
 #![forbid(unsafe_code)]
 
 pub mod agent;
-pub use agent::ApiRuntime;
+pub use agent::{ApiRuntime, CachePolicy};
 
 /// Drive an agent session against OpenRouter's chat-completions API.
 ///
