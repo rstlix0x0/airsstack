@@ -1,7 +1,6 @@
 //! Structured Outputs round-trip: send `output_config`, receive a constrained
 //! response or a refusal `stop_reason`.
 
-#![cfg(all(feature = "messages-structured-outputs", feature = "transport-reqwest"))]
 #![expect(
     clippy::unwrap_used,
     reason = "tests unwrap known-valid fixtures; a panic is the intended failure signal"

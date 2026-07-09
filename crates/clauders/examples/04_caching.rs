@@ -9,7 +9,7 @@
 //! Run:
 //!
 //! ```text
-//! ANTHROPIC_API_KEY=sk-... cargo run --example 04_caching --features messages-caching,transport-reqwest
+//! ANTHROPIC_API_KEY=sk-... cargo run --example 04_caching
 //! ```
 
 use clauders::prelude::*;

@@ -187,7 +187,6 @@ impl<T: HttpTransport> ClientBuilder<Present, T> {
 mod tests {
     /// Optional fields set BEFORE the `api_key` transition must survive the
     /// `Missing -> Present` move. Regression guard for the field-move pattern.
-    #[cfg(feature = "__test-mocks")]
     #[test]
     fn optional_fields_survive_api_key_transition() {
         #![expect(
@@ -197,7 +196,7 @@ mod tests {
 
         use std::time::Duration;
 
-        use crate::transport::MockHttpTransport;
+        use crate::test_support::MockHttpTransport;
         use crate::types::{ApiKey, BaseUrl};
 
         let transport = MockHttpTransport::new();

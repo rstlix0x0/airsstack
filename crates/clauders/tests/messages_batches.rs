@@ -4,7 +4,6 @@
 //! Tests cover create, get, results streaming, and delete against canned
 //! server responses, verifying request routing and response decoding.
 
-#![cfg(all(feature = "messages-batches", feature = "transport-reqwest"))]
 #![expect(
     clippy::unwrap_used,
     reason = "tests unwrap known-valid fixtures; a panic is the intended failure signal"

@@ -52,6 +52,10 @@ pub(super) fn build_argv(options: &Options) -> Vec<String> {
         let config = serde_json::json!({ server.name(): server.config() });
         argv.push(config.to_string());
     }
+    for declaration in options.sdk_mcp_servers.declarations() {
+        argv.push("--mcp-config".to_string());
+        argv.push(declaration.to_string());
+    }
     argv
 }
 
@@ -131,6 +135,20 @@ mod tests {
     fn omits_permission_prompt_tool_without_policy() {
         let argv = build_argv(&Options::default());
         assert!(!argv.iter().any(|a| a == "--permission-prompt-tool"));
+    }
+
+    #[test]
+    fn emits_mcp_config_type_sdk_for_in_process_server() {
+        use crate::agent::mcp::SdkMcpServer;
+        let opts = Options::builder()
+            .sdk_mcp_server(SdkMcpServer::builder("calc").build())
+            .build();
+        let argv = build_argv(&opts);
+        let joined = argv.join(" ");
+        assert!(joined.contains("--mcp-config"), "got: {joined}");
+        // The declaration carries the server name and the sdk type marker.
+        assert!(joined.contains("\"calc\""), "got: {joined}");
+        assert!(joined.contains("\"type\":\"sdk\""), "got: {joined}");
     }
 
     #[test]

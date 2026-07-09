@@ -2,8 +2,8 @@
 //!
 //! Replays scripted message turns and records the control operations it
 //! receives, so session and client logic can be exercised with no backend
-//! binary present. Available to downstream crates through the `__test-mocks`
-//! feature, mirroring the crate's mock HTTP transport.
+//! binary present. Compiled only under `cfg(test)`, mirroring the crate's
+//! mock HTTP transport in [`crate::test_support`].
 
 use std::collections::VecDeque;
 use std::sync::{Mutex, PoisonError};
@@ -39,6 +39,7 @@ pub struct MockRuntime {
     calls: Mutex<Vec<ControlCall>>,
     capabilities: Capabilities,
     mcp_status: McpStatus,
+    model: Option<ModelId>,
 }
 
 impl MockRuntime {
@@ -50,21 +51,8 @@ impl MockRuntime {
             calls: Mutex::new(Vec::new()),
             capabilities: Capabilities::default(),
             mcp_status: McpStatus::default(),
+            model: None,
         }
-    }
-
-    /// Override the capabilities the mock reports.
-    #[must_use]
-    pub fn with_capabilities(mut self, capabilities: Capabilities) -> Self {
-        self.capabilities = capabilities;
-        self
-    }
-
-    /// Override the MCP status the mock returns from `mcp_status`.
-    #[must_use]
-    pub fn with_mcp_status(mut self, status: McpStatus) -> Self {
-        self.mcp_status = status;
-        self
     }
 
     /// The control operations recorded so far, in call order.
@@ -74,6 +62,20 @@ impl MockRuntime {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
+    }
+
+    /// Set the routing identity this mock reports from `model()`.
+    #[must_use]
+    pub fn with_model(mut self, model: ModelId) -> Self {
+        self.model = Some(model);
+        self
+    }
+
+    /// Override the capability manifest this mock advertises.
+    #[must_use]
+    pub fn with_capabilities(mut self, capabilities: Capabilities) -> Self {
+        self.capabilities = capabilities;
+        self
     }
 
     fn record(&self, call: ControlCall) {
@@ -125,6 +127,10 @@ impl Runtime for MockRuntime {
 
     fn capabilities(&self) -> &Capabilities {
         &self.capabilities
+    }
+
+    fn model(&self) -> Option<&ModelId> {
+        self.model.as_ref()
     }
 }
 
@@ -188,5 +194,14 @@ mod tests {
         let mock = MockRuntime::new(vec![]);
         let mut s = mock.run(Prompt::new("p")).await.expect("run");
         assert!(s.next().await.is_none());
+    }
+
+    #[test]
+    fn model_defaults_to_none_and_reflects_with_model() {
+        let mock = MockRuntime::new(vec![]);
+        assert!(mock.model().is_none());
+        let id = ModelId::custom("deepseek/deepseek-chat").expect("model");
+        let mock = mock.with_model(id.clone());
+        assert_eq!(mock.model(), Some(&id));
     }
 }

@@ -1,8 +1,7 @@
 //! SSE streaming wrapper for the Messages API.
 //!
-//! Exists as a separate module gated behind `messages-streaming` so the
-//! `eventsource-stream` dependency is only compiled when the feature is
-//! enabled, and so streaming types do not pollute the non-streaming surface.
+//! Exists as a separate module so streaming types are scoped separately
+//! from the non-streaming surface.
 //!
 //! Responsibilities:
 //! - Define [`StreamEvent`], the typed union of every SSE event the
@@ -127,7 +126,6 @@ pub enum ContentDelta {
     },
     /// An incremental fragment of the JSON arguments being assembled for a
     /// tool invocation.
-    #[cfg(feature = "messages-tools")]
     InputJsonDelta {
         /// The partial JSON string to append to the tool input buffer.
         partial_json: String,
@@ -244,11 +242,8 @@ impl MessageStream {
                         m.usage = Usage {
                             input_tokens: m.usage.input_tokens,
                             output_tokens: usage.output_tokens,
-                            #[cfg(feature = "messages-caching")]
                             cache_creation_input_tokens: m.usage.cache_creation_input_tokens,
-                            #[cfg(feature = "messages-caching")]
                             cache_read_input_tokens: m.usage.cache_read_input_tokens,
-                            #[cfg(feature = "messages-caching")]
                             cache_creation: m.usage.cache_creation,
                         };
                     }

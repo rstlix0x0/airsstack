@@ -7,7 +7,6 @@
 //! ```text
 //! CLAUDERS_AGENT_E2E=1 cargo test -p clauders --all-features --test agent_e2e -- --ignored
 //! ```
-#![cfg(feature = "agent")]
 #![expect(clippy::expect_used, reason = "test assertions use expect for context")]
 
 use clauders::agent::{Message, Options, query};

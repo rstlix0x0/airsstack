@@ -30,8 +30,6 @@ use crate::chat::usage::Usage;
 ///
 /// # Examples
 /// ```
-/// # #[cfg(feature = "streaming")]
-/// # {
 /// use openrouter_rs::chat::StreamChunk;
 /// let json = r#"{
 ///     "id": "gen-1", "object": "chat.completion.chunk", "created": 1,
@@ -40,7 +38,6 @@ use crate::chat::usage::Usage;
 /// }"#;
 /// let chunk: StreamChunk = serde_json::from_str(json).unwrap();
 /// assert_eq!(chunk.choices[0].delta.content.as_deref(), Some("Hi"));
-/// # }
 /// ```
 #[derive(Clone, Debug, PartialEq, Deserialize)]
 pub struct StreamChunk {

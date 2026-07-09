@@ -28,7 +28,6 @@
 //! # }
 //! ```
 #![forbid(unsafe_code)]
-#![cfg_attr(docsrs, feature(doc_cfg))]
 
 mod auth;
 pub mod chat;
@@ -36,6 +35,8 @@ pub mod client;
 mod config;
 mod headers;
 pub mod models;
+#[cfg(test)]
+mod test_support;
 mod wire_helpers;
 
 pub use auth::Auth;
@@ -52,12 +53,8 @@ pub use client::Client;
 pub use config::Config;
 pub use models::{Model, ModelsResource, Pricing};
 
-#[cfg(feature = "streaming")]
-#[cfg_attr(docsrs, doc(cfg(feature = "streaming")))]
 pub use chat::{ChatStream, StreamChunk};
 
-#[cfg(feature = "transport-reqwest")]
-#[cfg_attr(docsrs, doc(cfg(feature = "transport-reqwest")))]
 pub use client::DefaultClient;
 
 pub mod builder;

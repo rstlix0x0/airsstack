@@ -128,6 +128,14 @@ pub enum InboundRequestBody {
         #[serde(default)]
         tool_use_id: Option<String>,
     },
+    /// The backend forwards a JSON-RPC message to an in-process MCP server.
+    McpMessage {
+        /// The target in-process server's name.
+        server_name: String,
+        /// The raw MCP JSON-RPC message.
+        #[serde(default)]
+        message: serde_json::Value,
+    },
 }
 
 /// An outbound `control_request` we send to the binary.
@@ -263,5 +271,24 @@ mod tests {
         assert_eq!(tool_name, "Bash");
         assert_eq!(tool_use_id.as_deref(), Some("tu_1"));
         assert_eq!(blocked_path.as_deref(), Some("/etc"));
+    }
+
+    #[test]
+    fn deserializes_mcp_message_request() {
+        use super::{InboundFrame, InboundRequestBody};
+        let line = r#"{"type":"control_request","request_id":"srv_9","request":{"subtype":"mcp_message","server_name":"calc","message":{"jsonrpc":"2.0","id":1,"method":"tools/list"}}}"#;
+        let frame: InboundFrame = serde_json::from_str(line).expect("deserialize");
+        let InboundFrame::ControlRequest(req) = frame else {
+            panic!("expected control request");
+        };
+        let InboundRequestBody::McpMessage {
+            server_name,
+            message,
+        } = req.request
+        else {
+            panic!("expected mcp_message");
+        };
+        assert_eq!(server_name, "calc");
+        assert_eq!(message["method"], "tools/list");
     }
 }

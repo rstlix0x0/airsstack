@@ -1,8 +1,7 @@
 //! Tool definitions and tool-use content blocks for the Messages API.
 //!
-//! Exists as its own module so tool-calling types are only compiled when
-//! the `messages-tools` feature is enabled, keeping the base messages
-//! surface free of tool-specific dependencies.
+//! Exists as its own module so tool-calling types are scoped separately
+//! from the base messages surface.
 //!
 //! Responsibilities:
 //! - Define [`Tool`], the callable function description sent in a request.
@@ -13,7 +12,7 @@
 //!
 //! Not responsible for:
 //! - Registering tool blocks inside [`crate::messages::ContentBlock`] —
-//!   that lives in `content.rs` under the same feature gate.
+//!   that lives in `content.rs`.
 //! - HTTP transport or request sending.
 
 use crate::messages::content::ContentBlock;
@@ -37,9 +36,7 @@ use crate::types::{ToolName, ToolUseId};
 ///         "properties": { "city": { "type": "string" } },
 ///         "required": ["city"]
 ///     }),
-///     #[cfg(feature = "messages-caching")]
 ///     cache_control: None,
-///     #[cfg(all(feature = "messages-tools", feature = "messages-structured-outputs"))]
 ///     strict: None,
 /// };
 /// let j = serde_json::to_value(&tool).unwrap();
@@ -56,14 +53,11 @@ pub struct Tool {
     /// Optional cache breakpoint for this tool definition.
     ///
     /// When set, this tool marks a prompt-caching boundary in the tool list.
-    /// Requires the `messages-caching` feature.
-    #[cfg(feature = "messages-caching")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<crate::types::CacheControl>,
     /// Constrain the model's tool input to this tool's `input_schema`.
     ///
     /// Wire-format boolean; serialized only when set.
-    #[cfg(all(feature = "messages-tools", feature = "messages-structured-outputs"))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub strict: Option<bool>,
 }
@@ -107,7 +101,6 @@ pub enum ToolChoice {
 ///     id:    ToolUseId::new("toolu_01").unwrap(),
 ///     name:  ToolName::new("get_weather").unwrap(),
 ///     input: serde_json::json!({"city": "Paris"}),
-///     #[cfg(feature = "messages-caching")]
 ///     cache_control: None,
 /// };
 /// assert_eq!(block.name.as_str(), "get_weather");
@@ -121,9 +114,6 @@ pub struct ToolUseBlock {
     /// Arguments supplied by the model, matching the tool's `input_schema`.
     pub input: serde_json::Value,
     /// Optional cache breakpoint for this tool-use block.
-    ///
-    /// Requires the `messages-caching` feature.
-    #[cfg(feature = "messages-caching")]
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub cache_control: Option<crate::types::CacheControl>,
 }
@@ -158,9 +148,6 @@ pub struct ToolResultBlock {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub is_error: Option<bool>,
     /// Optional cache breakpoint for this tool-result block.
-    ///
-    /// Requires the `messages-caching` feature.
-    #[cfg(feature = "messages-caching")]
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub cache_control: Option<crate::types::CacheControl>,
 }
@@ -173,7 +160,6 @@ impl ToolResultBlock {
             tool_use_id,
             content: ToolResultContent::Text(body.into()),
             is_error: None,
-            #[cfg(feature = "messages-caching")]
             cache_control: None,
         }
     }
@@ -185,7 +171,6 @@ impl ToolResultBlock {
             tool_use_id,
             content: ToolResultContent::Text(body.into()),
             is_error: Some(true),
-            #[cfg(feature = "messages-caching")]
             cache_control: None,
         }
     }
@@ -219,9 +204,7 @@ mod tests {
             name: ToolName::new("get_weather").unwrap(),
             description: "Look up weather".into(),
             input_schema: serde_json::json!({"type":"object","properties":{"city":{"type":"string"}}}),
-            #[cfg(feature = "messages-caching")]
             cache_control: None,
-            #[cfg(all(feature = "messages-tools", feature = "messages-structured-outputs"))]
             strict: None,
         };
         let j = serde_json::to_value(&t).unwrap();
@@ -265,7 +248,6 @@ mod tests {
             id: ToolUseId::new("toolu_01").unwrap(),
             name: ToolName::new("get_weather").unwrap(),
             input: serde_json::json!({"city": "Paris"}),
-            #[cfg(feature = "messages-caching")]
             cache_control: None,
         };
         let j = serde_json::to_string(&block).unwrap();
@@ -275,7 +257,6 @@ mod tests {
         assert_eq!(back.input["city"], "Paris");
     }
 
-    #[cfg(feature = "messages-caching")]
     #[test]
     fn tool_with_cache_serializes_field() {
         use crate::types::{CacheControl, ToolName};
@@ -284,14 +265,12 @@ mod tests {
             description: "Search".into(),
             input_schema: serde_json::json!({"type":"object"}),
             cache_control: Some(CacheControl::ephemeral()),
-            #[cfg(all(feature = "messages-tools", feature = "messages-structured-outputs"))]
             strict: None,
         };
         let j = serde_json::to_value(&t).unwrap();
         assert_eq!(j["cache_control"]["type"], "ephemeral");
     }
 
-    #[cfg(feature = "messages-caching")]
     #[test]
     fn tool_without_cache_omits_field() {
         use crate::types::ToolName;
@@ -300,21 +279,18 @@ mod tests {
             description: "Search".into(),
             input_schema: serde_json::json!({"type":"object"}),
             cache_control: None,
-            #[cfg(all(feature = "messages-tools", feature = "messages-structured-outputs"))]
             strict: None,
         };
         let j = serde_json::to_value(&t).unwrap();
         assert!(j.get("cache_control").is_none());
     }
 
-    #[cfg(all(feature = "messages-tools", feature = "messages-structured-outputs"))]
     #[test]
     fn tool_strict_true_serializes_field() {
         let t = Tool {
             name: ToolName::new("strict_tool").unwrap(),
             description: "A strictly-typed tool.".into(),
             input_schema: serde_json::json!({"type":"object"}),
-            #[cfg(feature = "messages-caching")]
             cache_control: None,
             strict: Some(true),
         };
@@ -325,14 +301,12 @@ mod tests {
         );
     }
 
-    #[cfg(all(feature = "messages-tools", feature = "messages-structured-outputs"))]
     #[test]
     fn tool_strict_none_omits_field() {
         let t = Tool {
             name: ToolName::new("lax_tool").unwrap(),
             description: "A non-strict tool.".into(),
             input_schema: serde_json::json!({"type":"object"}),
-            #[cfg(feature = "messages-caching")]
             cache_control: None,
             strict: None,
         };
@@ -343,7 +317,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "messages-caching")]
     #[test]
     fn tool_use_block_with_cache_round_trips() {
         use crate::types::CacheControl;
@@ -358,7 +331,6 @@ mod tests {
         assert_eq!(back.cache_control, Some(CacheControl::ephemeral()));
     }
 
-    #[cfg(feature = "messages-caching")]
     #[test]
     fn tool_result_block_text_ctor_initializes_cache_control_none() {
         let id = ToolUseId::new("toolu_01").unwrap();
@@ -366,7 +338,6 @@ mod tests {
         assert!(r.cache_control.is_none());
     }
 
-    #[cfg(feature = "messages-caching")]
     #[test]
     fn tool_result_block_err_ctor_initializes_cache_control_none() {
         let id = ToolUseId::new("toolu_02").unwrap();

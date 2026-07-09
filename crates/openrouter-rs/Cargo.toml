@@ -12,15 +12,6 @@ readme      = "README.md"
 keywords    = ["openrouter", "llm", "sdk", "ai", "openai"]
 categories  = ["api-bindings", "web-programming::http-client", "asynchronous"]
 
-[features]
-# Default: SSE streaming + reqwest backend (rustls + http2 + stream, per workspace pin).
-default           = ["streaming", "transport-reqwest"]
-# SSE streaming for chat completions.
-streaming         = ["dep:eventsource-stream"]
-transport-reqwest = ["airs-transport/transport-reqwest"]
-# Internal-only: exposes MockHttpTransport for downstream tests.
-__test-mocks      = ["airs-transport/__test-mocks"]
-
 [dependencies]
 serde            = { workspace = true }
 serde_json       = { workspace = true }
@@ -33,7 +24,7 @@ futures-core     = { workspace = true }
 pin-project-lite = { workspace = true }
 async-trait      = { workspace = true }
 airs-transport   = { path = "../airs-transport" }
-eventsource-stream = { workspace = true, optional = true }
+eventsource-stream = { workspace = true }
 
 [dev-dependencies]
 tokio        = { workspace = true, features = ["full", "test-util"] }
@@ -43,19 +34,15 @@ trybuild     = { workspace = true }
 
 [[example]]
 name = "01_chat"
-required-features = ["transport-reqwest"]
 
 [[example]]
 name = "02_streaming"
-required-features = ["streaming", "transport-reqwest"]
 
 [[example]]
 name = "03_tools"
-required-features = ["transport-reqwest"]
 
 [[example]]
 name = "04_caching"
-required-features = ["transport-reqwest"]
 
 [lints]
 workspace = true

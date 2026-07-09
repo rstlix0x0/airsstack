@@ -15,8 +15,7 @@
 //!   [`RetryPolicy`].
 //! - Provide a [`DefaultClient`] alias and a [`DefaultTransportPlaceholder`]
 //!   so the type signature `Client<T = DefaultTransportPlaceholder>`
-//!   resolves under both default-feature and `--no-default-features`
-//!   builds.
+//!   resolves to the default reqwest transport.
 //!
 //! Not responsible for:
 //! - Constructing the client — that is the builder's job.
@@ -28,15 +27,9 @@ use crate::auth::Auth;
 use crate::config::Config;
 use crate::retry::RetryPolicy;
 use crate::transport::HttpTransport;
-
-#[cfg(feature = "transport-reqwest")]
 use crate::transport::ReqwestTransport;
 
 /// `Client` specialized to the default reqwest transport.
-///
-/// Available only when the `transport-reqwest` feature is enabled.
-#[cfg(feature = "transport-reqwest")]
-#[cfg_attr(docsrs, doc(cfg(feature = "transport-reqwest")))]
 pub type DefaultClient = Client<ReqwestTransport>;
 
 /// SDK client generic over the HTTP transport.
@@ -45,8 +38,7 @@ pub type DefaultClient = Client<ReqwestTransport>;
 /// transport is a generic parameter (per the static-dispatch policy);
 /// cloning the client shares state via an internal `Arc` rather than
 /// duplicating it. The default type parameter is the placeholder transport
-/// that resolves to `ReqwestTransport` when the `transport-reqwest`
-/// feature is on.
+/// that resolves to `ReqwestTransport`.
 pub struct Client<T = DefaultTransportPlaceholder>
 where
     T: HttpTransport,
@@ -56,56 +48,13 @@ where
 
 /// Default transport substituted into `Client<T = DefaultTransportPlaceholder>`.
 ///
-/// When the `transport-reqwest` feature is enabled this is an alias for
-/// [`ReqwestTransport`]. When the feature is disabled this is a
-/// stand-in unit struct whose `send` always errors — callers that want a
-/// working client without the reqwest feature must supply their own
-/// transport at builder time.
-#[cfg(feature = "transport-reqwest")]
-#[cfg_attr(docsrs, doc(cfg(feature = "transport-reqwest")))]
+/// An alias for [`ReqwestTransport`]. Callers that want a different
+/// transport supply their own at builder time via
+/// [`Client::builder_with_transport`].
 pub type DefaultTransportPlaceholder = ReqwestTransport;
-
-/// Default-transport stand-in used when no transport feature is enabled.
-///
-/// Implements [`HttpTransport`] but every `send` call returns
-/// [`crate::error::TransportError::Other`] explaining that no transport
-/// is configured. The struct exists so the default type parameter on
-/// [`Client`] resolves to a concrete `HttpTransport` impl regardless of
-/// feature configuration.
-///
-/// Keeping a single default type parameter across both feature
-/// configurations — rather than removing it when `transport-reqwest` is
-/// off — keeps `Client<T>`'s signature stable for rustdoc, IDE tooling,
-/// and generic downstream code. Callers that build without a transport
-/// feature must supply their own transport via
-/// [`Client::builder_with_transport`]; the clear `send`-time error guides
-/// anyone who reaches this stand-in by mistake.
-#[cfg(not(feature = "transport-reqwest"))]
-pub struct DefaultTransportPlaceholder;
-
-#[cfg(not(feature = "transport-reqwest"))]
-#[async_trait::async_trait]
-impl crate::transport::Transport for DefaultTransportPlaceholder {
-    type Request = http::Request<bytes::Bytes>;
-    type Response = http::Response<crate::transport::BodyStream>;
-    type Error = crate::error::TransportError;
-    async fn send(
-        &self,
-        _req: http::Request<bytes::Bytes>,
-    ) -> Result<http::Response<crate::transport::BodyStream>, crate::error::TransportError> {
-        Err(crate::error::TransportError::Other(
-            "no transport configured: enable feature `transport-reqwest` or supply a custom transport via the client builder".into(),
-        ))
-    }
-}
 
 pub(crate) struct ClientInner<T: HttpTransport> {
     pub(crate) config: Config,
-    // `dead_code` fires on `--no-default-features` builds (no `messages` feature, no callers)
-    // but NOT on the default build (resource.rs reads this field). Per M-LINT-OVERRIDE-EXPECT,
-    // `#[allow]` is correct for conditionally-firing lints where `#[expect]` would warn on the
-    // passing configuration.
-    #[allow(dead_code)]
     pub(crate) transport: T,
     pub(crate) auth: Auth,
     pub(crate) retry: RetryPolicy,
@@ -169,8 +118,6 @@ impl<T: HttpTransport> Client<T> {
     ///
     /// The returned handle borrows `self` for its lifetime, so it is
     /// typically created inline at the call site rather than stored.
-    #[cfg(feature = "messages")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "messages")))]
     #[must_use]
     pub const fn messages(&self) -> crate::messages::MessagesResource<'_, T> {
         crate::messages::MessagesResource { client: self }
@@ -180,8 +127,6 @@ impl<T: HttpTransport> Client<T> {
     ///
     /// The returned handle borrows `self` for its lifetime, so it is
     /// typically created inline at the call site rather than stored.
-    #[cfg(feature = "models")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "models")))]
     #[must_use]
     pub const fn models(&self) -> crate::models::ModelsResource<'_, T> {
         crate::models::ModelsResource { client: self }
@@ -202,8 +147,6 @@ impl<T: HttpTransport> Client<T> {
     }
 }
 
-#[cfg(feature = "transport-reqwest")]
-#[cfg_attr(docsrs, doc(cfg(feature = "transport-reqwest")))]
 impl Client<ReqwestTransport> {
     /// Begin building a client with the default `ReqwestTransport`.
     ///

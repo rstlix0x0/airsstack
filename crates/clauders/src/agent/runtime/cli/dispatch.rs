@@ -11,6 +11,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 
 use crate::agent::hooks::{HookInput, HookRegistry};
+use crate::agent::mcp::{SdkMcpRegistry, router};
 use crate::agent::permissions::{PermissionContext, PermissionDecision, PermissionPolicy};
 use crate::agent::protocol::{
     InboundControlRequest, InboundRequestBody, OutboundControlResponse, OutboundResponseBody,
@@ -21,6 +22,7 @@ use crate::agent::protocol::{
 pub(super) struct Dispatcher {
     hooks: Arc<HookRegistry>,
     policy: Option<Arc<dyn PermissionPolicy>>,
+    mcp: Arc<SdkMcpRegistry>,
     out_tx: mpsc::UnboundedSender<String>,
 }
 
@@ -29,11 +31,13 @@ impl Dispatcher {
     pub(super) fn new(
         hooks: Arc<HookRegistry>,
         policy: Option<Arc<dyn PermissionPolicy>>,
+        mcp: Arc<SdkMcpRegistry>,
         out_tx: mpsc::UnboundedSender<String>,
     ) -> Self {
         Self {
             hooks,
             policy,
+            mcp,
             out_tx,
         }
     }
@@ -69,6 +73,10 @@ impl Dispatcher {
                 input,
                 tool_use_id,
             } => self.hook_outcome(&callback_id, input, tool_use_id).await,
+            InboundRequestBody::McpMessage {
+                server_name,
+                message,
+            } => self.mcp_outcome(&server_name, message).await,
         };
         self.write_response(request_id, outcome);
     }
@@ -119,6 +127,21 @@ impl Dispatcher {
         }
     }
 
+    /// Resolve an `mcp_message` request against the named in-process server.
+    async fn mcp_outcome(
+        &self,
+        server_name: &str,
+        message: serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        match self.mcp.lookup(server_name) {
+            Some(server) => {
+                let mcp_response = router::handle_mcp_message(&server, &message).await;
+                Ok(serde_json::json!({ "mcp_response": mcp_response }))
+            }
+            None => Err(format!("unknown mcp server: {server_name}")),
+        }
+    }
+
     /// Encode and enqueue the control response for `request_id`.
     fn write_response(&self, request_id: String, outcome: Result<serde_json::Value, String>) {
         let body = match outcome {
@@ -155,6 +178,7 @@ mod tests {
     use super::Dispatcher;
     use crate::agent::error::AgentError;
     use crate::agent::hooks::HookRegistry;
+    use crate::agent::mcp::SdkMcpRegistry;
     use crate::agent::permissions::{PermissionContext, PermissionDecision, PermissionPolicy};
     use crate::agent::protocol::decode_inbound;
 
@@ -207,6 +231,7 @@ mod tests {
         let dispatcher = Dispatcher::new(
             Arc::new(HookRegistry::default()),
             Some(Arc::new(AllowPolicy)),
+            Arc::new(SdkMcpRegistry::default()),
             tx,
         );
         dispatcher.handle(can_use_tool_request()).await;
@@ -225,6 +250,7 @@ mod tests {
         let dispatcher = Dispatcher::new(
             Arc::new(HookRegistry::default()),
             Some(Arc::new(DenyPolicy)),
+            Arc::new(SdkMcpRegistry::default()),
             tx,
         );
         dispatcher.handle(can_use_tool_request()).await;
@@ -237,7 +263,12 @@ mod tests {
     #[tokio::test]
     async fn no_policy_allows_with_original_input() {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let dispatcher = Dispatcher::new(Arc::new(HookRegistry::default()), None, tx);
+        let dispatcher = Dispatcher::new(
+            Arc::new(HookRegistry::default()),
+            None,
+            Arc::new(SdkMcpRegistry::default()),
+            tx,
+        );
         dispatcher.handle(can_use_tool_request()).await;
         let line = rx.recv().await.expect("a response line");
         let value: serde_json::Value = serde_json::from_str(&line).expect("json");
@@ -287,7 +318,8 @@ mod tests {
         let mut reg = HookRegistry::default();
         reg.register(HookEvent::PreToolUse, None, Arc::new(BlockingHook));
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let dispatcher = Dispatcher::new(Arc::new(reg), None, tx);
+        let dispatcher =
+            Dispatcher::new(Arc::new(reg), None, Arc::new(SdkMcpRegistry::default()), tx);
         dispatcher.handle(hook_request("hook_0")).await;
         let line = rx.recv().await.expect("a response line");
         let value: serde_json::Value = serde_json::from_str(&line).expect("json");
@@ -299,7 +331,12 @@ mod tests {
     #[tokio::test]
     async fn unknown_callback_id_is_empty_success() {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let dispatcher = Dispatcher::new(Arc::new(HookRegistry::default()), None, tx);
+        let dispatcher = Dispatcher::new(
+            Arc::new(HookRegistry::default()),
+            None,
+            Arc::new(SdkMcpRegistry::default()),
+            tx,
+        );
         dispatcher.handle(hook_request("hook_404")).await;
         let line = rx.recv().await.expect("a response line");
         let value: serde_json::Value = serde_json::from_str(&line).expect("json");
@@ -307,12 +344,74 @@ mod tests {
         assert_eq!(value["response"]["response"], serde_json::json!({}));
     }
 
+    fn mcp_message_request(
+        server: &str,
+        tool: &str,
+    ) -> crate::agent::protocol::InboundControlRequest {
+        let line = format!(
+            r#"{{"type":"control_request","request_id":"srv_9","request":{{"subtype":"mcp_message","server_name":"{server}","message":{{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{{"name":"{tool}","arguments":{{}}}}}}}}}}"#
+        );
+        match decode_inbound(&line).expect("decode") {
+            crate::agent::protocol::InboundFrame::ControlRequest(req) => req,
+            _ => unreachable!("decoded a control request"),
+        }
+    }
+
+    #[tokio::test]
+    async fn mcp_message_routes_to_registered_server() {
+        use crate::agent::mcp::{SdkMcpServer, ToolResult, tool};
+        let echo = tool(
+            "echo",
+            "echo",
+            serde_json::json!({"type":"object"}),
+            |_| async { Ok(ToolResult::text("hi")) },
+        );
+        let mut reg = SdkMcpRegistry::default();
+        reg.register(SdkMcpServer::builder("calc").tool(echo).build());
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let dispatcher =
+            Dispatcher::new(Arc::new(HookRegistry::default()), None, Arc::new(reg), tx);
+        dispatcher.handle(mcp_message_request("calc", "echo")).await;
+        let line = rx.recv().await.expect("a response line");
+        let value: serde_json::Value = serde_json::from_str(&line).expect("json");
+        assert_eq!(value["response"]["subtype"], "success");
+        assert_eq!(value["response"]["request_id"], "srv_9");
+        assert_eq!(
+            value["response"]["response"]["mcp_response"]["result"]["content"][0]["text"],
+            "hi"
+        );
+    }
+
+    #[tokio::test]
+    async fn mcp_message_unknown_server_is_error() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let dispatcher = Dispatcher::new(
+            Arc::new(HookRegistry::default()),
+            None,
+            Arc::new(SdkMcpRegistry::default()),
+            tx,
+        );
+        dispatcher
+            .handle(mcp_message_request("ghost", "echo"))
+            .await;
+        let line = rx.recv().await.expect("a response line");
+        let value: serde_json::Value = serde_json::from_str(&line).expect("json");
+        assert_eq!(value["response"]["subtype"], "error");
+        assert!(
+            value["response"]["error"]
+                .as_str()
+                .expect("error")
+                .contains("unknown mcp server")
+        );
+    }
+
     #[tokio::test]
     async fn hook_error_becomes_error_response() {
         let mut reg = HookRegistry::default();
         reg.register(HookEvent::Stop, None, Arc::new(FailingHook));
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let dispatcher = Dispatcher::new(Arc::new(reg), None, tx);
+        let dispatcher =
+            Dispatcher::new(Arc::new(reg), None, Arc::new(SdkMcpRegistry::default()), tx);
         dispatcher.handle(hook_request("hook_0")).await;
         let line = rx.recv().await.expect("a response line");
         let value: serde_json::Value = serde_json::from_str(&line).expect("json");

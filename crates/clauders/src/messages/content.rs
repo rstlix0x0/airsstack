@@ -33,10 +33,8 @@ pub enum ContentBlock {
     /// Extended thinking output, optionally carrying a verification signature.
     Thinking(ThinkingBlock),
     /// A tool invocation produced by the model.
-    #[cfg(feature = "messages-tools")]
     ToolUse(crate::messages::tools::ToolUseBlock),
     /// A tool result supplied by the caller in response to a tool invocation.
-    #[cfg(feature = "messages-tools")]
     ToolResult(crate::messages::tools::ToolResultBlock),
 }
 
@@ -56,8 +54,6 @@ pub struct TextBlock {
     /// Optional cache breakpoint for this block.
     ///
     /// When set, this block marks a prompt-caching boundary.
-    /// Requires the `messages-caching` feature.
-    #[cfg(feature = "messages-caching")]
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub cache_control: Option<crate::types::CacheControl>,
 }
@@ -68,7 +64,6 @@ impl TextBlock {
     pub fn new(s: impl Into<String>) -> Self {
         Self {
             text: s.into(),
-            #[cfg(feature = "messages-caching")]
             cache_control: None,
         }
     }
@@ -76,8 +71,6 @@ impl TextBlock {
     /// Attach a cache breakpoint to this block.
     ///
     /// Marks this text block as a prompt-caching boundary.
-    ///
-    /// Requires the `messages-caching` feature.
     ///
     /// # Examples
     ///
@@ -88,7 +81,6 @@ impl TextBlock {
     /// let j = serde_json::to_string(&b).unwrap();
     /// assert!(j.contains("\"cache_control\":{\"type\":\"ephemeral\"}"));
     /// ```
-    #[cfg(feature = "messages-caching")]
     #[must_use]
     pub const fn with_cache(mut self, cc: crate::types::CacheControl) -> Self {
         self.cache_control = Some(cc);
@@ -151,7 +143,6 @@ mod tests {
         assert_eq!(back, original);
     }
 
-    #[cfg(feature = "messages-caching")]
     #[test]
     fn text_block_with_cache_serializes_field() {
         use crate::types::CacheControl;
@@ -160,7 +151,6 @@ mod tests {
         assert_eq!(j, r#"{"text":"hi","cache_control":{"type":"ephemeral"}}"#);
     }
 
-    #[cfg(feature = "messages-caching")]
     #[test]
     fn text_block_without_cache_omits_field() {
         let b = TextBlock::new("hi");
@@ -168,7 +158,6 @@ mod tests {
         assert_eq!(j, r#"{"text":"hi"}"#);
     }
 
-    #[cfg(feature = "messages-caching")]
     #[test]
     fn text_block_with_cache_round_trips() {
         use crate::types::CacheControl;

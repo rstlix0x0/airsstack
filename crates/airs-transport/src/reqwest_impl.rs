@@ -1,8 +1,5 @@
 //! Default `reqwest`-backed implementer of [`crate::Transport`] (and, via the
 //! blanket impl, [`crate::HttpTransport`]).
-//!
-//! Sits behind the `transport-reqwest` feature so `reqwest` and its error
-//! mapping never compile into builds that disable it.
 
 use std::time::{Duration, Instant};
 

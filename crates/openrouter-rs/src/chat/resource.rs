@@ -37,7 +37,6 @@ use crate::headers as h;
 use crate::transport::{BodyStream, HttpTransport, MAX_RESPONSE_BODY_BYTES, collect_body};
 use crate::wire_helpers::decode_api_error_from_parts;
 
-#[cfg(feature = "streaming")]
 use crate::chat::stream::ChatStream;
 
 /// Path joined onto the configured base URL for chat-completion calls.
@@ -53,7 +52,6 @@ const CHAT_PATH: &str = "chat/completions";
 /// # Examples
 ///
 /// ```no_run
-/// # #[cfg(feature = "transport-reqwest")]
 /// # async fn example() -> Result<(), openrouter_rs::error::Error> {
 /// use openrouter_rs::Client;
 /// use openrouter_rs::chat::{ChatRequest, Message};
@@ -284,8 +282,6 @@ impl<T: HttpTransport> ChatResource<'_, T> {
     ///   recognized error envelope.
     /// - [`Error::InvalidRequest`] — the base URL cannot be joined with the
     ///   chat path, or the HTTP request cannot be constructed.
-    #[cfg(feature = "streaming")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "streaming")))]
     pub async fn stream(&self, mut req: ChatRequest) -> Result<ChatStream, Error> {
         req.stream = true;
 
@@ -329,8 +325,6 @@ impl<T: HttpTransport> ChatResource<'_, T> {
     ///
     /// # Errors
     /// Same error set as [`ChatResource::stream`].
-    #[cfg(feature = "streaming")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "streaming")))]
     pub async fn stream_cached(
         &self,
         mut req: ChatRequest,
@@ -376,7 +370,7 @@ impl<T: HttpTransport> ChatResource<'_, T> {
     }
 }
 
-#[cfg(all(test, feature = "streaming", feature = "__test-mocks"))]
+#[cfg(test)]
 mod stream_tests {
     #![expect(
         clippy::unwrap_used,
@@ -400,7 +394,8 @@ mod stream_tests {
     use crate::chat::{ChatRequest, Message};
     use crate::client::Client;
     use crate::error::{Error, TransportError};
-    use crate::transport::{BodyStream, MockHttpTransport};
+    use crate::test_support::MockHttpTransport;
+    use crate::transport::BodyStream;
     use crate::types::{ApiKey, ModelId};
 
     fn body_from(payload: Vec<u8>) -> BodyStream {
@@ -538,7 +533,7 @@ mod stream_tests {
     }
 }
 
-#[cfg(all(test, feature = "__test-mocks"))]
+#[cfg(test)]
 mod tests {
     #![expect(
         clippy::unwrap_used,
@@ -562,7 +557,8 @@ mod tests {
     use crate::chat::{ChatRequest, FinishReason, Message};
     use crate::client::Client;
     use crate::error::{Error, TransportError};
-    use crate::transport::{BodyStream, MockHttpTransport};
+    use crate::test_support::MockHttpTransport;
+    use crate::transport::BodyStream;
     use crate::types::{ApiKey, FunctionName, ModelId};
 
     fn body_from(payload: Vec<u8>) -> BodyStream {

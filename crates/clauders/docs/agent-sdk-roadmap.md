@@ -6,8 +6,8 @@ Phase-1 spec (`.airsstack/cc/plugins/sdd/specs/2026-06-09-clauders-agent-core-fo
 
 The work is sequenced so a usable, compatible artifact ships early and the expensive native
 runtime arrives only after the public surface is proven and instrumented. All of it lives in the
-existing `clauders` crate (sibling `agent/` module tree, behind the `agent` Cargo feature) — **no
-new crate**.
+existing `clauders` crate (sibling `agent/` module tree, compiled unconditionally — the crate carries
+no Cargo features) — **no new crate**.
 
 ---
 
@@ -22,12 +22,12 @@ new crate**.
 | Subprocess transport + bidirectional control protocol (initialize handshake + correlated control req/resp) | ✅ done |
 | Public API, core types, CLI runtime (`query()` one-shot + stateful `Client`) | ✅ done |
 | In-loop extension points — **hooks** + **permission policy** | ✅ done (PR #10) |
-| In-loop **in-process MCP tools** (`tool()` / `createSdkMcpServer`) | ⛔ deferred — spec cut to a later phase |
+| In-loop **in-process MCP tools** (`tool()` / `createSdkMcpServer`) | ✅ done (a31f249) |
 
-**Status: effectively complete.** The RFC gantt grouped "hooks, tools, permissions" in one
-Phase-1 row, but the implemented spec deliberately scoped *in-process MCP tools* out (external MCP
-servers stay as opaque pass-through to the binary). Hooks + permissions shipped; in-process tools
-still owed.
+**Status: complete.** The RFC gantt grouped "hooks, tools, permissions" in one Phase-1 row; the
+initial spec deliberately scoped *in-process MCP tools* out (external MCP servers stay as opaque
+pass-through to the binary), and they landed in a follow-on plan. Hooks + permissions + in-process
+tools all shipped.
 
 Delivered across 3 plans:
 
@@ -41,7 +41,6 @@ Delivered across 3 plans:
 
 **Phase-1 carryovers**
 
-- In-process MCP custom tools (`tool()` / `createSdkMcpServer`) — first item to schedule next.
 - Real-binary e2e (`CLAUDERS_AGENT_E2E=1`) leaves 2 facts CI-unverified: binary accepting
   `--permission-prompt-tool stdio`, and the initialize `hooks` shape. Inherent to opt-in e2e.
 - Windows full-descendant kill via Job Object (`KILL_ON_JOB_CLOSE`) — documented Phase-1 gap,
@@ -55,9 +54,9 @@ Delivered across 3 plans:
 
 | Workstream | Status |
 |---|---|
-| Middleware backbone + thin installer | ⬜ not started |
-| Evals harness (runtime-agnostic) | ⬜ not started |
-| Multi-process orchestration | ⬜ not started |
+| Middleware backbone + thin installer | ✅ done (9ea1429) — middleware-only; AgentBuilder facade deferred |
+| Evals harness (runtime-agnostic) | ✅ done (0410a86) |
+| Multi-process orchestration | ✅ done (cde5e33) — bounded-concurrency pool, ports-and-adapters |
 
 Typed extension *shapes* (runtime adapters, middleware, in-loop bundles, orchestrators, tool packs)
 composed by a thin installer, with first-party defaults. Tower-style middleware model.
@@ -72,11 +71,21 @@ bounded concurrency + backpressure.
 
 | Workstream | Status |
 |---|---|
-| `ApiRuntime` on `clauders` (second `Runtime` adapter) | ⬜ not started |
-| OpenRouter routing + token-efficiency | ⬜ not started |
+| ws1 — `ApiRuntime` on `clauders` (second `Runtime` adapter) | ✅ done (41d2a02) — native `POST /v1/messages` loop, in-process tools, control ops |
+| ws2 Scope A — `OpenRouterRuntime` (third native `Runtime` adapter over openrouter-rs) | ✅ done (038bafe) |
+| ws2 Scope B — `RoutingRuntime` (model-classified dispatch across adapters) | ✅ done (49161b7) |
+| ws2 Scope C — token-efficiency | 🚧 in progress — prompt caching first slice (spec+plan approved, not executed) |
 
 **This is where the README's north star lands** — mixed routing (cheaper/alternative models via
-OpenRouter: DeepSeek, Kimi K2, Qwen) and token-efficiency (per-subtask routing, context pruning).
+OpenRouter: DeepSeek, Kimi K2, Qwen) and token-efficiency (prompt caching, cost-aware routing,
+context pruning, per-subtask downgrade).
+
+The single RFC row *OpenRouter routing + token-efficiency* is realized as Phase 3 **ws2**, split into
+scopes: **A** `OpenRouterRuntime` (native adapter, done), **B** `RoutingRuntime` (classified dispatch,
+done), **C** token-efficiency. Scope C is itself decomposed — **prompt caching** in `ApiRuntime` is the
+first slice (unblocked, biggest raw token lever); cost-aware routing + classification-prompt bounding
+are later unblocked slices; context pruning + per-subtask downgrade are **blocked** on primitives that
+don't yet exist (a multi-turn conversation/history object; a subtask primitive).
 
 Architectural constraint: the native `ApiRuntime` sits at the **whole-agent boundary** (the
 `Runtime` trait), *not* at the wire-level transport seam — the Messages API does not speak the CLI

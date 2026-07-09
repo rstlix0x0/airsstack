@@ -153,7 +153,7 @@ pub enum BuildError {
 ///   SDK can detect without round-tripping to the API.
 /// - [`Error::Build`] — wraps [`BuildError`] from client construction.
 /// - [`Error::Stream`] — SSE protocol-level error encountered while
-///   consuming a streaming response (`messages-streaming` feature).
+///   consuming a streaming response.
 ///
 /// Use [`Error::is_retryable`], [`Error::retry_after`], and
 /// [`Error::request_id`] to inspect retry policy and correlation
@@ -204,8 +204,6 @@ pub enum Error {
     /// Returned when the SSE transport layer cannot parse a frame or
     /// the underlying byte stream fails. Non-retryable: the stream is
     /// already consumed and cannot be rewound.
-    #[cfg(feature = "messages-streaming")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "messages-streaming")))]
     #[error("stream protocol error: {0}")]
     Stream(String),
 
@@ -214,8 +212,6 @@ pub enum Error {
     /// Returned when a line in the batch results body cannot be decoded as
     /// a [`crate::messages::BatchResultRow`]. Non-retryable: the stream
     /// position is already advanced.
-    #[cfg(feature = "messages-batches")]
-    #[cfg_attr(docsrs, doc(cfg(feature = "messages-batches")))]
     #[error("JSONL stream parser error: {0}")]
     JsonLines(String),
 }
@@ -234,11 +230,9 @@ impl Error {
             Self::UndecodableApiError { .. }
             | Self::Serde { .. }
             | Self::InvalidRequest(_)
-            | Self::Build(_) => false,
-            #[cfg(feature = "messages-streaming")]
-            Self::Stream(_) => false,
-            #[cfg(feature = "messages-batches")]
-            Self::JsonLines(_) => false,
+            | Self::Build(_)
+            | Self::Stream(_)
+            | Self::JsonLines(_) => false,
         }
     }
 
@@ -252,11 +246,9 @@ impl Error {
             | Self::UndecodableApiError { .. }
             | Self::Serde { .. }
             | Self::InvalidRequest(_)
-            | Self::Build(_) => None,
-            #[cfg(feature = "messages-streaming")]
-            Self::Stream(_) => None,
-            #[cfg(feature = "messages-batches")]
-            Self::JsonLines(_) => None,
+            | Self::Build(_)
+            | Self::Stream(_)
+            | Self::JsonLines(_) => None,
         }
     }
 
@@ -266,13 +258,12 @@ impl Error {
         match self {
             Self::Api(e) => e.request_id.as_ref(),
             Self::UndecodableApiError { request_id, .. } => request_id.as_ref(),
-            Self::Transport(_) | Self::Serde { .. } | Self::InvalidRequest(_) | Self::Build(_) => {
-                None
-            }
-            #[cfg(feature = "messages-streaming")]
-            Self::Stream(_) => None,
-            #[cfg(feature = "messages-batches")]
-            Self::JsonLines(_) => None,
+            Self::Transport(_)
+            | Self::Serde { .. }
+            | Self::InvalidRequest(_)
+            | Self::Build(_)
+            | Self::Stream(_)
+            | Self::JsonLines(_) => None,
         }
     }
 
@@ -286,11 +277,9 @@ impl Error {
             | Self::UndecodableApiError { .. }
             | Self::Serde { .. }
             | Self::InvalidRequest(_)
-            | Self::Build(_) => None,
-            #[cfg(feature = "messages-streaming")]
-            Self::Stream(_) => None,
-            #[cfg(feature = "messages-batches")]
-            Self::JsonLines(_) => None,
+            | Self::Build(_)
+            | Self::Stream(_)
+            | Self::JsonLines(_) => None,
         }
     }
 }

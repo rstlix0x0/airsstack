@@ -84,7 +84,8 @@ impl CliRuntime {
         // Extract handlers for the dispatcher (Arc-shared; cheap clone).
         let hooks = Arc::new(options.hooks.clone());
         let policy = options.permission_policy.clone();
-        let dispatcher = Arc::new(Dispatcher::new(hooks, policy, out_tx.clone()));
+        let mcp = Arc::new(options.sdk_mcp_servers.clone());
+        let dispatcher = Arc::new(Dispatcher::new(hooks, policy, mcp, out_tx.clone()));
 
         let demux = Arc::new(Demux::new());
         let reader = tokio::spawn(reader_loop(stdout, Arc::clone(&demux), dispatcher));

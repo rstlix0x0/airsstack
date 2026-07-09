@@ -35,11 +35,7 @@ pub mod tool;
 pub mod tool_call;
 pub mod usage;
 
-#[cfg(feature = "streaming")]
-#[cfg_attr(docsrs, doc(cfg(feature = "streaming")))]
 pub mod stream;
-#[cfg(feature = "streaming")]
-#[cfg_attr(docsrs, doc(cfg(feature = "streaming")))]
 pub mod stream_chunk;
 
 pub use builder::{ChatRequestBuilder, FieldState, Missing, Present};
@@ -63,9 +59,5 @@ pub use tool::{FunctionDef, Tool, ToolChoice, ToolType};
 pub use tool_call::{FunctionCall, ToolCall};
 pub use usage::Usage;
 
-#[cfg(feature = "streaming")]
-#[cfg_attr(docsrs, doc(cfg(feature = "streaming")))]
 pub use stream::ChatStream;
-#[cfg(feature = "streaming")]
-#[cfg_attr(docsrs, doc(cfg(feature = "streaming")))]
 pub use stream_chunk::{ChunkChoice, ChunkDelta, StreamChunk};

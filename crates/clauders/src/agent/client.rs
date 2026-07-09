@@ -10,12 +10,12 @@ use std::task::{Context, Poll};
 use futures_core::Stream;
 
 use crate::agent::capabilities::Capabilities;
-use crate::agent::cli::CliRuntime;
 use crate::agent::error::AgentError;
 use crate::agent::message::Message;
 use crate::agent::options::Options;
 use crate::agent::permissions::PermissionMode;
 use crate::agent::runtime::Runtime;
+use crate::agent::runtime::cli::CliRuntime;
 use crate::agent::stream::MessageStream;
 use crate::agent::types::{McpStatus, Prompt};
 use crate::types::ModelId;
@@ -178,14 +178,13 @@ mod builder_tests {
 }
 
 #[cfg(test)]
-#[cfg(feature = "__test-mocks")]
 mod tests {
     #![expect(clippy::expect_used, reason = "test assertions use expect for context")]
 
     use super::Client;
     use crate::agent::message::{Message, ResultMessage};
-    use crate::agent::mock::{ControlCall, MockRuntime};
     use crate::agent::permissions::PermissionMode;
+    use crate::agent::runtime::mock::{ControlCall, MockRuntime};
     use crate::agent::types::SessionId;
     use crate::types::ModelId;
     use futures_util::StreamExt;

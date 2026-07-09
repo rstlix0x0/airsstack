@@ -6,7 +6,7 @@
 //! Run:
 //!
 //! ```text
-//! ANTHROPIC_API_KEY=sk-... cargo run --example 03_tools --features messages-tools,transport-reqwest
+//! ANTHROPIC_API_KEY=sk-... cargo run --example 03_tools
 //! ```
 
 use clauders::messages::tools::{Tool, ToolChoice, ToolResultBlock};
@@ -29,9 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "properties": { "city": { "type": "string" } },
             "required": ["city"]
         }),
-        #[cfg(feature = "messages-caching")]
         cache_control: None,
-        #[cfg(all(feature = "messages-tools", feature = "messages-structured-outputs"))]
         strict: None,
     };
 

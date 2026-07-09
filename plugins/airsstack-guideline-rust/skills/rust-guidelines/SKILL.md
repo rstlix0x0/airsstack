@@ -23,12 +23,6 @@ cargo test --all-features           # all tests AND doctests green
 cargo doc --no-deps --all-features  # zero rustdoc warnings
 ```
 
-Feature combinatorics (only if the crate is feature-gated):
-
-```bash
-cargo hack check --each-feature     # compile-only guard across feature combinations
-```
-
 Rules of the gate:
 
 - **Zero warnings** from build, clippy, and rustdoc. A warning is a failure.
@@ -37,11 +31,7 @@ Rules of the gate:
   `cargo test -p <crate>` / `cargo test --workspace` compiles only the default features and
   **silently skips** every `#[cfg(feature = "…")]`-gated test (e.g. the `__test-mocks` mock and
   integration tests). A green default-feature run is NOT a passing gate; only `--all-features` runs
-  count. `cargo hack check --each-feature` is compile-only and does not run any test, so it does not
-  substitute for the `--all-features` test run.
-- **One `--all-features` test run** exercises all feature-gated logic; `cargo hack check --each-feature`
-  is the compile-only combination guard. You do NOT need a powerset test matrix or a
-  `--no-default-features` test run for the gate — compile coverage of each feature is sufficient.
+  count.
 - **Scope to the touched crate** with `-p <crate>` during development; widen to the full workspace
   before release.
 - No change lands with a `#[allow(...)]` added to silence the gate. Use `#[expect(...)]` with a reason

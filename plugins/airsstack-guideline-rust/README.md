@@ -23,8 +23,8 @@ surfaces it).
 ## What it provides
 
 - **Definition of Done** — the pass/fail gate for every Rust change: `cargo fmt`, `build`, `clippy`,
-  `test`, and `doc` all `--all-features` with zero warnings, plus `cargo hack check --each-feature`
-  for feature combinatorics. Scope runs to the touched crate with `-p <crate>`.
+  `test`, and `doc` all `--all-features` with zero warnings. Scope runs to the touched crate with
+  `-p <crate>`.
 - **Rule references** (progressive disclosure, loaded on demand): strict-quality, strong-types,
   static-dispatch, mod.rs-export-only, doc-comment-discipline, unit-test-mandate, Microsoft pragmatic
   guidelines, and workspace layout.

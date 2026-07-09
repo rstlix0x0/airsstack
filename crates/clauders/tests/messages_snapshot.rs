@@ -4,7 +4,6 @@
 //! When the serialization shape changes intentionally, run with
 //! `INSTA_UPDATE=always cargo test` to regenerate, then review the diff.
 
-#![cfg(feature = "messages")]
 #![expect(
     clippy::unwrap_used,
     reason = "tests unwrap known-valid fixtures; a panic is the intended failure signal"
