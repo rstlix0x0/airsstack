@@ -156,6 +156,8 @@ some-lib = { path = "../some-lib" }
 
 For `crates.io`-publishable members, the workspace-deps form must include both `version` and `path` (Cargo uses `path` for local builds, `version` for the published crate). Already shown in the root template above.
 
+**Gotcha — `path` in `[workspace.dependencies]` is relative to the workspace root, not the member.** Declare it as `some-lib = { path = "crates/some-lib" }` (from the root), *not* `../some-lib` (which is what a bare member-level path dep uses, relative to the member). Cargo resolves the inherited `path` from the directory of the file that *defines* it — the workspace root. Mixing the two up makes `cargo metadata` fail to resolve the member. Only the crates actually depended upon need an entry; a top-level crate that nothing else imports needs none.
+
 ## Common commands
 
 ```bash
@@ -192,6 +194,7 @@ Use `cargo release` or `cargo workspaces publish` to automate version bumps + or
 - **Per-crate `Cargo.lock`** — members must not commit their own lockfile. The workspace root owns it.
 - **`[workspace]` table inside a member** — only the root has it. Cargo errors otherwise, but agents sometimes paste it in by accident.
 - **Mixing `path` and `version` mismatches** — if a dependency crate is `0.2.0` but a sibling lists `version = "0.1"` for it, `cargo publish` fails. Keep the workspace-dep version in sync with the dependency's actual version.
+- **Member-relative `path` in `[workspace.dependencies]`** — writing `../some-lib` there (member-relative) instead of `crates/some-lib` (root-relative) makes `cargo metadata` fail to resolve. Inherited paths resolve from the workspace root.
 - **Duplicating dep versions** — every `serde = "1.0.X"` re-declaration is a future divergence bug. Always `{ workspace = true }`.
 - **Putting `[profile.*]` in a member** — silently ignored. Edit the workspace root.
 - **Globbing in `members` without an `exclude`** — `members = ["*"]` will pick up `docs/`, tooling dirs, etc. Use `crates/*` instead.
