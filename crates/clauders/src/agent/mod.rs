@@ -23,6 +23,7 @@ pub mod process;
 pub mod protocol;
 pub mod runtime;
 pub mod stream;
+pub mod system_prompt;
 pub mod types;
 
 pub use capabilities::{Capabilities, HookEvent};
@@ -57,3 +58,4 @@ pub use runtime::routing::{
     RuntimeClassifier,
 };
 pub use stream::MessageStream;
+pub use system_prompt::SystemPromptConfig;
