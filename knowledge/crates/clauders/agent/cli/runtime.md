@@ -1,12 +1,15 @@
 ---
 type: Rust Module
-title: clauders::agent::cli::runtime::CliRuntime
-description: The subprocess-backed Runtime implementation — orchestrates discovery, spawn, handshake, a single writer task owning stdin, and a background reader that dispatches control requests and demultiplexes everything else.
-tags: [rust, sdk, agent, cli, runtime, subprocess]
-timestamp: 2026-07-03T00:00:00Z
-resource: crates/clauders/src/agent/cli/runtime.rs
+title: clauders::agent::runtime::cli::runtime::CliRuntime
+description: The subprocess-backed Runtime implementation — orchestrates discovery, spawn, handshake, a single writer task owning stdin, and a background reader that dispatches control requests (including in-process MCP messages) and demultiplexes everything else.
+tags: [rust, sdk, agent, cli, runtime, subprocess, mcp]
+timestamp: 2026-07-10T00:00:00Z
+resource: crates/clauders/src/agent/runtime/cli/runtime.rs
 ---
 
+Relocated from `agent/cli/runtime.rs` to `agent/runtime/cli/runtime.rs` in
+the runtime-adapter regroup — see the
+[runtime layer overview](/crates/clauders/agent/runtime/overview.md).
 `CliRuntime` composes every other `cli` submodule plus
 [process](/crates/clauders/agent/process/overview.md) and
 [protocol](/crates/clauders/agent/protocol/overview.md) into a single
@@ -32,21 +35,31 @@ impl CliRuntime {
 ```
 
 `connect` sequence: `discovery::discover` → optional `--version` probe +
-`discovery::check_version` → `ManagedProcess::spawn` (via
-[process::spawn](/crates/clauders/agent/process/spawn.md)) → handshake
-(sends `handshake::initialize_request`, reads until the correlated control
-response, parses capabilities) → `handshake::warn_unsupported_hooks` →
-spawn the single `writer_loop` task (owns stdin from here on) → build a
-[Dispatcher](/crates/clauders/agent/cli/dispatch.md) from `options.hooks`/`permission_policy`
-→ spawn `reader_loop` (owns stdout; decodes each line, spawns a Dispatcher
-task per inbound control request so a slow handler never stalls the reader,
-routes everything else through [Demux](/crates/clauders/agent/cli/demux.md)).
+`discovery::check_version` → `argv::build_argv` (now including the
+[`SystemPromptConfig`](/crates/clauders/agent/system-prompt.md) lowering
+and `options.sdk_mcp_servers` `--mcp-config` declarations) →
+`ManagedProcess::spawn` (via [process::spawn](/crates/clauders/agent/process/spawn.md))
+→ handshake (sends `handshake::initialize_request`, reads until the
+correlated control response, parses capabilities) →
+`handshake::warn_unsupported_hooks` → spawn the single `writer_loop` task
+(owns stdin from here on) → clone `options.hooks`, `options.permission_policy`,
+and `options.sdk_mcp_servers` into `Arc`s and build a
+[Dispatcher](/crates/clauders/agent/cli/dispatch.md)`::new(hooks, policy,
+mcp, out_tx)` → spawn `reader_loop` (owns stdout; decodes each line, spawns
+a `Dispatcher` task per inbound control request so a slow handler never
+stalls the reader, routes everything else through
+[Demux](/crates/clauders/agent/cli/demux.md)).
 
 `Runtime` impl: `run` installs a fresh turn sink and writes a user-message
 frame; `interrupt`/`set_model`/`set_permission_mode`/`mcp_status` all go
 through `send_control`, which registers a `oneshot` waiter keyed by a minted
 `RequestId` before sending. `Drop` aborts both background tasks; the owned
-`ManagedProcess`'s own `Drop` tears the child down.
+`ManagedProcess`'s own `Drop` tears the child down. `capabilities()` returns
+the manifest negotiated at `connect`; `model()` uses the default
+`Runtime::model` (`None`) — `CliRuntime` carries no fixed routing identity
+(the CLI backend can be switched live via `set_model`), unlike the native
+[ApiRuntime](/crates/clauders/agent/runtime/api/runtime.md)/[OpenRouterRuntime](/crates/clauders/agent/runtime/openrouter/runtime.md),
+which do override it.
 
 # Examples
 
@@ -65,8 +78,9 @@ Related: [Runtime trait](/crates/clauders/agent/runtime.md),
 [Demux](/crates/clauders/agent/cli/demux.md),
 [Dispatcher](/crates/clauders/agent/cli/dispatch.md),
 [ManagedProcess](/crates/clauders/agent/process/handle.md),
-[protocol codec](/crates/clauders/agent/protocol/codec.md).
+[protocol codec](/crates/clauders/agent/protocol/codec.md),
+[runtime layer overview](/crates/clauders/agent/runtime/overview.md).
 
 # Citations
 
-1. `crates/clauders/src/agent/cli/runtime.rs`
+1. `crates/clauders/src/agent/runtime/cli/runtime.rs`
