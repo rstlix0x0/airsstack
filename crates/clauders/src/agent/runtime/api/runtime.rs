@@ -75,7 +75,14 @@ impl<T: HttpTransport> ApiRuntime<T> {
             client,
             registry: options.sdk_mcp_servers,
             max_tokens: options.max_tokens,
-            system: options.system_prompt.map(SystemPrompt::text),
+            system: {
+                if options.system_prompt.is_preset() {
+                    tracing::warn!(
+                        "system-prompt preset base is unavailable on ApiRuntime; using append only"
+                    );
+                }
+                options.system_prompt.native_text().map(SystemPrompt::text)
+            },
             turn_cap: options.max_turns.unwrap_or(DEFAULT_MAX_TURNS),
             session_id: SessionId::new(format!("api-session-{n}")),
             capabilities: build_capabilities(),

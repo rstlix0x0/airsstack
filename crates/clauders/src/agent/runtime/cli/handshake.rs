@@ -12,7 +12,7 @@ use crate::agent::options::Options;
 pub(super) fn initialize_request(options: &Options, request_id: &str) -> serde_json::Value {
     let mut request = serde_json::json!({
         "subtype": "initialize",
-        "system_prompt": options.system_prompt,
+        "system_prompt": options.system_prompt.native_text(),
     });
     if !options.hooks.is_empty() {
         // Caps unknown pre-handshake: declare all registered hooks; the binary
@@ -117,5 +117,14 @@ mod tests {
         let opts = Options::builder().system_prompt("hi").build();
         let value = initialize_request(&opts, "req_0");
         assert!(value["request"].get("hooks").is_none());
+    }
+
+    #[test]
+    fn initialize_request_carries_preset_append_as_text() {
+        let opts = Options::builder()
+            .system_prompt_preset(Some("appended".to_owned()), false)
+            .build();
+        let value = initialize_request(&opts, "req_0");
+        assert_eq!(value["request"]["system_prompt"], "appended");
     }
 }

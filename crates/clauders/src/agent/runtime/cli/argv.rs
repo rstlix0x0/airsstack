@@ -2,6 +2,7 @@
 
 use crate::agent::options::Options;
 use crate::agent::permissions::PermissionMode;
+use crate::agent::system_prompt::SystemPromptConfig;
 
 /// Build the full argument vector for spawning the backend.
 ///
@@ -31,9 +32,26 @@ pub(super) fn build_argv(options: &Options) -> Vec<String> {
         argv.push("--model".to_string());
         argv.push(model.as_str().to_string());
     }
-    if let Some(system_prompt) = &options.system_prompt {
-        argv.push("--system-prompt".to_string());
-        argv.push(system_prompt.clone());
+    match &options.system_prompt {
+        SystemPromptConfig::None => {}
+        SystemPromptConfig::Text(text) => {
+            argv.push("--system-prompt".to_string());
+            argv.push(text.clone());
+        }
+        SystemPromptConfig::Preset {
+            append,
+            exclude_dynamic_sections,
+        } => {
+            // The CLI's built-in base prompt *is* the claude_code preset, so keep
+            // it and append rather than replacing it via --system-prompt.
+            if let Some(append) = append {
+                argv.push("--append-system-prompt".to_string());
+                argv.push(append.clone());
+            }
+            if *exclude_dynamic_sections {
+                argv.push("--exclude-dynamic-system-prompt-sections".to_string());
+            }
+        }
     }
     if !options.allowed_tools.is_empty() {
         argv.push("--allowed-tools".to_string());
@@ -179,5 +197,31 @@ mod tests {
             joined.contains("--permission-prompt-tool stdio"),
             "got: {joined}"
         );
+    }
+
+    #[test]
+    fn preset_maps_to_append_system_prompt() {
+        let opts = Options::builder()
+            .system_prompt_preset(Some("extra rules".to_owned()), true)
+            .build();
+        let argv = build_argv(&opts);
+        let joined = argv.join(" ");
+        assert!(
+            joined.contains("--append-system-prompt extra rules"),
+            "got: {joined}"
+        );
+        assert!(
+            joined.contains("--exclude-dynamic-system-prompt-sections"),
+            "got: {joined}"
+        );
+        // Preset keeps the CLI's built-in base; it must NOT replace via --system-prompt.
+        assert!(!joined.contains("--system-prompt "), "got: {joined}");
+    }
+
+    #[test]
+    fn none_emits_no_system_prompt_flag() {
+        let argv = build_argv(&Options::default());
+        assert!(!argv.iter().any(|a| a == "--system-prompt"));
+        assert!(!argv.iter().any(|a| a == "--append-system-prompt"));
     }
 }

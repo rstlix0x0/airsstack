@@ -83,7 +83,14 @@ impl<T: HttpTransport> OpenRouterRuntime<T> {
             client,
             registry: options.sdk_mcp_servers,
             max_tokens,
-            system: options.system_prompt,
+            system: {
+                if options.system_prompt.is_preset() {
+                    tracing::warn!(
+                        "system-prompt preset base is unavailable on OpenRouterRuntime; using append only"
+                    );
+                }
+                options.system_prompt.native_text()
+            },
             turn_cap: options.max_turns.unwrap_or(DEFAULT_MAX_TURNS),
             session_id: SessionId::new(format!("openrouter-session-{n}")),
             capabilities: build_capabilities(),

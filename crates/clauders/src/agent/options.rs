@@ -9,6 +9,7 @@ use crate::agent::capabilities::HookEvent;
 use crate::agent::hooks::{Hook, HookRegistry};
 use crate::agent::mcp::{SdkMcpRegistry, SdkMcpServer};
 use crate::agent::permissions::{PermissionMode, PermissionPolicy};
+use crate::agent::system_prompt::SystemPromptConfig;
 use crate::agent::types::McpServerConfig;
 use crate::types::{MaxTokens, ModelId};
 
@@ -26,8 +27,8 @@ const DEFAULT_MAX_TOKENS: u32 = 4096;
 /// the runtime's reader.
 #[derive(Clone)]
 pub struct Options {
-    /// Optional system prompt forwarded in the initialize handshake.
-    pub system_prompt: Option<String>,
+    /// System-prompt configuration forwarded to the runtime.
+    pub system_prompt: SystemPromptConfig,
     /// Model override.
     pub model: Option<ModelId>,
     /// Per-request output-token ceiling forwarded to the Messages API.
@@ -112,7 +113,7 @@ impl Default for Options {
 /// Builder for [`Options`].
 #[derive(Clone, Default)]
 pub struct OptionsBuilder {
-    system_prompt: Option<String>,
+    system_prompt: SystemPromptConfig,
     model: Option<ModelId>,
     max_tokens: Option<MaxTokens>,
     permission_mode: PermissionMode,
@@ -147,10 +148,24 @@ impl fmt::Debug for OptionsBuilder {
 }
 
 impl OptionsBuilder {
-    /// Set the system prompt.
+    /// Set the system prompt from a string or [`SystemPromptConfig`].
     #[must_use]
-    pub fn system_prompt(mut self, prompt: impl Into<String>) -> Self {
-        self.system_prompt = Some(prompt.into());
+    pub fn system_prompt(mut self, prompt: impl Into<SystemPromptConfig>) -> Self {
+        self.system_prompt = prompt.into();
+        self
+    }
+
+    /// Set the `claude_code` preset system prompt, optionally appended to.
+    #[must_use]
+    pub fn system_prompt_preset(
+        mut self,
+        append: Option<String>,
+        exclude_dynamic_sections: bool,
+    ) -> Self {
+        self.system_prompt = SystemPromptConfig::Preset {
+            append,
+            exclude_dynamic_sections,
+        };
         self
     }
 
@@ -430,5 +445,36 @@ mod tests {
     #[test]
     fn default_options_have_no_sdk_mcp_servers() {
         assert!(Options::default().sdk_mcp_servers.is_empty());
+    }
+
+    #[test]
+    fn default_system_prompt_is_none() {
+        use crate::agent::system_prompt::SystemPromptConfig;
+        assert_eq!(Options::default().system_prompt, SystemPromptConfig::None);
+    }
+
+    #[test]
+    fn builder_string_sets_text_variant() {
+        use crate::agent::system_prompt::SystemPromptConfig;
+        let opts = Options::builder().system_prompt("be brief").build();
+        assert_eq!(
+            opts.system_prompt,
+            SystemPromptConfig::Text("be brief".to_owned())
+        );
+    }
+
+    #[test]
+    fn builder_preset_sets_preset_variant() {
+        use crate::agent::system_prompt::SystemPromptConfig;
+        let opts = Options::builder()
+            .system_prompt_preset(Some("project rules".to_owned()), true)
+            .build();
+        assert_eq!(
+            opts.system_prompt,
+            SystemPromptConfig::Preset {
+                append: Some("project rules".to_owned()),
+                exclude_dynamic_sections: true,
+            }
+        );
     }
 }
