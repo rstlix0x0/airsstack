@@ -16,8 +16,8 @@ categories  = ["api-bindings", "web-programming::http-client", "asynchronous"]
 workspace = true
 
 [dependencies]
-airs-transport = { path = "../airs-transport" }
-openrouter-rs  = { path = "../openrouter-rs" }
+airs-transport = { workspace = true }
+openrouter-rs  = { workspace = true }
 serde          = { workspace = true }
 serde_json     = { workspace = true }
 thiserror      = { workspace = true }
