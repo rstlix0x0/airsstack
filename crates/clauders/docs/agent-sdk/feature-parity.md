@@ -6,7 +6,7 @@ Claude Agent SDKs:
 - **Python** — `claude-agent-sdk` (formerly `claude-code-sdk`)
 - **TypeScript** — `@anthropic-ai/claude-agent-sdk`
 
-**As of:** 2026-07-09 · clauders at HEAD `6fa63f5` (Phase 3 ws2 Scope C complete).
+**As of:** 2026-07-09 · clauders at HEAD `6518699` (Phase 3 ws2 Scope C complete; parity doc merged in #29).
 Official surfaces captured from `code.claude.com/docs/en/agent-sdk/{python,typescript}`.
 
 > **Read this first — the one difference that reframes everything.**
@@ -48,14 +48,16 @@ Official surfaces captured from `code.claude.com/docs/en/agent-sdk/{python,types
 | MCP server status | ✅ `get_mcp_status()` | ✅ `mcpServerStatus()` | ✅ `mcp_status()` | |
 | Reconnect / toggle / set MCP servers live | ✅ | ✅ | ❌ | |
 | `supportedCommands / Models / Agents`, `accountInfo`, `rewindFiles`, `stopTask`, `setMaxThinkingTokens` | ✅/partial | ✅ | ❌ | official CLI-control extras |
+| Warm startup (pre-warmed subprocess) | ✅ (`startup()` / `WarmQuery`) | ✅ `startup()` | ❌ | official spawn-latency optimization |
+| Live reconfigure (`reinitialize`, `applyFlagSettings`) | partial | ✅ | ❌ | |
 
-**Verdict:** ✅ core session loop at parity; 🟡 missing streaming-input and the long tail of live-control ops.
+**Verdict:** ✅ core session loop at parity; 🟡 missing streaming-input and the long tail of live-control ops (warm start, reinitialize, live MCP set).
 
 ---
 
 ## 2. Configuration surface (`Options` / `ClaudeAgentOptions`)
 
-clauders `Options` (14 fields) vs the official surface (~40+ fields). Core is covered; the gap is
+clauders `Options` (17 fields) vs the official surface (~40+ fields). Core is covered; the gap is
 session management, filesystem-settings integration, and newer model/feature knobs.
 
 | Option (official name) | Python | TS | clauders field | Status |
@@ -113,9 +115,10 @@ and the newer model-feature knobs (thinking, budget, skills, plugins, sandbox).
 | Tool annotations (readOnly/destructive/…) | ✅ | ✅ `ToolAnnotations` | ✅ `ToolAnnotations` | ✅ |
 | JSON-RPC dispatch (`tools/list`, `tools/call`) | ✅ | ✅ | ✅ `mcp::router` | ✅ |
 | Input schema | JSON / type | **Zod shape** (typed inference) | raw `serde_json::Value` schema | 🟡 no compile-time arg typing |
+| MCP **elicitation** (server asks user for input mid-call) | ✅ | ✅ `onElicitation` + `mcp_elicitation` hook | ❌ | ❌ no elicitation path |
 
-**Verdict:** ✅ strong parity on in-process tools; only gaps are richer result-content kinds and the
-TS Zod-style typed argument inference.
+**Verdict:** ✅ strong parity on in-process tools; gaps are richer result-content kinds, the
+TS Zod-style typed argument inference, and MCP elicitation.
 
 ---
 
@@ -134,10 +137,11 @@ clauders models a broad hook-event set and the full control-response payload.
 
 The official SDKs forward whatever the CLI supports (at least PreToolUse, PostToolUse,
 UserPromptSubmit, Stop, SubagentStop, PreCompact, SessionStart/End, Notification, and newer granular
-tool hooks). clauders does **not** yet model `SessionStart`/`SessionEnd`; it adds `PostToolUseFailure`
-and `PermissionRequest`.
+tool hooks). clauders does **not** yet model `SessionStart`/`SessionEnd` or the newer
+`mcp_elicitation` event; it adds `PostToolUseFailure` and `PermissionRequest`.
 
-**Verdict:** ✅ parity on the hook mechanism and payload; 🟡 event-name set differs at the edges.
+**Verdict:** ✅ parity on the hook mechanism and payload; 🟡 event-name set differs at the edges
+(clauders missing `SessionStart`/`SessionEnd`/`mcp_elicitation`).
 
 ---
 
@@ -196,7 +200,7 @@ CLI subagents.)
 |---|---|---|---|
 | Plain string | ✅ | ✅ | ✅ |
 | Preset `claude_code` + `append` | ✅ | ✅ | ❌ |
-| `excludeDynamicSections` | — | ✅ | ❌ |
+| `excludeDynamicSections` / `exclude_dynamic_sections` | ✅ | ✅ | ❌ |
 
 **Verdict:** 🟡 plain string only.
 
@@ -296,7 +300,7 @@ native runtime — the official SDKs delegate all caching to the CLI and never s
 | **Sessions** (continue/resume/fork/list) | ❌ behind |
 | **Setting sources** (filesystem config/CLAUDE.md) | ❌ behind |
 | System-prompt preset + append | 🟡 behind |
-| Streaming input, live MCP control, partial messages | ❌ behind |
+| Streaming input, live MCP control, partial messages, warm start, MCP elicitation | ❌ behind |
 | **Native multi-provider runtimes** (Api/OpenRouter/Routing) | 🟣 ahead — no official equivalent |
 | **Prompt-cache policy + token efficiency** | 🟣 ahead |
 | **Middleware / evals / orchestration pool** | 🟣 ahead |
@@ -331,7 +335,7 @@ CLI-feature passthroughs with little bearing on the Rust SDK's thesis.
 
 ## Methodology & caveats
 
-- **clauders side** — read directly from source at HEAD `6fa63f5` (`crates/clauders/src/agent/`:
+- **clauders side** — read directly from source at HEAD `6518699` (`crates/clauders/src/agent/`:
   `options.rs`, `runtime/port.rs`, `client.rs`, `permissions.rs`, `hooks.rs`, `capabilities.rs`,
   `message.rs`, `content.rs`, `mcp/`, `runtime/api/cache.rs`, and the `agent/mod.rs` re-export set).
   Authoritative.
