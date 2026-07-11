@@ -146,8 +146,6 @@ fn attach_updates(value: &mut serde_json::Value, updates: &[PermissionUpdate]) {
 
 #[cfg(test)]
 mod tests {
-    #![expect(clippy::expect_used, reason = "test assertions use expect for context")]
-
     use super::PermissionDecision;
     use super::PermissionUpdate;
     use crate::agent::permissions::{PermissionBehavior, PermissionScope};

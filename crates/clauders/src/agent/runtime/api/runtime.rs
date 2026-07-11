@@ -740,13 +740,12 @@ mod tests {
         mode: PermissionMode,
         allow: &[&str],
     ) -> Options {
-        let ran_for_tool = ran.clone();
         let add = tool(
             "add",
             "Add two ints",
             serde_json::json!({"type": "object"}),
             move |_args| {
-                let ran_for_tool = ran_for_tool.clone();
+                let ran_for_tool = ran.clone();
                 async move {
                     ran_for_tool.store(true, Ordering::SeqCst);
                     Ok(ToolResult::text("5"))
