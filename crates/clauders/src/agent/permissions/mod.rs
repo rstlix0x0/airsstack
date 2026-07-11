@@ -12,7 +12,7 @@ mod policy;
 mod update;
 
 pub use decision::{PermissionContext, PermissionDecision};
-pub use judge::{JudgeRubric, RubricError};
+pub use judge::{JudgeRequest, JudgeRubric, PermissionJudge, RubricError};
 pub use mode::PermissionMode;
 pub use policy::PermissionPolicy;
 pub use update::{PermissionBehavior, PermissionScope, PermissionUpdate};
