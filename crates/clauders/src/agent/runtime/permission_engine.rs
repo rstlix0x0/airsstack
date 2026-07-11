@@ -15,8 +15,8 @@ use std::sync::Arc;
 
 use crate::agent::error::AgentError;
 use crate::agent::permissions::{
-    PermissionBehavior, PermissionContext, PermissionDecision, PermissionMode, PermissionPolicy,
-    PermissionUpdate,
+    JudgeRequest, PermissionBehavior, PermissionDecision, PermissionJudge, PermissionMode,
+    PermissionPolicy, PermissionUpdate,
 };
 
 /// Session-scoped, tool-name-keyed permission rules for a native runtime loop.
@@ -51,25 +51,24 @@ impl RuleStore {
     }
 }
 
-/// Decide whether `tool` may run, honoring bypass, session rules, `DontAsk`,
-/// and (otherwise) the caller's policy. Returns the canonical
-/// [`PermissionDecision`]; any policy-returned `updated_permissions` are folded
-/// into `store` before returning. First match wins.
+/// Decide whether the reviewed tool call may run, honoring bypass, session
+/// rules, `DontAsk`, and (otherwise) the caller's policy. Returns the
+/// canonical [`PermissionDecision`]; any policy-returned `updated_permissions`
+/// are folded into `store` before returning. First match wins.
 ///
 /// # Errors
 /// Propagates an [`AgentError`] from the policy's `can_use_tool`.
 pub(crate) async fn evaluate(
     mode: PermissionMode,
     store: &mut RuleStore,
+    judge: Option<&Arc<dyn PermissionJudge>>,
     policy: Option<&Arc<dyn PermissionPolicy>>,
-    tool: &str,
-    input: &serde_json::Value,
-    ctx: PermissionContext,
+    req: &JudgeRequest<'_>,
 ) -> Result<PermissionDecision, AgentError> {
     if mode == PermissionMode::BypassPermissions {
         return Ok(PermissionDecision::allow());
     }
-    match store.lookup(tool) {
+    match store.lookup(req.tool) {
         Some(PermissionBehavior::Allow) => return Ok(PermissionDecision::allow()),
         Some(PermissionBehavior::Deny) => {
             return Ok(PermissionDecision::deny("denied by session rule"));
@@ -81,9 +80,33 @@ pub(crate) async fn evaluate(
             "tool not pre-approved under dontAsk",
         ));
     }
+    if mode == PermissionMode::Auto {
+        let Some(judge) = judge else {
+            return Ok(PermissionDecision::deny(
+                "Auto mode has no judge configured",
+            ));
+        };
+        let verdict = judge.judge(req).await?;
+        if matches!(verdict, PermissionDecision::Deny { .. }) {
+            return Ok(verdict);
+        }
+        // Judge allowed; a registered policy may still veto (tighten only).
+        return match policy {
+            Some(policy) => {
+                let decision = policy
+                    .can_use_tool(req.tool, req.input, req.ctx.clone())
+                    .await?;
+                store.apply(decision.updated_permissions());
+                Ok(decision)
+            }
+            None => Ok(verdict),
+        };
+    }
     match policy {
         Some(policy) => {
-            let decision = policy.can_use_tool(tool, input, ctx).await?;
+            let decision = policy
+                .can_use_tool(req.tool, req.input, req.ctx.clone())
+                .await?;
             store.apply(decision.updated_permissions());
             Ok(decision)
         }
@@ -94,6 +117,7 @@ pub(crate) async fn evaluate(
 #[cfg(test)]
 mod tests {
     #![expect(clippy::expect_used, reason = "test assertions use expect for context")]
+    #![expect(clippy::panic, reason = "test failure signal via panic in match arms")]
 
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -101,9 +125,23 @@ mod tests {
     use super::{RuleStore, evaluate};
     use crate::agent::error::AgentError;
     use crate::agent::permissions::{
-        PermissionBehavior, PermissionContext, PermissionDecision, PermissionMode,
+        JudgeRequest, PermissionBehavior, PermissionContext, PermissionDecision, PermissionMode,
         PermissionPolicy, PermissionScope, PermissionUpdate,
     };
+
+    fn req<'a>(
+        tool: &'a str,
+        input: &'a serde_json::Value,
+        ctx: &'a PermissionContext,
+    ) -> JudgeRequest<'a> {
+        JudgeRequest {
+            tool,
+            input,
+            task: None,
+            rationale: None,
+            ctx,
+        }
+    }
 
     #[test]
     fn seed_allow_marks_named_tools_allowed() {
@@ -160,13 +198,14 @@ mod tests {
             decision: allow_decision,
         });
         let mut store = RuleStore::new(&[]);
+        let input = serde_json::json!({});
+        let ctx = PermissionContext::default();
         let decision = evaluate(
             PermissionMode::BypassPermissions,
             &mut store,
+            None,
             Some(&policy),
-            "Bash",
-            &serde_json::json!({}),
-            PermissionContext::default(),
+            &req("Bash", &input, &ctx),
         )
         .await
         .expect("evaluate");
@@ -180,13 +219,14 @@ mod tests {
     #[tokio::test]
     async fn session_rule_short_circuits() {
         let mut store = RuleStore::new(&["Bash".to_string()]);
+        let input = serde_json::json!({});
+        let ctx = PermissionContext::default();
         let decision = evaluate(
             PermissionMode::DontAsk,
             &mut store,
             None,
-            "Bash",
-            &serde_json::json!({}),
-            PermissionContext::default(),
+            None,
+            &req("Bash", &input, &ctx),
         )
         .await
         .expect("evaluate");
@@ -201,13 +241,14 @@ mod tests {
             decision: allow_decision,
         });
         let mut store = RuleStore::new(&[]);
+        let input = serde_json::json!({});
+        let ctx = PermissionContext::default();
         let decision = evaluate(
             PermissionMode::DontAsk,
             &mut store,
+            None,
             Some(&policy),
-            "Bash",
-            &serde_json::json!({}),
-            PermissionContext::default(),
+            &req("Bash", &input, &ctx),
         )
         .await
         .expect("evaluate");
@@ -236,35 +277,191 @@ mod tests {
             decision: allow_then_rule,
         });
         let mut store = RuleStore::new(&[]);
+        let input = serde_json::json!({});
+        let ctx = PermissionContext::default();
         let decision = evaluate(
             PermissionMode::Default,
             &mut store,
+            None,
             Some(&policy),
-            "Bash",
-            &serde_json::json!({}),
-            PermissionContext::default(),
+            &req("Bash", &input, &ctx),
         )
         .await
         .expect("evaluate");
         assert!(matches!(decision, PermissionDecision::Allow { .. }));
         assert!(called.load(Ordering::SeqCst));
-        // The returned update landed in the store: a later lookup reflects it.
         assert_eq!(store.lookup("Bash"), Some(PermissionBehavior::Deny));
     }
 
     #[tokio::test]
     async fn default_without_policy_allows() {
         let mut store = RuleStore::new(&[]);
+        let input = serde_json::json!({});
+        let ctx = PermissionContext::default();
         let decision = evaluate(
             PermissionMode::Default,
             &mut store,
             None,
-            "Bash",
-            &serde_json::json!({}),
-            PermissionContext::default(),
+            None,
+            &req("Bash", &input, &ctx),
         )
         .await
         .expect("evaluate");
         assert!(matches!(decision, PermissionDecision::Allow { .. }));
+    }
+
+    use crate::agent::permissions::{JudgeRequest as _JR, PermissionJudge};
+
+    struct MockJudge {
+        called: Arc<AtomicBool>,
+        decision: fn() -> PermissionDecision,
+    }
+
+    #[async_trait::async_trait]
+    impl PermissionJudge for MockJudge {
+        async fn judge(&self, _req: &_JR<'_>) -> Result<PermissionDecision, AgentError> {
+            self.called.store(true, Ordering::SeqCst);
+            Ok((self.decision)())
+        }
+    }
+
+    fn deny_decision() -> PermissionDecision {
+        PermissionDecision::deny("nope")
+    }
+
+    #[tokio::test]
+    async fn auto_no_judge_denies_fail_closed() {
+        let mut store = RuleStore::new(&[]);
+        let input = serde_json::json!({});
+        let ctx = PermissionContext::default();
+        let decision = evaluate(
+            PermissionMode::Auto,
+            &mut store,
+            None,
+            None,
+            &req("Bash", &input, &ctx),
+        )
+        .await
+        .expect("evaluate");
+        match decision {
+            PermissionDecision::Deny { message, .. } => {
+                assert!(message.contains("no judge configured"), "got: {message}");
+            }
+            other @ PermissionDecision::Allow { .. } => {
+                panic!("expected Deny, got {other:?}")
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn auto_judge_allow_no_policy_allows() {
+        let jcalled = Arc::new(AtomicBool::new(false));
+        let judge: Arc<dyn PermissionJudge> = Arc::new(MockJudge {
+            called: jcalled.clone(),
+            decision: allow_decision,
+        });
+        let mut store = RuleStore::new(&[]);
+        let input = serde_json::json!({});
+        let ctx = PermissionContext::default();
+        let decision = evaluate(
+            PermissionMode::Auto,
+            &mut store,
+            Some(&judge),
+            None,
+            &req("Bash", &input, &ctx),
+        )
+        .await
+        .expect("evaluate");
+        assert!(matches!(decision, PermissionDecision::Allow { .. }));
+        assert!(jcalled.load(Ordering::SeqCst), "judge must be consulted");
+    }
+
+    #[tokio::test]
+    async fn auto_judge_allow_then_policy_veto_denies() {
+        let judge: Arc<dyn PermissionJudge> = Arc::new(MockJudge {
+            called: Arc::new(AtomicBool::new(false)),
+            decision: allow_decision,
+        });
+        let pcalled = Arc::new(AtomicBool::new(false));
+        let policy: Arc<dyn PermissionPolicy> = Arc::new(SpyPolicy {
+            called: pcalled.clone(),
+            decision: deny_decision,
+        });
+        let mut store = RuleStore::new(&[]);
+        let input = serde_json::json!({});
+        let ctx = PermissionContext::default();
+        let decision = evaluate(
+            PermissionMode::Auto,
+            &mut store,
+            Some(&judge),
+            Some(&policy),
+            &req("Bash", &input, &ctx),
+        )
+        .await
+        .expect("evaluate");
+        assert!(
+            matches!(decision, PermissionDecision::Deny { .. }),
+            "policy vetoes the judge-allow"
+        );
+        assert!(
+            pcalled.load(Ordering::SeqCst),
+            "policy must be consulted on a judge-allow"
+        );
+    }
+
+    #[tokio::test]
+    async fn auto_judge_deny_is_final_policy_not_consulted() {
+        let judge: Arc<dyn PermissionJudge> = Arc::new(MockJudge {
+            called: Arc::new(AtomicBool::new(false)),
+            decision: deny_decision,
+        });
+        let pcalled = Arc::new(AtomicBool::new(false));
+        let policy: Arc<dyn PermissionPolicy> = Arc::new(SpyPolicy {
+            called: pcalled.clone(),
+            decision: allow_decision,
+        });
+        let mut store = RuleStore::new(&[]);
+        let input = serde_json::json!({});
+        let ctx = PermissionContext::default();
+        let decision = evaluate(
+            PermissionMode::Auto,
+            &mut store,
+            Some(&judge),
+            Some(&policy),
+            &req("Bash", &input, &ctx),
+        )
+        .await
+        .expect("evaluate");
+        assert!(matches!(decision, PermissionDecision::Deny { .. }));
+        assert!(
+            !pcalled.load(Ordering::SeqCst),
+            "judge-deny must not consult the policy"
+        );
+    }
+
+    #[tokio::test]
+    async fn auto_pre_ruled_tool_skips_the_judge() {
+        let jcalled = Arc::new(AtomicBool::new(false));
+        let judge: Arc<dyn PermissionJudge> = Arc::new(MockJudge {
+            called: jcalled.clone(),
+            decision: deny_decision,
+        });
+        let mut store = RuleStore::new(&["Bash".to_string()]); // pre-approved
+        let input = serde_json::json!({});
+        let ctx = PermissionContext::default();
+        let decision = evaluate(
+            PermissionMode::Auto,
+            &mut store,
+            Some(&judge),
+            None,
+            &req("Bash", &input, &ctx),
+        )
+        .await
+        .expect("evaluate");
+        assert!(matches!(decision, PermissionDecision::Allow { .. }));
+        assert!(
+            !jcalled.load(Ordering::SeqCst),
+            "a pre-ruled tool must skip the judge"
+        );
     }
 }

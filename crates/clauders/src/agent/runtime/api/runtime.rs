@@ -13,7 +13,7 @@ use crate::agent::mcp::SdkMcpRegistry;
 use crate::agent::message::{AssistantMessage, Message, ResultMessage, Usage as AgentUsage};
 use crate::agent::options::Options;
 use crate::agent::permissions::{
-    PermissionContext, PermissionDecision, PermissionMode, PermissionPolicy,
+    JudgeRequest, PermissionContext, PermissionDecision, PermissionMode, PermissionPolicy,
 };
 use crate::agent::runtime::Runtime;
 use crate::agent::runtime::permission_engine::{self, RuleStore};
@@ -405,13 +405,19 @@ async fn run_tools<T: HttpTransport>(
             tool_use_id: Some(use_block.id.as_str().to_string()),
             ..PermissionContext::default()
         };
+        let review = JudgeRequest {
+            tool: use_block.name.as_str(),
+            input: &use_block.input,
+            task: None,
+            rationale: None,
+            ctx: &pctx,
+        };
         let decision = match permission_engine::evaluate(
             ctx.permission_mode,
             store,
+            None,
             ctx.permission_policy.as_ref(),
-            use_block.name.as_str(),
-            &use_block.input,
-            pctx,
+            &review,
         )
         .await
         {
