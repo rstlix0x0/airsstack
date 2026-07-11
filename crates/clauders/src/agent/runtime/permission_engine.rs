@@ -5,13 +5,6 @@
 //! [`crate::agent::permissions::PermissionDecision`] — the same verdict type a
 //! policy returns, with no parallel gate enum. Runtime-agnostic: it lives beside
 //! the runtime consumers, not under any single adapter.
-// `dead_code` fires on the lib target: `ApiRuntime` does not yet route calls
-// through this module (that wiring lands in a follow-up change). It does NOT
-// fire on the test target, where every item is exercised directly. Because the
-// lint fires conditionally across targets, `#[expect]` would be reported
-// "unfulfilled" by the test-target pass. Per M-LINT-OVERRIDE-EXPECT, `#[allow]`
-// is the correct suppression for conditionally-firing lints.
-#![allow(dead_code)]
 #![expect(
     clippy::redundant_pub_crate,
     reason = "explicit pub(crate) documents the crate-wide visibility intent at each item"

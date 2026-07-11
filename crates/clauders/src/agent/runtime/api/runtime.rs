@@ -1,7 +1,7 @@
 //! The native `Runtime` over the Messages API.
 
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use tokio::sync::mpsc;
@@ -12,8 +12,11 @@ use crate::agent::error::AgentError;
 use crate::agent::mcp::SdkMcpRegistry;
 use crate::agent::message::{AssistantMessage, Message, ResultMessage, Usage as AgentUsage};
 use crate::agent::options::Options;
-use crate::agent::permissions::PermissionMode;
+use crate::agent::permissions::{
+    PermissionContext, PermissionDecision, PermissionMode, PermissionPolicy,
+};
 use crate::agent::runtime::Runtime;
+use crate::agent::runtime::permission_engine::{self, RuleStore};
 use crate::agent::stream::{MessageStream, ReceiverStream};
 use crate::agent::types::{McpStatus, Prompt, ServerStatus, SessionId};
 use crate::client::Client;
@@ -22,7 +25,7 @@ use crate::messages::content::ContentBlock as WireBlock;
 use crate::messages::request::{InputMessage, MessageContent, MessageRequest, Role};
 use crate::messages::response::{Message as WireMessage, StopReason, Usage as WireUsage};
 use crate::messages::structured_outputs::OutputConfig;
-use crate::messages::tools::Tool as WireTool;
+use crate::messages::tools::{Tool as WireTool, ToolResultBlock, ToolUseBlock};
 use crate::transport::HttpTransport;
 use crate::types::{MaxTokens, ModelId, SystemPrompt};
 
@@ -56,6 +59,8 @@ pub struct ApiRuntime<T: HttpTransport = DefaultTransportPlaceholder> {
     identity: Option<ModelId>,
     model: Mutex<ModelId>,
     permission_mode: Mutex<PermissionMode>,
+    permission_policy: Option<Arc<dyn PermissionPolicy>>,
+    allowed_tools: Vec<String>,
     interrupt: std::sync::Arc<AtomicBool>,
     cache_policy: CachePolicy,
     output_format: Option<OutputConfig>,
@@ -91,6 +96,8 @@ impl<T: HttpTransport> ApiRuntime<T> {
             identity: Some(model.clone()),
             model: Mutex::new(model),
             permission_mode: Mutex::new(options.permission_mode),
+            permission_policy: options.permission_policy,
+            allowed_tools: options.allowed_tools,
             interrupt: std::sync::Arc::new(AtomicBool::new(false)),
             cache_policy: CachePolicy::default(),
             output_format: options.output_format,
@@ -112,6 +119,14 @@ impl<T: HttpTransport> ApiRuntime<T> {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
+    }
+
+    /// Read the current permission mode, recovering from a poisoned lock.
+    fn current_permission_mode(&self) -> PermissionMode {
+        *self
+            .permission_mode
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 }
 
@@ -150,6 +165,9 @@ impl<T: HttpTransport> Runtime for ApiRuntime<T> {
             session_id: self.session_id.clone(),
             interrupt: std::sync::Arc::clone(&self.interrupt),
             cache_policy: self.cache_policy,
+            permission_mode: self.current_permission_mode(),
+            permission_policy: self.permission_policy.clone(),
+            allowed_tools: self.allowed_tools.clone(),
             output_format: self.output_format.clone(),
         };
         tokio::spawn(drive(ctx, prompt, tx));
@@ -209,6 +227,9 @@ struct TurnContext<T: HttpTransport> {
     session_id: SessionId,
     interrupt: std::sync::Arc<AtomicBool>,
     cache_policy: CachePolicy,
+    permission_mode: PermissionMode,
+    permission_policy: Option<Arc<dyn PermissionPolicy>>,
+    allowed_tools: Vec<String>,
     output_format: Option<OutputConfig>,
 }
 
@@ -225,6 +246,7 @@ async fn drive<T: HttpTransport>(
         content: MessageContent::Text(prompt.as_str().to_string()),
     }];
     let mut usage_total = AgentUsage::default();
+    let mut store = RuleStore::new(&ctx.allowed_tools);
 
     for turn in 0..ctx.turn_cap {
         if ctx.interrupt.load(Ordering::SeqCst) {
@@ -250,12 +272,26 @@ async fn drive<T: HttpTransport>(
         });
 
         if response.stop_reason == Some(StopReason::ToolUse) {
-            let results = run_tools(&ctx.registry, &response.content).await;
-            history.push(InputMessage {
-                role: Role::User,
-                content: MessageContent::Blocks(results),
-            });
-            continue;
+            match run_tools(&ctx, &mut store, &response.content).await {
+                ToolLoopStep::Continue(results) => {
+                    history.push(InputMessage {
+                        role: Role::User,
+                        content: MessageContent::Blocks(results),
+                    });
+                    continue;
+                }
+                ToolLoopStep::Interrupted(message) => {
+                    let _ = tx
+                        .send(Ok(interrupted_result(
+                            &ctx.session_id,
+                            turn + 1,
+                            message,
+                            usage_total,
+                        )))
+                        .await;
+                    return;
+                }
+            }
         }
 
         let _ = tx
@@ -342,16 +378,91 @@ async fn emit_assistant(
     .map_err(|_| ())
 }
 
-/// Run every tool-use block in `content`, returning the tool-result blocks.
-async fn run_tools(registry: &SdkMcpRegistry, content: &[WireBlock]) -> Vec<WireBlock> {
+/// The outcome of running one turn's tool-use blocks: either the tool-result
+/// blocks to feed back to the model, or a turn-aborting interrupt message. This
+/// is an execution-flow signal, not a permission verdict — no duplicate type.
+enum ToolLoopStep {
+    Continue(Vec<WireBlock>),
+    Interrupted(String),
+}
+
+/// Gate and run every tool-use block in `content`. Each call is evaluated
+/// against `store` (session rules), the runtime's mode, and its policy:
+/// an allow dispatches the tool (with any rewritten input), a non-interrupt
+/// deny yields a model-visible error result and the loop continues, and an
+/// interrupt deny aborts the turn.
+async fn run_tools<T: HttpTransport>(
+    ctx: &TurnContext<T>,
+    store: &mut RuleStore,
+    content: &[WireBlock],
+) -> ToolLoopStep {
     let mut results = Vec::new();
     for block in content {
-        if let WireBlock::ToolUse(use_block) = block {
-            let result = tools::dispatch(registry, use_block).await;
-            results.push(WireBlock::ToolResult(result));
+        let WireBlock::ToolUse(use_block) = block else {
+            continue;
+        };
+        let pctx = PermissionContext {
+            tool_use_id: Some(use_block.id.as_str().to_string()),
+            ..PermissionContext::default()
+        };
+        let decision = match permission_engine::evaluate(
+            ctx.permission_mode,
+            store,
+            ctx.permission_policy.as_ref(),
+            use_block.name.as_str(),
+            &use_block.input,
+            pctx,
+        )
+        .await
+        {
+            Ok(decision) => decision,
+            Err(error) => {
+                // A policy failure becomes a model-visible error result rather
+                // than a session failure; the loop continues.
+                results.push(WireBlock::ToolResult(ToolResultBlock::err(
+                    use_block.id.clone(),
+                    error.to_string(),
+                )));
+                continue;
+            }
+        };
+        match decision {
+            PermissionDecision::Allow { updated_input, .. } => {
+                let gated = apply_input(use_block, updated_input);
+                let result = tools::dispatch(&ctx.registry, &gated).await;
+                results.push(WireBlock::ToolResult(result));
+            }
+            PermissionDecision::Deny {
+                message,
+                interrupt: false,
+                ..
+            } => {
+                results.push(WireBlock::ToolResult(ToolResultBlock::err(
+                    use_block.id.clone(),
+                    message,
+                )));
+            }
+            PermissionDecision::Deny {
+                message,
+                interrupt: true,
+                ..
+            } => {
+                return ToolLoopStep::Interrupted(message);
+            }
         }
     }
-    results
+    ToolLoopStep::Continue(results)
+}
+
+/// Apply a decision's optional input rewrite to a tool-use block.
+fn apply_input(block: &ToolUseBlock, updated: Option<serde_json::Value>) -> ToolUseBlock {
+    updated.map_or_else(
+        || block.clone(),
+        |input| ToolUseBlock {
+            input,
+            ..block.clone()
+        },
+    )
 }
 
 /// The terminal `Result` frame for a completed turn.
@@ -392,6 +503,25 @@ fn exhausted_result(session_id: &SessionId, turn_cap: u32, usage: AgentUsage) ->
         usage: Some(usage),
         session_id: session_id.clone(),
         num_turns: turn_cap,
+    })
+}
+
+/// The terminal `Result` frame when a permission policy interrupts the turn.
+fn interrupted_result(
+    session_id: &SessionId,
+    num_turns: u32,
+    message: String,
+    usage: AgentUsage,
+) -> Message {
+    Message::Result(ResultMessage {
+        result: message,
+        structured_output: None,
+        is_error: true,
+        total_cost_usd: None,
+        stop_reason: Some("permission_denied".to_string()),
+        usage: Some(usage),
+        session_id: session_id.clone(),
+        num_turns,
     })
 }
 
@@ -596,6 +726,136 @@ mod tests {
         }
     }
 
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use async_trait::async_trait;
+
+    use crate::agent::error::AgentError as AgentErr;
+    use crate::agent::permissions::{
+        PermissionContext, PermissionDecision, PermissionMode, PermissionPolicy,
+    };
+
+    fn ran_flag_options(
+        ran: std::sync::Arc<AtomicBool>,
+        mode: PermissionMode,
+        allow: &[&str],
+    ) -> Options {
+        let ran_for_tool = ran.clone();
+        let add = tool(
+            "add",
+            "Add two ints",
+            serde_json::json!({"type": "object"}),
+            move |_args| {
+                let ran_for_tool = ran_for_tool.clone();
+                async move {
+                    ran_for_tool.store(true, Ordering::SeqCst);
+                    Ok(ToolResult::text("5"))
+                }
+            },
+        );
+        Options::builder()
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(MaxTokens::new(64).unwrap())
+            .permission_mode(mode)
+            .allowed_tools(allow.iter().map(|s| (*s).to_string()).collect())
+            .sdk_mcp_server(SdkMcpServer::builder("calc").tool(add).build())
+            .build()
+    }
+
+    fn two_turn_transport() -> MockHttpTransport {
+        let mut transport = MockHttpTransport::new();
+        let mut turn = 0u8;
+        transport.expect_send().times(2).returning(move |_req| {
+            turn += 1;
+            let payload = if turn == 1 { TOOL_TURN } else { FINAL_TURN };
+            let mut resp = Response::new(body(payload));
+            *resp.status_mut() = StatusCode::OK;
+            Ok(resp)
+        });
+        transport
+    }
+
+    #[tokio::test]
+    async fn dont_ask_denies_unapproved_tool_but_loop_continues() {
+        let ran = std::sync::Arc::new(AtomicBool::new(false));
+        // Tool "mcp__calc__add" is NOT in allowed_tools → DontAsk denies it.
+        let opts = ran_flag_options(ran.clone(), PermissionMode::DontAsk, &[]);
+        let rt = ApiRuntime::new(client_with(two_turn_transport()), opts).expect("runtime");
+        let mut stream = rt.run("add 2 and 3".into()).await.expect("run");
+        let frames = collect(&mut stream).await;
+        assert!(!ran.load(Ordering::SeqCst), "denied tool must not execute");
+        match frames.last().expect("terminal") {
+            Message::Result(r) => {
+                assert!(
+                    !r.is_error,
+                    "non-interrupt deny continues to a normal end_turn"
+                );
+                assert_eq!(r.stop_reason.as_deref(), Some("end_turn"));
+            }
+            other => panic!("expected Result, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn dont_ask_allows_pre_approved_tool() {
+        let ran = std::sync::Arc::new(AtomicBool::new(false));
+        let opts = ran_flag_options(ran.clone(), PermissionMode::DontAsk, &["mcp__calc__add"]);
+        let rt = ApiRuntime::new(client_with(two_turn_transport()), opts).expect("runtime");
+        let mut stream = rt.run("add 2 and 3".into()).await.expect("run");
+        let _ = collect(&mut stream).await;
+        assert!(ran.load(Ordering::SeqCst), "pre-approved tool executes");
+    }
+
+    struct DenyInterruptPolicy;
+
+    #[async_trait]
+    impl PermissionPolicy for DenyInterruptPolicy {
+        async fn can_use_tool(
+            &self,
+            _tool: &str,
+            _input: &serde_json::Value,
+            _ctx: PermissionContext,
+        ) -> Result<PermissionDecision, AgentErr> {
+            Ok(PermissionDecision::deny_interrupt("blocked"))
+        }
+    }
+
+    #[tokio::test]
+    async fn deny_interrupt_aborts_the_turn_with_permission_denied() {
+        let mut transport = MockHttpTransport::new();
+        // Only ONE request is issued: the loop aborts on the interrupt before the 2nd turn.
+        transport
+            .expect_send()
+            .times(1)
+            .returning(ok_response(TOOL_TURN));
+        let opts = Options::builder()
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(MaxTokens::new(64).unwrap())
+            .permission_policy(std::sync::Arc::new(DenyInterruptPolicy))
+            .sdk_mcp_server(
+                SdkMcpServer::builder("calc")
+                    .tool(tool(
+                        "add",
+                        "d",
+                        serde_json::json!({"type":"object"}),
+                        |_| async { Ok(ToolResult::text("5")) },
+                    ))
+                    .build(),
+            )
+            .build();
+        let rt = ApiRuntime::new(client_with(transport), opts).expect("runtime");
+        let mut stream = rt.run("add".into()).await.expect("run");
+        let frames = collect(&mut stream).await;
+        match frames.last().expect("terminal") {
+            Message::Result(r) => {
+                assert!(r.is_error);
+                assert_eq!(r.stop_reason.as_deref(), Some("permission_denied"));
+                assert_eq!(r.result, "blocked");
+            }
+            other => panic!("expected Result, got {other:?}"),
+        }
+    }
+
     #[tokio::test]
     async fn turn_cap_exhaustion_yields_error_result() {
         let mut transport = MockHttpTransport::new();
@@ -776,6 +1036,9 @@ mod tests {
             session_id: SessionId::new("test-session"),
             interrupt: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             cache_policy: CachePolicy::default(),
+            permission_mode: crate::agent::permissions::PermissionMode::default(),
+            permission_policy: None,
+            allowed_tools: Vec::new(),
             output_format,
         }
     }
