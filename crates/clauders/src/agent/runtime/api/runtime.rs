@@ -355,6 +355,7 @@ fn terminal_result<T: HttpTransport>(
 ) -> Message {
     Message::Result(ResultMessage {
         result: convert::last_text(&response.content),
+        structured_output: None,
         is_error,
         total_cost_usd: None,
         stop_reason: response
@@ -370,6 +371,7 @@ fn terminal_result<T: HttpTransport>(
 fn exhausted_result(session_id: &SessionId, turn_cap: u32, usage: AgentUsage) -> Message {
     Message::Result(ResultMessage {
         result: String::new(),
+        structured_output: None,
         is_error: true,
         total_cost_usd: None,
         stop_reason: Some("max_turns".to_string()),

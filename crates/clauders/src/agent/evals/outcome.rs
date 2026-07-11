@@ -94,6 +94,7 @@ mod tests {
     fn result_frame(is_error: bool, usage: Option<Usage>) -> Message {
         Message::Result(ResultMessage {
             result: "done".into(),
+            structured_output: None,
             is_error,
             total_cost_usd: None,
             stop_reason: None,

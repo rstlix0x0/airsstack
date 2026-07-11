@@ -178,6 +178,7 @@ mod tests {
     fn result_outcome(is_error: bool, usage: Option<Usage>) -> Outcome {
         Outcome::from_messages(vec![Message::Result(ResultMessage {
             result: String::new(),
+            structured_output: None,
             is_error,
             total_cost_usd: None,
             stop_reason: None,

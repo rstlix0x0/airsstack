@@ -82,6 +82,9 @@ pub struct ResultMessage {
     /// Final result text.
     #[serde(default)]
     pub result: String,
+    /// Parsed structured output when a schema was requested; `None` otherwise.
+    #[serde(default)]
+    pub structured_output: Option<serde_json::Value>,
     /// Whether the turn ended in error.
     #[serde(default)]
     pub is_error: bool,
@@ -156,7 +159,7 @@ mod tests {
     #![expect(clippy::expect_used, reason = "test assertions use expect for context")]
     #![expect(clippy::panic, reason = "test failure signal via panic in match arms")]
 
-    use super::{Message, Usage};
+    use super::{Message, ResultMessage, Usage};
 
     #[test]
     fn usage_carries_cache_counters_when_present() {
@@ -201,6 +204,32 @@ mod tests {
             }
             other => panic!("expected Result, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn result_message_defaults_structured_output_to_none_on_deserialize() {
+        let json = serde_json::json!({
+            "result": "hi",
+            "session_id": "s1",
+            "num_turns": 1
+        });
+        let msg: ResultMessage = serde_json::from_value(json).expect("deserialize");
+        assert!(msg.structured_output.is_none());
+    }
+
+    #[test]
+    fn result_message_carries_structured_output_when_present() {
+        let json = serde_json::json!({
+            "result": "{\"city\":\"Paris\"}",
+            "structured_output": { "city": "Paris" },
+            "session_id": "s1",
+            "num_turns": 1
+        });
+        let msg: ResultMessage = serde_json::from_value(json).expect("deserialize");
+        assert_eq!(
+            msg.structured_output,
+            Some(serde_json::json!({ "city": "Paris" }))
+        );
     }
 
     #[test]
