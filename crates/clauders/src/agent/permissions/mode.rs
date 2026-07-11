@@ -25,6 +25,10 @@ pub enum PermissionMode {
     /// Deny any tool not pre-approved, without prompting.
     #[serde(rename = "dontAsk")]
     DontAsk,
+    /// Approve or deny each tool call by a model judge (native `ApiRuntime`)
+    /// or the binary (`CliRuntime`).
+    #[serde(rename = "auto")]
+    Auto,
 }
 
 #[cfg(test)]
@@ -56,5 +60,17 @@ mod tests {
     fn dont_ask_serializes_to_wire_string() {
         let json = serde_json::to_string(&PermissionMode::DontAsk).expect("serialize");
         assert_eq!(json, "\"dontAsk\"");
+    }
+
+    #[test]
+    fn auto_serializes_to_wire_string() {
+        let json = serde_json::to_string(&PermissionMode::Auto).expect("serialize");
+        assert_eq!(json, "\"auto\"");
+    }
+
+    #[test]
+    fn round_trips_auto_variant() {
+        let back: PermissionMode = serde_json::from_str("\"auto\"").expect("deserialize");
+        assert_eq!(back, PermissionMode::Auto);
     }
 }
