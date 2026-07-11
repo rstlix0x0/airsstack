@@ -9,10 +9,10 @@ Claude Agent SDKs:
 **As of:** 2026-07-09 · clauders at HEAD `6518699` (Phase 3 ws2 Scope C complete; parity doc merged in #29).
 Official surfaces captured from `code.claude.com/docs/en/agent-sdk/{python,typescript}`.
 
-> **Phase 4 update (2026-07-11, HEAD `6dce97b`):** the **WS B** (structured output) and **WS C**
-> (permission control — `dontAsk` / deny-interrupt / `updated_permissions` + native `ApiRuntime`
-> enforcement) rows below are refreshed to as-landed. Other rows remain as of the 2026-07-09 baseline
-> and may lag (e.g. WS A system-prompt preset shipped separately but is not re-verified here).
+> **Phase 4 update (2026-07-11, HEAD `6dce97b`):** the **WS A** (system-prompt preset + append, HEAD
+> `6f68a10`), **WS B** (structured output) and **WS C** (permission control — `dontAsk` /
+> deny-interrupt / `updated_permissions` + native `ApiRuntime` enforcement) rows below are refreshed
+> to as-landed. Other rows remain as of the 2026-07-09 baseline and may lag.
 
 > **Read this first — the one difference that reframes everything.**
 > The official SDKs are **thin clients that drive the `claude` Code CLI binary as a subprocess**.
@@ -67,8 +67,8 @@ session management, filesystem-settings integration, and newer model/feature kno
 
 | Option (official name) | Python | TS | clauders field | Status |
 |---|---|---|---|---|
-| System prompt (plain string) | ✅ | ✅ | `system_prompt: Option<String>` | ✅ |
-| System prompt **preset** `claude_code` + `append` | ✅ | ✅ | ❌ | 🟡 string only |
+| System prompt (plain string) | ✅ | ✅ | `system_prompt: SystemPromptConfig::Text` | ✅ |
+| System prompt **preset** `claude_code` + `append` | ✅ | ✅ | `SystemPromptConfig::Preset { append, exclude_dynamic_sections }` | ✅ CLI (→ `--append-system-prompt`); native degrades to append-only |
 | `model` | ✅ | ✅ | `model: Option<ModelId>` | ✅ |
 | `fallback_model` | ✅ | ✅ | ❌ | ❌ |
 | `max_turns` | ✅ | ✅ | `max_turns: Option<u32>` | ✅ |
@@ -207,11 +207,15 @@ CLI subagents.)
 
 | Capability | Python | TS | clauders |
 |---|---|---|---|
-| Plain string | ✅ | ✅ | ✅ |
-| Preset `claude_code` + `append` | ✅ | ✅ | ❌ |
-| `excludeDynamicSections` / `exclude_dynamic_sections` | ✅ | ✅ | ❌ |
+| Plain string | ✅ | ✅ | ✅ (`SystemPromptConfig::Text`) |
+| Preset `claude_code` + `append` | ✅ | ✅ | ✅ CLI / 🟡 native |
+| `excludeDynamicSections` / `exclude_dynamic_sections` | ✅ | ✅ | ✅ CLI (`--exclude-dynamic-system-prompt-sections`) |
 
-**Verdict:** 🟡 plain string only.
+**Verdict:** ✅ on the CLI runtime (HEAD `6f68a10`, WS A). `CliRuntime` lowers `Preset` to
+`--append-system-prompt` (keeping the CLI's built-in `claude_code` base) plus
+`--exclude-dynamic-system-prompt-sections`. The native runtimes (`ApiRuntime`/`OpenRouterRuntime`) have
+no CLI base to append to, so `Preset` degrades to its `append` text only (logged warning) — the base
+preset is a CLI-only capability by construction.
 
 ---
 
@@ -309,7 +313,7 @@ native runtime — the official SDKs delegate all caching to the CLI and never s
 | **Subagents** (`agents`/`AgentDefinition`) | ❌ behind |
 | **Sessions** (continue/resume/fork/list) | ❌ behind |
 | **Setting sources** (filesystem config/CLAUDE.md) | ❌ behind |
-| System-prompt preset + append | 🟡 behind |
+| System-prompt preset + append | ✅ parity (WS A; ✅ CLI, native degrades to append-only) |
 | Streaming input, live MCP control, partial messages, warm start, MCP elicitation | ❌ behind |
 | **Native multi-provider runtimes** (Api/OpenRouter/Routing) | 🟣 ahead — no official equivalent |
 | **Prompt-cache policy + token efficiency** | 🟣 ahead |
@@ -317,7 +321,7 @@ native runtime — the official SDKs delegate all caching to the CLI and never s
 | **Bundled raw Messages API client** | 🟣 ahead |
 
 **One-line summary:** clauders is at parity on the *CLI-driving agent core* (query/client, tools,
-hooks, permissions, messages), trails on *session management, subagents, and filesystem-settings
+hooks, permissions, system prompt, messages), trails on *session management, subagents, and filesystem-settings
 integration*, and is deliberately ahead on *native multi-provider execution, token efficiency, and a
 typed extension framework* — the axes that serve the airsstack "cheaper tokens, mixed routing" thesis.
 
@@ -331,7 +335,9 @@ Ranked by leverage for the airsstack mission, not by official-checklist complete
    Scope C "per-subtask downgrade" slice (route a subagent to a cheaper model).
 2. **Sessions (continue / resume / fork)** — the largest missing subsystem; needed for any long-lived
    or resumable workflow, and a prerequisite for context-pruning experiments.
-3. **System-prompt preset + append** — cheap, unblocks reusing Claude Code's built-in prompt.
+3. ~~**System-prompt preset + append**~~ — **landed (WS A, HEAD `6f68a10`)**: `SystemPromptConfig::Preset`
+   lowers to `--append-system-prompt` on the CLI (keeping the built-in `claude_code` base); native
+   runtimes degrade to append-only text (base is CLI-only by construction).
 4. ~~**`dontAsk` permission mode + `updated_permissions` + deny-interrupt**~~ — **landed (WS C, HEAD
    `6dce97b`)**: native `ApiRuntime` enforcement (`permission_engine` gate) + CLI passthrough. Only
    **`auto`** (model-classified — WS D) remains; native rule persistence is session-scoped in-memory
