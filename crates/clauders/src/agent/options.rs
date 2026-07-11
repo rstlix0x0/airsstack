@@ -8,7 +8,7 @@ use std::time::Duration;
 use crate::agent::capabilities::HookEvent;
 use crate::agent::hooks::{Hook, HookRegistry};
 use crate::agent::mcp::{SdkMcpRegistry, SdkMcpServer};
-use crate::agent::permissions::{PermissionMode, PermissionPolicy};
+use crate::agent::permissions::{PermissionJudge, PermissionMode, PermissionPolicy};
 use crate::agent::system_prompt::SystemPromptConfig;
 use crate::agent::types::McpServerConfig;
 use crate::messages::structured_outputs::OutputConfig;
@@ -60,6 +60,8 @@ pub struct Options {
     pub hooks: HookRegistry,
     /// Optional tool-permission policy.
     pub permission_policy: Option<Arc<dyn PermissionPolicy>>,
+    /// Optional model judge consulted under `PermissionMode::Auto`.
+    pub permission_judge: Option<Arc<dyn PermissionJudge>>,
     /// Registered in-process MCP servers, held by the SDK.
     pub sdk_mcp_servers: SdkMcpRegistry,
     /// Schema-constrained structured output forwarded to the runtime.
@@ -88,6 +90,7 @@ impl fmt::Debug for Options {
                 &format_args!("<{} registered>", i32::from(!self.hooks.is_empty())),
             )
             .field("permission_policy", &self.permission_policy.is_some())
+            .field("permission_judge", &self.permission_judge.is_some())
             .field(
                 "sdk_mcp_servers",
                 &format_args!(
@@ -133,6 +136,7 @@ pub struct OptionsBuilder {
     shutdown_grace: Option<Duration>,
     hooks: HookRegistry,
     permission_policy: Option<Arc<dyn PermissionPolicy>>,
+    permission_judge: Option<Arc<dyn PermissionJudge>>,
     sdk_mcp_servers: SdkMcpRegistry,
     output_format: Option<OutputConfig>,
 }
@@ -279,6 +283,13 @@ impl OptionsBuilder {
         self
     }
 
+    /// Set the model judge consulted under `PermissionMode::Auto`.
+    #[must_use]
+    pub fn permission_judge(mut self, judge: Arc<dyn PermissionJudge>) -> Self {
+        self.permission_judge = Some(judge);
+        self
+    }
+
     /// Register an in-process MCP server for this session.
     #[must_use]
     pub fn sdk_mcp_server(mut self, server: SdkMcpServer) -> Self {
@@ -334,6 +345,7 @@ impl OptionsBuilder {
             shutdown_grace: self.shutdown_grace.unwrap_or(DEFAULT_SHUTDOWN_GRACE),
             hooks: self.hooks,
             permission_policy: self.permission_policy,
+            permission_judge: self.permission_judge,
             sdk_mcp_servers: self.sdk_mcp_servers,
             output_format: self.output_format,
         }
@@ -376,6 +388,18 @@ mod tests {
             _tool: &str,
             _input: &serde_json::Value,
             _ctx: PermissionContext,
+        ) -> Result<PermissionDecision, crate::agent::error::AgentError> {
+            Ok(PermissionDecision::allow())
+        }
+    }
+
+    struct TestJudge;
+
+    #[async_trait::async_trait]
+    impl crate::agent::permissions::PermissionJudge for TestJudge {
+        async fn judge(
+            &self,
+            _req: &crate::agent::permissions::JudgeRequest<'_>,
         ) -> Result<PermissionDecision, crate::agent::error::AgentError> {
             Ok(PermissionDecision::allow())
         }
@@ -466,6 +490,19 @@ mod tests {
     #[test]
     fn default_options_have_no_sdk_mcp_servers() {
         assert!(Options::default().sdk_mcp_servers.is_empty());
+    }
+
+    #[test]
+    fn builder_sets_permission_judge() {
+        let opts = Options::builder()
+            .permission_judge(Arc::new(TestJudge))
+            .build();
+        assert!(opts.permission_judge.is_some());
+    }
+
+    #[test]
+    fn default_options_have_no_judge() {
+        assert!(Options::default().permission_judge.is_none());
     }
 
     #[test]
