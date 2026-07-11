@@ -22,6 +22,9 @@ pub enum PermissionMode {
     /// Bypass all permission prompts.
     #[serde(rename = "bypassPermissions")]
     BypassPermissions,
+    /// Deny any tool not pre-approved, without prompting.
+    #[serde(rename = "dontAsk")]
+    DontAsk,
 }
 
 #[cfg(test)]
@@ -47,5 +50,11 @@ mod tests {
     fn round_trips_plan_variant() {
         let back: PermissionMode = serde_json::from_str("\"plan\"").expect("deserialize");
         assert_eq!(back, PermissionMode::Plan);
+    }
+
+    #[test]
+    fn dont_ask_serializes_to_wire_string() {
+        let json = serde_json::to_string(&PermissionMode::DontAsk).expect("serialize");
+        assert_eq!(json, "\"dontAsk\"");
     }
 }

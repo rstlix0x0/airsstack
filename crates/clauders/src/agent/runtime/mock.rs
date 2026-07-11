@@ -197,6 +197,18 @@ mod tests {
         assert!(s.next().await.is_none());
     }
 
+    #[tokio::test]
+    async fn records_set_permission_mode_dont_ask() {
+        let mock = MockRuntime::new(vec![]);
+        mock.set_permission_mode(PermissionMode::DontAsk)
+            .await
+            .expect("set_permission_mode");
+        assert_eq!(
+            mock.calls().last().cloned(),
+            Some(ControlCall::SetPermissionMode(PermissionMode::DontAsk))
+        );
+    }
+
     #[test]
     fn model_defaults_to_none_and_reflects_with_model() {
         let mock = MockRuntime::new(vec![]);

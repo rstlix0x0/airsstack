@@ -84,6 +84,7 @@ pub(super) const fn permission_mode_wire(mode: PermissionMode) -> &'static str {
         PermissionMode::AcceptEdits => "acceptEdits",
         PermissionMode::Plan => "plan",
         PermissionMode::BypassPermissions => "bypassPermissions",
+        PermissionMode::DontAsk => "dontAsk",
     }
 }
 
@@ -147,6 +148,7 @@ mod tests {
             permission_mode_wire(PermissionMode::BypassPermissions),
             "bypassPermissions"
         );
+        assert_eq!(permission_mode_wire(PermissionMode::DontAsk), "dontAsk");
     }
 
     #[test]
