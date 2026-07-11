@@ -22,6 +22,11 @@ pub(super) fn initialize_request(options: &Options, request_id: &str) -> serde_j
             obj.insert("hooks".to_string(), hooks);
         }
     }
+    if let Some(config) = &options.output_format {
+        if let (Some(obj), Ok(value)) = (request.as_object_mut(), serde_json::to_value(config)) {
+            obj.insert("output_format".to_string(), value);
+        }
+    }
     serde_json::json!({
         "type": "control_request",
         "request_id": request_id,
@@ -126,5 +131,24 @@ mod tests {
             .build();
         let value = initialize_request(&opts, "req_0");
         assert_eq!(value["request"]["system_prompt"], "appended");
+    }
+
+    #[test]
+    fn initialize_request_carries_output_format_when_set() {
+        let opts = Options::builder()
+            .output_schema(serde_json::json!({ "type": "object" }))
+            .build();
+        let value = initialize_request(&opts, "req_0");
+        assert_eq!(
+            value["request"]["output_format"]["format"]["type"],
+            "json_schema"
+        );
+    }
+
+    #[test]
+    fn initialize_request_omits_output_format_when_unset() {
+        let opts = Options::builder().build();
+        let value = initialize_request(&opts, "req_0");
+        assert!(value["request"].get("output_format").is_none());
     }
 }
