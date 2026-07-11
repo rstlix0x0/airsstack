@@ -21,6 +21,7 @@ use crate::client::DefaultTransportPlaceholder;
 use crate::messages::content::ContentBlock as WireBlock;
 use crate::messages::request::{InputMessage, MessageContent, MessageRequest, Role};
 use crate::messages::response::{Message as WireMessage, StopReason, Usage as WireUsage};
+use crate::messages::structured_outputs::OutputConfig;
 use crate::messages::tools::Tool as WireTool;
 use crate::transport::HttpTransport;
 use crate::types::{MaxTokens, ModelId, SystemPrompt};
@@ -57,6 +58,7 @@ pub struct ApiRuntime<T: HttpTransport = DefaultTransportPlaceholder> {
     permission_mode: Mutex<PermissionMode>,
     interrupt: std::sync::Arc<AtomicBool>,
     cache_policy: CachePolicy,
+    output_format: Option<OutputConfig>,
 }
 
 impl<T: HttpTransport> ApiRuntime<T> {
@@ -91,6 +93,7 @@ impl<T: HttpTransport> ApiRuntime<T> {
             permission_mode: Mutex::new(options.permission_mode),
             interrupt: std::sync::Arc::new(AtomicBool::new(false)),
             cache_policy: CachePolicy::default(),
+            output_format: options.output_format,
         })
     }
 
@@ -147,6 +150,7 @@ impl<T: HttpTransport> Runtime for ApiRuntime<T> {
             session_id: self.session_id.clone(),
             interrupt: std::sync::Arc::clone(&self.interrupt),
             cache_policy: self.cache_policy,
+            output_format: self.output_format.clone(),
         };
         tokio::spawn(drive(ctx, prompt, tx));
         Ok(ReceiverStream::new(rx).boxed())
@@ -205,6 +209,7 @@ struct TurnContext<T: HttpTransport> {
     session_id: SessionId,
     interrupt: std::sync::Arc<AtomicBool>,
     cache_policy: CachePolicy,
+    output_format: Option<OutputConfig>,
 }
 
 /// Drive the agent loop, pushing frames into `tx` until the turn ends, the
@@ -312,7 +317,11 @@ fn build_request<T: HttpTransport>(
     for message in history {
         builder = builder.add_message(message.role, message.content);
     }
-    builder.tools(tools).build()
+    let mut builder = builder.tools(tools);
+    if let Some(config) = &ctx.output_format {
+        builder = builder.output_config(config.clone());
+    }
+    builder.build()
 }
 
 /// Emit the assistant turn as an agent frame.
@@ -353,9 +362,14 @@ fn terminal_result<T: HttpTransport>(
     is_error: bool,
     usage: AgentUsage,
 ) -> Message {
+    let result = convert::last_text(&response.content);
+    let structured_output = ctx
+        .output_format
+        .as_ref()
+        .and_then(|_| serde_json::from_str::<serde_json::Value>(&result).ok());
     Message::Result(ResultMessage {
-        result: convert::last_text(&response.content),
-        structured_output: None,
+        result,
+        structured_output,
         is_error,
         total_cost_usd: None,
         stop_reason: response
@@ -701,6 +715,96 @@ mod tests {
 
     const CACHE_TOOL_TURN: &str = r#"{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"tool_use","id":"toolu_1","name":"mcp__calc__add","input":{"a":2,"b":3}}],"stop_reason":"tool_use","stop_sequence":null,"usage":{"input_tokens":10,"output_tokens":2,"cache_creation_input_tokens":100}}"#;
     const CACHE_FINAL_TURN: &str = r#"{"id":"msg_2","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"text","text":"5"}],"stop_reason":"end_turn","stop_sequence":null,"usage":{"input_tokens":3,"output_tokens":1,"cache_read_input_tokens":100}}"#;
+
+    const END_TURN_JSON: &str = r#"{"id":"msg_2","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"text","text":"{\"city\":\"Paris\"}"}],"stop_reason":"end_turn","stop_sequence":null,"usage":{"input_tokens":3,"output_tokens":1}}"#;
+
+    #[tokio::test]
+    async fn structured_output_parsed_into_terminal_result() {
+        let mut transport = MockHttpTransport::new();
+        transport
+            .expect_send()
+            .times(1)
+            .returning(ok_response(END_TURN_JSON));
+        let opts = Options::builder()
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(MaxTokens::new(64).unwrap())
+            .output_schema(serde_json::json!({ "type": "object" }))
+            .build();
+        let rt = ApiRuntime::new(client_with(transport), opts).expect("runtime");
+        let mut stream = rt.run("hi".into()).await.expect("run");
+        let frames = collect(&mut stream).await;
+        match frames.last().expect("terminal") {
+            Message::Result(r) => {
+                assert_eq!(
+                    r.structured_output,
+                    Some(serde_json::json!({ "city": "Paris" }))
+                );
+            }
+            other => panic!("expected Result, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn no_output_format_leaves_structured_output_none() {
+        let mut transport = MockHttpTransport::new();
+        transport
+            .expect_send()
+            .times(1)
+            .returning(ok_response(END_TURN));
+        let rt = ApiRuntime::new(client_with(transport), options_with_model()).expect("runtime");
+        let mut stream = rt.run("hi".into()).await.expect("run");
+        let frames = collect(&mut stream).await;
+        match frames.last().expect("terminal") {
+            Message::Result(r) => assert!(r.structured_output.is_none()),
+            other => panic!("expected Result, got {other:?}"),
+        }
+    }
+
+    fn turn_ctx_with_output_format(
+        output_format: Option<crate::messages::structured_outputs::OutputConfig>,
+    ) -> super::TurnContext<MockHttpTransport> {
+        use crate::agent::mcp::SdkMcpRegistry;
+        use crate::agent::types::SessionId;
+
+        super::TurnContext {
+            client: client_with(MockHttpTransport::new()),
+            registry: SdkMcpRegistry::default(),
+            model: ModelId::claude_sonnet_4_5(),
+            max_tokens: MaxTokens::new(64).unwrap(),
+            system: None,
+            turn_cap: 1,
+            session_id: SessionId::new("test-session"),
+            interrupt: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            cache_policy: CachePolicy::default(),
+            output_format,
+        }
+    }
+
+    #[test]
+    fn build_request_attaches_output_config_when_output_format_is_some() {
+        use crate::messages::structured_outputs::OutputConfig;
+
+        let ctx = turn_ctx_with_output_format(Some(OutputConfig::json_schema(
+            serde_json::json!({ "type": "object" }),
+        )));
+        let request = super::build_request(&ctx, &[], &[]);
+        let json = serde_json::to_value(&request).expect("serialize");
+        assert_eq!(
+            json["output_config"]["format"]["type"], "json_schema",
+            "build_request must attach output_config when output_format is Some: {json}"
+        );
+    }
+
+    #[test]
+    fn build_request_omits_output_config_when_output_format_is_none() {
+        let ctx = turn_ctx_with_output_format(None);
+        let request = super::build_request(&ctx, &[], &[]);
+        let json = serde_json::to_value(&request).expect("serialize");
+        assert!(
+            json.get("output_config").is_none(),
+            "build_request must omit output_config when output_format is None: {json}"
+        );
+    }
 
     #[tokio::test]
     async fn terminal_usage_sums_across_tool_loop_turns() {
