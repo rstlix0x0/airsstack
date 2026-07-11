@@ -9,6 +9,11 @@ Claude Agent SDKs:
 **As of:** 2026-07-09 · clauders at HEAD `6518699` (Phase 3 ws2 Scope C complete; parity doc merged in #29).
 Official surfaces captured from `code.claude.com/docs/en/agent-sdk/{python,typescript}`.
 
+> **Phase 4 update (2026-07-11, HEAD `6dce97b`):** the **WS B** (structured output) and **WS C**
+> (permission control — `dontAsk` / deny-interrupt / `updated_permissions` + native `ApiRuntime`
+> enforcement) rows below are refreshed to as-landed. Other rows remain as of the 2026-07-09 baseline
+> and may lag (e.g. WS A system-prompt preset shipped separately but is not re-verified here).
+
 > **Read this first — the one difference that reframes everything.**
 > The official SDKs are **thin clients that drive the `claude` Code CLI binary as a subprocess**.
 > Every "runtime" they have is that one subprocess transport; they do **not** implement a native
@@ -90,7 +95,7 @@ session management, filesystem-settings integration, and newer model/feature kno
 | `max_buffer_size` | ✅ | — | ❌ | ❌ |
 | `stderr` callback | ✅ | ✅ | ❌ | ❌ |
 | `include_partial_messages` | ✅ | ✅ | ❌ | ❌ |
-| `output_format` / structured output (agent layer) | ✅ | ✅ | ❌ on agent (✅ on `messages::OutputConfig`) | 🟡 |
+| `output_format` / structured output (agent layer) | ✅ | ✅ | ✅ `Options::output_format` + `ResultMessage::structured_output` (native on Api/OpenRouter; CLI best-effort passthrough) | ✅ (WS B) |
 | `thinking` / `effort` / `max_thinking_tokens` | ✅ | ✅ | ❌ | ❌ |
 | `max_budget_usd` | ✅ | ✅ | ❌ | ❌ |
 | `skills`, `plugins`, `sandbox`, `betas` | ✅ | ✅ | ❌ | ❌ (CLI-feature knobs) |
@@ -153,17 +158,21 @@ tool hooks). clauders does **not** yet model `SessionStart`/`SessionEnd` or the 
 | `acceptEdits` | ✅ | ✅ | ✅ | ✅ |
 | `plan` | ✅ | ✅ | ✅ | ✅ |
 | `bypassPermissions` | ✅ | ✅ | ✅ | ✅ |
-| `dontAsk` | ✅ | ✅ | ❌ | 🟡 newer mode |
-| `auto` (model-classified) | ✅ | ✅ | ❌ | 🟡 newer mode |
+| `dontAsk` | ✅ | ✅ | ✅ `PermissionMode::DontAsk` (native-enforced on `ApiRuntime`; CLI passthrough) | ✅ (WS C) |
+| `auto` (model-classified) | ✅ | ✅ | ❌ | 🟡 newer mode (WS D) |
 | `can_use_tool` callback | ✅ | ✅ | ✅ `PermissionPolicy::can_use_tool` | ✅ |
 | Allow + rewrite input | ✅ `updated_input` | ✅ | ✅ `Allow { updated_input }` | ✅ |
 | Deny + message | ✅ `message` | ✅ | ✅ `Deny { message }` | ✅ |
-| Deny + `interrupt` | ✅ | ✅ | ❌ | 🟡 |
-| Return **permission updates** (persist allow/deny rules) | ✅ `updated_permissions` | ✅ `updatedPermissions` → settings scopes | ❌ | ❌ |
+| Deny + `interrupt` | ✅ | ✅ | ✅ `Deny { interrupt }` + `deny_interrupt()` (aborts the native turn → `stop_reason: "permission_denied"`) | ✅ (WS C) |
+| Return **permission updates** (persist allow/deny rules) | ✅ `updated_permissions` | ✅ `updatedPermissions` → settings scopes | ✅ `updated_permissions` (native: in-memory session-scoped `RuleStore`; CLI: passthrough to the binary's settings scopes) | 🟡 session-only natively (WS C) |
 | Rich request context | ✅ `ToolPermissionContext` | ✅ (toolUseID, agentID, blockedPath, decisionReason…) | ✅ `PermissionContext` (all of those fields) | ✅ |
 
-**Verdict:** ✅ full parity on the allow/deny + input-rewrite core and request context; ❌ on persisting
-permission-rule updates; 🟡 missing the `dontAsk`/`auto` modes and deny-interrupt.
+**Verdict:** ✅ parity on the allow/deny + input-rewrite core, request context, `dontAsk`,
+deny-interrupt, and `updated_permissions` — with **native `ApiRuntime` enforcement** (a
+`permission_engine::{RuleStore, evaluate}` gate on the tool loop) plus CLI passthrough (WS C).
+Remaining deltas: `auto` (model-classified — WS D); native rule persistence is **session-scoped
+in-memory only** (settings-scope/disk persistence stays a CLI-binary responsibility, spec §9);
+OpenRouterRuntime native enforcement deferred (stored-inert, like the pre-existing modes).
 
 ---
 
@@ -231,7 +240,7 @@ via `Options`. (Arguably a deliberate token-hygiene choice, but it is a parity g
 | Content blocks (text / thinking / tool_use / tool_result / server_tool_use) | ✅ | ✅ | ✅ `ContentBlock` (exhaustive, forward-compatible) | ✅ |
 | `total_cost_usd` on result | ✅ | ✅ | ✅ `ResultMessage.total_cost_usd` | ✅ |
 | Usage incl. **cache** counters | ✅ | ✅ | ✅ `Usage { input, output, cache_creation, cache_read }` | ✅ |
-| `structured_output`, `model_usage`, `permission_denials`, rate-limit events | ✅ (rich) | ✅ | ❌ | 🟡 leaner result frame |
+| `structured_output`, `model_usage`, `permission_denials`, rate-limit events | ✅ (rich) | ✅ | 🟡 `ResultMessage::structured_output` ✅ (WS B); `model_usage` / `permission_denials` / rate-limit ❌ | 🟡 leaner result frame |
 
 **Verdict:** ✅ parity on the core frame taxonomy incl. cache-aware usage and cost; 🟡 official result
 frame carries more diagnostic fields.
@@ -293,9 +302,10 @@ native runtime — the official SDKs delegate all caching to the CLI and never s
 | In-process MCP tools | ✅ parity (minus Zod typing / rich content) |
 | Hooks | ✅ parity (event set differs at edges) |
 | Permissions core (allow/deny/rewrite/context) | ✅ parity |
+| `dontAsk` + deny-interrupt + `updated_permissions` (native enforcement) | ✅ parity (WS C; native rule store session-scoped, `auto` still behind → WS D) |
+| Structured output (`output_format` + typed result) | ✅ parity (WS B; native on Api/OpenRouter, CLI passthrough best-effort) |
 | Message taxonomy incl. cache usage + cost | ✅ parity |
 | Config breadth | 🟡 core covered, ~25 newer knobs missing |
-| Permission-rule updates, `dontAsk`/`auto`, deny-interrupt | ❌ behind |
 | **Subagents** (`agents`/`AgentDefinition`) | ❌ behind |
 | **Sessions** (continue/resume/fork/list) | ❌ behind |
 | **Setting sources** (filesystem config/CLAUDE.md) | ❌ behind |
@@ -322,8 +332,10 @@ Ranked by leverage for the airsstack mission, not by official-checklist complete
 2. **Sessions (continue / resume / fork)** — the largest missing subsystem; needed for any long-lived
    or resumable workflow, and a prerequisite for context-pruning experiments.
 3. **System-prompt preset + append** — cheap, unblocks reusing Claude Code's built-in prompt.
-4. **`dontAsk` / `auto` permission modes + `updated_permissions`** — small deltas, keeps the
-   permission surface current.
+4. ~~**`dontAsk` permission mode + `updated_permissions` + deny-interrupt**~~ — **landed (WS C, HEAD
+   `6dce97b`)**: native `ApiRuntime` enforcement (`permission_engine` gate) + CLI passthrough. Only
+   **`auto`** (model-classified — WS D) remains; native rule persistence is session-scoped in-memory
+   only (settings-scope/disk persistence deferred to the CLI binary, spec §9).
 5. **Streaming input** — enables interactive multi-turn feeds into a live session.
 6. **Setting sources** — evaluate deliberately: loading `CLAUDE.md`/settings fights token hygiene;
    may stay intentionally out of scope.
