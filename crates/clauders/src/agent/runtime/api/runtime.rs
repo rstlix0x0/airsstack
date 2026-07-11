@@ -13,7 +13,8 @@ use crate::agent::mcp::SdkMcpRegistry;
 use crate::agent::message::{AssistantMessage, Message, ResultMessage, Usage as AgentUsage};
 use crate::agent::options::Options;
 use crate::agent::permissions::{
-    JudgeRequest, PermissionContext, PermissionDecision, PermissionMode, PermissionPolicy,
+    JudgeRequest, PermissionContext, PermissionDecision, PermissionJudge, PermissionMode,
+    PermissionPolicy,
 };
 use crate::agent::runtime::Runtime;
 use crate::agent::runtime::permission_engine::{self, RuleStore};
@@ -60,6 +61,7 @@ pub struct ApiRuntime<T: HttpTransport = DefaultTransportPlaceholder> {
     model: Mutex<ModelId>,
     permission_mode: Mutex<PermissionMode>,
     permission_policy: Option<Arc<dyn PermissionPolicy>>,
+    permission_judge: Option<Arc<dyn PermissionJudge>>,
     allowed_tools: Vec<String>,
     interrupt: std::sync::Arc<AtomicBool>,
     cache_policy: CachePolicy,
@@ -97,6 +99,7 @@ impl<T: HttpTransport> ApiRuntime<T> {
             model: Mutex::new(model),
             permission_mode: Mutex::new(options.permission_mode),
             permission_policy: options.permission_policy,
+            permission_judge: options.permission_judge,
             allowed_tools: options.allowed_tools,
             interrupt: std::sync::Arc::new(AtomicBool::new(false)),
             cache_policy: CachePolicy::default(),
@@ -167,6 +170,7 @@ impl<T: HttpTransport> Runtime for ApiRuntime<T> {
             cache_policy: self.cache_policy,
             permission_mode: self.current_permission_mode(),
             permission_policy: self.permission_policy.clone(),
+            permission_judge: self.permission_judge.clone(),
             allowed_tools: self.allowed_tools.clone(),
             output_format: self.output_format.clone(),
         };
@@ -229,6 +233,7 @@ struct TurnContext<T: HttpTransport> {
     cache_policy: CachePolicy,
     permission_mode: PermissionMode,
     permission_policy: Option<Arc<dyn PermissionPolicy>>,
+    permission_judge: Option<Arc<dyn PermissionJudge>>,
     allowed_tools: Vec<String>,
     output_format: Option<OutputConfig>,
 }
@@ -272,7 +277,7 @@ async fn drive<T: HttpTransport>(
         });
 
         if response.stop_reason == Some(StopReason::ToolUse) {
-            match run_tools(&ctx, &mut store, &response.content).await {
+            match run_tools(&ctx, &mut store, Some(prompt.as_str()), &response.content).await {
                 ToolLoopStep::Continue(results) => {
                     history.push(InputMessage {
                         role: Role::User,
@@ -386,6 +391,21 @@ enum ToolLoopStep {
     Interrupted(String),
 }
 
+/// The assistant message's own text, joined, as the agent's stated rationale
+/// for the tool calls in that message. `None` when there is no text block, or
+/// when the joined text is empty or whitespace-only.
+fn message_rationale(content: &[WireBlock]) -> Option<String> {
+    let text = content
+        .iter()
+        .filter_map(|block| match block {
+            WireBlock::Text(t) => Some(t.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    (!text.trim().is_empty()).then_some(text)
+}
+
 /// Gate and run every tool-use block in `content`. Each call is evaluated
 /// against `store` (session rules), the runtime's mode, and its policy:
 /// an allow dispatches the tool (with any rewritten input), a non-interrupt
@@ -394,9 +414,11 @@ enum ToolLoopStep {
 async fn run_tools<T: HttpTransport>(
     ctx: &TurnContext<T>,
     store: &mut RuleStore,
+    task: Option<&str>,
     content: &[WireBlock],
 ) -> ToolLoopStep {
     let mut results = Vec::new();
+    let rationale = message_rationale(content);
     for block in content {
         let WireBlock::ToolUse(use_block) = block else {
             continue;
@@ -408,14 +430,14 @@ async fn run_tools<T: HttpTransport>(
         let review = JudgeRequest {
             tool: use_block.name.as_str(),
             input: &use_block.input,
-            task: None,
-            rationale: None,
+            task,
+            rationale: rationale.as_deref(),
             ctx: &pctx,
         };
         let decision = match permission_engine::evaluate(
             ctx.permission_mode,
             store,
-            None,
+            ctx.permission_judge.as_ref(),
             ctx.permission_policy.as_ref(),
             &review,
         )
@@ -738,7 +760,8 @@ mod tests {
 
     use crate::agent::error::AgentError as AgentErr;
     use crate::agent::permissions::{
-        PermissionContext, PermissionDecision, PermissionMode, PermissionPolicy,
+        JudgeRequest, PermissionContext, PermissionDecision, PermissionJudge, PermissionMode,
+        PermissionPolicy,
     };
 
     fn ran_flag_options(
@@ -809,6 +832,71 @@ mod tests {
         let mut stream = rt.run("add 2 and 3".into()).await.expect("run");
         let _ = collect(&mut stream).await;
         assert!(ran.load(Ordering::SeqCst), "pre-approved tool executes");
+    }
+
+    struct FixedJudge {
+        decision: fn() -> PermissionDecision,
+    }
+
+    #[async_trait]
+    impl PermissionJudge for FixedJudge {
+        async fn judge(&self, _req: &JudgeRequest<'_>) -> Result<PermissionDecision, AgentErr> {
+            Ok((self.decision)())
+        }
+    }
+
+    fn auto_options_with_judge(
+        ran: std::sync::Arc<AtomicBool>,
+        judge: std::sync::Arc<dyn PermissionJudge>,
+    ) -> Options {
+        let add = tool(
+            "add",
+            "Add two ints",
+            serde_json::json!({"type": "object"}),
+            move |_args| {
+                let ran_for_tool = ran.clone();
+                async move {
+                    ran_for_tool.store(true, Ordering::SeqCst);
+                    Ok(ToolResult::text("5"))
+                }
+            },
+        );
+        Options::builder()
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(MaxTokens::new(64).unwrap())
+            .permission_mode(PermissionMode::Auto)
+            .permission_judge(judge)
+            .sdk_mcp_server(SdkMcpServer::builder("calc").tool(add).build())
+            .build()
+    }
+
+    #[tokio::test]
+    async fn auto_mode_judge_deny_blocks_the_tool() {
+        let ran = std::sync::Arc::new(AtomicBool::new(false));
+        let judge: std::sync::Arc<dyn PermissionJudge> = std::sync::Arc::new(FixedJudge {
+            decision: || PermissionDecision::deny("no"),
+        });
+        let opts = auto_options_with_judge(ran.clone(), judge);
+        let rt = ApiRuntime::new(client_with(two_turn_transport()), opts).expect("runtime");
+        let mut stream = rt.run("add 2 and 3".into()).await.expect("run");
+        let _ = collect(&mut stream).await;
+        assert!(
+            !ran.load(Ordering::SeqCst),
+            "judge-denied tool must not execute"
+        );
+    }
+
+    #[tokio::test]
+    async fn auto_mode_judge_allow_runs_the_tool() {
+        let ran = std::sync::Arc::new(AtomicBool::new(false));
+        let judge: std::sync::Arc<dyn PermissionJudge> = std::sync::Arc::new(FixedJudge {
+            decision: PermissionDecision::allow,
+        });
+        let opts = auto_options_with_judge(ran.clone(), judge);
+        let rt = ApiRuntime::new(client_with(two_turn_transport()), opts).expect("runtime");
+        let mut stream = rt.run("add 2 and 3".into()).await.expect("run");
+        let _ = collect(&mut stream).await;
+        assert!(ran.load(Ordering::SeqCst), "judge-allowed tool executes");
     }
 
     struct DenyInterruptPolicy;
@@ -1043,6 +1131,7 @@ mod tests {
             cache_policy: CachePolicy::default(),
             permission_mode: crate::agent::permissions::PermissionMode::default(),
             permission_policy: None,
+            permission_judge: None,
             allowed_tools: Vec::new(),
             output_format,
         }
