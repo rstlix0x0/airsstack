@@ -11,6 +11,7 @@ use crate::agent::mcp::{SdkMcpRegistry, SdkMcpServer};
 use crate::agent::permissions::{PermissionMode, PermissionPolicy};
 use crate::agent::system_prompt::SystemPromptConfig;
 use crate::agent::types::McpServerConfig;
+use crate::messages::structured_outputs::OutputConfig;
 use crate::types::{MaxTokens, ModelId};
 
 /// Default graceful-shutdown window before the supervisor forces a kill.
@@ -61,6 +62,8 @@ pub struct Options {
     pub permission_policy: Option<Arc<dyn PermissionPolicy>>,
     /// Registered in-process MCP servers, held by the SDK.
     pub sdk_mcp_servers: SdkMcpRegistry,
+    /// Schema-constrained structured output forwarded to the runtime.
+    pub output_format: Option<OutputConfig>,
 }
 
 impl fmt::Debug for Options {
@@ -92,6 +95,7 @@ impl fmt::Debug for Options {
                     i32::from(!self.sdk_mcp_servers.is_empty())
                 ),
             )
+            .field("output_format", &self.output_format)
             .finish()
     }
 }
@@ -130,6 +134,7 @@ pub struct OptionsBuilder {
     hooks: HookRegistry,
     permission_policy: Option<Arc<dyn PermissionPolicy>>,
     sdk_mcp_servers: SdkMcpRegistry,
+    output_format: Option<OutputConfig>,
 }
 
 impl fmt::Debug for OptionsBuilder {
@@ -281,6 +286,23 @@ impl OptionsBuilder {
         self
     }
 
+    /// Constrain the result to a JSON Schema via an [`OutputConfig`].
+    #[must_use]
+    pub fn output_format(mut self, config: impl Into<OutputConfig>) -> Self {
+        self.output_format = Some(config.into());
+        self
+    }
+
+    /// Constrain the result to the given JSON Schema.
+    ///
+    /// Convenience over [`OutputConfig::json_schema`] for the common case of a
+    /// single JSON Schema value.
+    #[must_use]
+    pub fn output_schema(mut self, schema: serde_json::Value) -> Self {
+        self.output_format = Some(OutputConfig::json_schema(schema));
+        self
+    }
+
     /// Finalize into an [`Options`].
     ///
     /// # Panics
@@ -313,6 +335,7 @@ impl OptionsBuilder {
             hooks: self.hooks,
             permission_policy: self.permission_policy,
             sdk_mcp_servers: self.sdk_mcp_servers,
+            output_format: self.output_format,
         }
     }
 }
@@ -476,5 +499,20 @@ mod tests {
                 exclude_dynamic_sections: true,
             }
         );
+    }
+
+    #[test]
+    fn output_schema_builder_sets_json_schema_config() {
+        let opts = Options::builder()
+            .output_schema(serde_json::json!({ "type": "object" }))
+            .build();
+        let cfg = opts.output_format.expect("output_format set");
+        let j = serde_json::to_value(&cfg).expect("serialize");
+        assert_eq!(j["format"]["type"], "json_schema");
+    }
+
+    #[test]
+    fn output_format_defaults_to_none() {
+        assert!(Options::default().output_format.is_none());
     }
 }
