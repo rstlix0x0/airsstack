@@ -9,6 +9,7 @@
 pub mod api;
 pub mod cli;
 pub mod openrouter;
+pub(crate) mod permission_engine;
 mod port;
 pub mod routing;
 
