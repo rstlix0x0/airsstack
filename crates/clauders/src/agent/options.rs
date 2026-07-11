@@ -377,9 +377,7 @@ mod tests {
             _input: &serde_json::Value,
             _ctx: PermissionContext,
         ) -> Result<PermissionDecision, crate::agent::error::AgentError> {
-            Ok(PermissionDecision::Allow {
-                updated_input: None,
-            })
+            Ok(PermissionDecision::allow())
         }
     }
 

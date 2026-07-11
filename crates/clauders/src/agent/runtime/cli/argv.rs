@@ -186,9 +186,7 @@ mod tests {
                 _i: &serde_json::Value,
                 _c: PermissionContext,
             ) -> Result<PermissionDecision, AgentError> {
-                Ok(PermissionDecision::Allow {
-                    updated_input: None,
-                })
+                Ok(PermissionDecision::allow())
             }
         }
 
