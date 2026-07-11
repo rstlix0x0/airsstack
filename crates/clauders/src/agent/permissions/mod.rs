@@ -8,7 +8,9 @@
 mod decision;
 mod mode;
 mod policy;
+mod update;
 
 pub use decision::{PermissionContext, PermissionDecision};
 pub use mode::PermissionMode;
 pub use policy::PermissionPolicy;
+pub use update::{PermissionBehavior, PermissionScope, PermissionUpdate};

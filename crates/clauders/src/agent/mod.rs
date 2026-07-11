@@ -48,7 +48,10 @@ pub use middleware::{
 };
 pub use options::{Options, OptionsBuilder};
 pub use orchestration::{Limiter, Pool, SemaphoreLimiter};
-pub use permissions::{PermissionContext, PermissionDecision, PermissionMode, PermissionPolicy};
+pub use permissions::{
+    PermissionBehavior, PermissionContext, PermissionDecision, PermissionMode, PermissionPolicy,
+    PermissionScope, PermissionUpdate,
+};
 pub use runtime::Runtime;
 pub use runtime::api::{ApiRuntime, CachePolicy};
 pub use runtime::cli::CliRuntime;
