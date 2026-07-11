@@ -3,7 +3,7 @@ type: Rust Module
 title: clauders::agent::runtime
 description: The runtime layer aggregator — declares the Runtime port and its adapters (api, cli, openrouter, routing, mock); everything above it (Client) is generic over the Runtime trait re-exported here.
 tags: [rust, sdk, agent, runtime, module-map]
-timestamp: 2026-07-10T00:00:00Z
+timestamp: 2026-07-11T00:00:00Z
 resource: crates/clauders/src/agent/runtime/mod.rs
 ---
 
@@ -21,6 +21,7 @@ the `Runtime` trait — is unchanged in kind).
 pub mod api;
 pub mod cli;
 pub mod openrouter;
+pub(crate) mod permission_engine;
 mod port;
 pub mod routing;
 
@@ -36,6 +37,7 @@ pub mod mock;
 | `cli` | [CliRuntime overview](/crates/clauders/agent/cli/overview.md) — subprocess-backed adapter (default) |
 | `api` | [ApiRuntime overview](/crates/clauders/agent/runtime/api/overview.md) — native Messages API adapter |
 | `openrouter` | [OpenRouterRuntime overview](/crates/clauders/agent/runtime/openrouter/overview.md) — native OpenRouter chat-completions adapter |
+| `permission_engine` (`pub(crate)`) | [RuleStore/evaluate](/crates/clauders/agent/runtime/permission_engine.md) — native permission enforcement consulted by `api` (not `cli` or `openrouter`) |
 | `routing` | [RoutingRuntime overview](/crates/clauders/agent/runtime/routing/overview.md) — meta-adapter dispatching per-turn to one of the others |
 | `mock` (`cfg(test)`) | [MockRuntime](/crates/clauders/agent/mock.md) — subprocess-free test double |
 

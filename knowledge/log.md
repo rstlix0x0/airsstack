@@ -1,3 +1,11 @@
+## 2026-07-11
+
+- **Update** — crates/clauders/agent/permissions: reflects the folder-module split (mod.rs/mode.rs/decision.rs/policy.rs); documented PermissionMode::DontAsk, PermissionDecision's new `interrupt`/`updated_permissions` fields, the `allow`/`allow_with`/`deny`/`deny_interrupt` constructors, `updated_permissions()`, and `updatedPermissions` wire attachment in `into_response_value`; resource retargeted to `permissions/mod.rs`.
+- **Creation** — crates/clauders/agent/permissions/update: PermissionUpdate/PermissionBehavior/PermissionScope, the rule-update cluster carried by PermissionDecision.
+- **Creation** — crates/clauders/agent/runtime/permission_engine: RuleStore (session-scoped, tool-name-keyed) and evaluate() — native enforcement engine (bypass -> session rule -> DontAsk -> policy/allow).
+- **Update** — crates/clauders/agent/runtime/api/runtime: documented the ApiRuntime native enforcement wiring — ToolLoopStep, gated run_tools/apply_input, one RuleStore owned across drive(), and the interrupted_result terminal frame (stop_reason "permission_denied"); cross-linked to permission_engine rather than duplicating its logic.
+- **Update** — crates/clauders/agent/runtime/overview: added the permission_engine submodule row to the module map (pub(crate), consulted only by the api adapter).
+
 ## 2026-07-10
 
 - **Update** — crates/clauders/agent/cli/argv: relocated resource to agent/runtime/cli/argv.rs; documented SystemPromptConfig lowering (Preset -> --append-system-prompt/--exclude-dynamic-system-prompt-sections) and the sdk_mcp_servers --mcp-config declarations.
