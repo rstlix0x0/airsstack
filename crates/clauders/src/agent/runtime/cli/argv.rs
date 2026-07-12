@@ -74,6 +74,15 @@ pub(super) fn build_argv(options: &Options) -> Vec<String> {
         argv.push("--mcp-config".to_string());
         argv.push(declaration.to_string());
     }
+    // Programmatic subagents: forward the whole map as one JSON object, mirroring
+    // the `--mcp-config` pattern. The binary owns subagent execution; programmatic
+    // definitions take precedence over any filesystem `.claude/agents/*.md` of the
+    // same name. Flag acceptance is verified behind CLAUDERS_AGENT_E2E=1.
+    if !options.agents.is_empty() {
+        argv.push("--agents".to_string());
+        let config = serde_json::json!(options.agents);
+        argv.push(config.to_string());
+    }
     argv
 }
 
@@ -229,5 +238,32 @@ mod tests {
         let argv = build_argv(&Options::default());
         assert!(!argv.iter().any(|a| a == "--system-prompt"));
         assert!(!argv.iter().any(|a| a == "--append-system-prompt"));
+    }
+
+    fn agents_flag_value(argv: &[String]) -> Option<&str> {
+        let idx = argv.iter().position(|a| a == "--agents")?;
+        argv.get(idx + 1).map(String::as_str)
+    }
+
+    #[test]
+    fn omits_agents_flag_when_map_empty() {
+        let argv = build_argv(&Options::builder().build());
+        assert!(agents_flag_value(&argv).is_none());
+    }
+
+    #[test]
+    fn serializes_agents_map_to_json_flag() {
+        use crate::agent::subagents::AgentDefinition;
+
+        let reviewer = AgentDefinition::new("reviewer", "be careful")
+            .expect("valid")
+            .with_model(ModelId::claude_haiku_4_5());
+        let opts = Options::builder().agent("reviewer", reviewer).build();
+        let argv = build_argv(&opts);
+        let json = agents_flag_value(&argv).expect("--agents present");
+        let parsed: serde_json::Value = serde_json::from_str(json).expect("valid json");
+        assert_eq!(parsed["reviewer"]["description"], "reviewer");
+        assert_eq!(parsed["reviewer"]["prompt"], "be careful");
+        assert_eq!(parsed["reviewer"]["model"], "claude-haiku-4-5");
     }
 }
