@@ -23,6 +23,7 @@ pub mod process;
 pub mod protocol;
 pub mod runtime;
 pub mod stream;
+pub mod subagents;
 pub mod system_prompt;
 pub mod types;
 
@@ -62,4 +63,5 @@ pub use runtime::routing::{
     RuntimeClassifier,
 };
 pub use stream::MessageStream;
+pub use subagents::{AgentDefinition, AgentDefinitionError};
 pub use system_prompt::SystemPromptConfig;
