@@ -12,7 +12,7 @@ use crate::agent::mcp::{SdkMcpRegistry, SdkMcpServer};
 use crate::agent::permissions::{PermissionJudge, PermissionMode, PermissionPolicy};
 use crate::agent::subagents::AgentDefinition;
 use crate::agent::system_prompt::SystemPromptConfig;
-use crate::agent::types::McpServerConfig;
+use crate::agent::types::{McpServerConfig, SessionControl};
 use crate::messages::structured_outputs::OutputConfig;
 use crate::types::{MaxTokens, ModelId};
 
@@ -71,6 +71,11 @@ pub struct Options {
     /// Programmatic subagents the running agent can delegate to, keyed by the
     /// name the model invokes.
     pub agents: HashMap<String, AgentDefinition>,
+    /// Session continuation intent for this session.
+    pub session: SessionControl,
+    /// Native session-store root (API runtime only; ignored by the CLI
+    /// runtime). `None` selects the runtime's default store location.
+    pub session_dir: Option<PathBuf>,
 }
 
 impl fmt::Debug for Options {
@@ -108,6 +113,8 @@ impl fmt::Debug for Options {
                 "agents",
                 &format_args!("<{} registered>", self.agents.len()),
             )
+            .field("session", &self.session)
+            .field("session_dir", &self.session_dir)
             .finish()
     }
 }
@@ -149,6 +156,8 @@ pub struct OptionsBuilder {
     sdk_mcp_servers: SdkMcpRegistry,
     output_format: Option<OutputConfig>,
     agents: HashMap<String, AgentDefinition>,
+    session: SessionControl,
+    session_dir: Option<PathBuf>,
 }
 
 impl fmt::Debug for OptionsBuilder {
@@ -332,6 +341,20 @@ impl OptionsBuilder {
         self
     }
 
+    /// Set the session continuation intent.
+    #[must_use]
+    pub fn session(mut self, session: SessionControl) -> Self {
+        self.session = session;
+        self
+    }
+
+    /// Set the native session-store root (API runtime only).
+    #[must_use]
+    pub fn session_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.session_dir = Some(dir.into());
+        self
+    }
+
     /// Finalize into an [`Options`].
     ///
     /// # Panics
@@ -367,6 +390,8 @@ impl OptionsBuilder {
             sdk_mcp_servers: self.sdk_mcp_servers,
             output_format: self.output_format,
             agents: self.agents,
+            session: self.session,
+            session_dir: self.session_dir,
         }
     }
 }
@@ -568,6 +593,37 @@ mod tests {
     #[test]
     fn output_format_defaults_to_none() {
         assert!(Options::default().output_format.is_none());
+    }
+
+    #[test]
+    fn default_session_is_new_and_dir_is_none() {
+        use crate::agent::types::SessionControl;
+        let opts = Options::default();
+        assert_eq!(opts.session, SessionControl::New);
+        assert!(opts.session_dir.is_none());
+    }
+
+    #[test]
+    fn builder_sets_session_and_dir() {
+        use crate::agent::types::{SessionControl, SessionId};
+        let opts = Options::builder()
+            .session(SessionControl::Resume {
+                id: SessionId::new("sess_x"),
+                fork: true,
+            })
+            .session_dir("/tmp/clauders-sessions")
+            .build();
+        assert_eq!(
+            opts.session,
+            SessionControl::Resume {
+                id: SessionId::new("sess_x"),
+                fork: true,
+            }
+        );
+        assert_eq!(
+            opts.session_dir.as_deref(),
+            Some(std::path::Path::new("/tmp/clauders-sessions"))
+        );
     }
 
     #[test]

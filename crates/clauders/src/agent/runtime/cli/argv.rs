@@ -3,6 +3,7 @@
 use crate::agent::options::Options;
 use crate::agent::permissions::PermissionMode;
 use crate::agent::system_prompt::SystemPromptConfig;
+use crate::agent::types::SessionControl;
 
 /// Build the full argument vector for spawning the backend.
 ///
@@ -83,6 +84,7 @@ pub(super) fn build_argv(options: &Options) -> Vec<String> {
         let config = serde_json::json!(options.agents);
         argv.push(config.to_string());
     }
+    argv.extend(session_args(&options.session));
     argv
 }
 
@@ -95,6 +97,30 @@ pub(super) const fn permission_mode_wire(mode: PermissionMode) -> &'static str {
         PermissionMode::BypassPermissions => "bypassPermissions",
         PermissionMode::DontAsk => "dontAsk",
         PermissionMode::Auto => "auto",
+    }
+}
+
+/// Map the session intent to the backend's session flags.
+///
+/// `--fork-session` combines with either `--continue` or `--resume <id>`.
+/// `New` emits nothing; the binary starts a fresh session by default.
+fn session_args(control: &SessionControl) -> Vec<String> {
+    match control {
+        SessionControl::New => Vec::new(),
+        SessionControl::Continue { fork } => {
+            let mut args = vec!["--continue".to_string()];
+            if *fork {
+                args.push("--fork-session".to_string());
+            }
+            args
+        }
+        SessionControl::Resume { id, fork } => {
+            let mut args = vec!["--resume".to_string(), id.as_str().to_string()];
+            if *fork {
+                args.push("--fork-session".to_string());
+            }
+            args
+        }
     }
 }
 
@@ -265,5 +291,71 @@ mod tests {
         assert_eq!(parsed["reviewer"]["description"], "reviewer");
         assert_eq!(parsed["reviewer"]["prompt"], "be careful");
         assert_eq!(parsed["reviewer"]["model"], "claude-haiku-4-5");
+    }
+
+    #[test]
+    fn new_session_emits_no_session_flags() {
+        let argv = build_argv(&Options::default());
+        assert!(!argv.iter().any(|a| a == "--continue"));
+        assert!(!argv.iter().any(|a| a == "--resume"));
+        assert!(!argv.iter().any(|a| a == "--fork-session"));
+    }
+
+    #[test]
+    fn continue_without_fork_emits_continue_only() {
+        use crate::agent::types::SessionControl;
+        let opts = Options::builder()
+            .session(SessionControl::Continue { fork: false })
+            .build();
+        let argv = build_argv(&opts);
+        assert!(argv.iter().any(|a| a == "--continue"));
+        assert!(!argv.iter().any(|a| a == "--fork-session"));
+    }
+
+    #[test]
+    fn continue_with_fork_emits_continue_and_fork() {
+        use crate::agent::types::SessionControl;
+        let opts = Options::builder()
+            .session(SessionControl::Continue { fork: true })
+            .build();
+        let argv = build_argv(&opts);
+        assert!(argv.iter().any(|a| a == "--continue"));
+        assert!(argv.iter().any(|a| a == "--fork-session"));
+    }
+
+    #[test]
+    fn resume_without_fork_emits_resume_and_id() {
+        use crate::agent::types::{SessionControl, SessionId};
+        let opts = Options::builder()
+            .session(SessionControl::Resume {
+                id: SessionId::new("sess_42"),
+                fork: false,
+            })
+            .build();
+        let argv = build_argv(&opts);
+        let idx = argv
+            .iter()
+            .position(|a| a == "--resume")
+            .expect("--resume present");
+        assert_eq!(argv.get(idx + 1).map(String::as_str), Some("sess_42"));
+        assert!(!argv.iter().any(|a| a == "--fork-session"));
+    }
+
+    #[test]
+    fn resume_with_fork_emits_resume_id_and_fork() {
+        use crate::agent::types::{SessionControl, SessionId};
+        let opts = Options::builder()
+            .session(SessionControl::Resume {
+                id: SessionId::new("sess_99"),
+                fork: true,
+            })
+            .build();
+        let argv = build_argv(&opts);
+        let idx = argv
+            .iter()
+            .position(|a| a == "--resume")
+            .expect("--resume present");
+        assert_eq!(argv.get(idx + 1).map(String::as_str), Some("sess_99"));
+        assert!(argv.iter().any(|a| a == "--fork-session"));
     }
 }
