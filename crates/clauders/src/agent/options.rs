@@ -1,5 +1,6 @@
 //! Session configuration for the Agent SDK.
 
+use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -9,6 +10,7 @@ use crate::agent::capabilities::HookEvent;
 use crate::agent::hooks::{Hook, HookRegistry};
 use crate::agent::mcp::{SdkMcpRegistry, SdkMcpServer};
 use crate::agent::permissions::{PermissionJudge, PermissionMode, PermissionPolicy};
+use crate::agent::subagents::AgentDefinition;
 use crate::agent::system_prompt::SystemPromptConfig;
 use crate::agent::types::McpServerConfig;
 use crate::messages::structured_outputs::OutputConfig;
@@ -66,6 +68,9 @@ pub struct Options {
     pub sdk_mcp_servers: SdkMcpRegistry,
     /// Schema-constrained structured output forwarded to the runtime.
     pub output_format: Option<OutputConfig>,
+    /// Programmatic subagents the running agent can delegate to, keyed by the
+    /// name the model invokes.
+    pub agents: HashMap<String, AgentDefinition>,
 }
 
 impl fmt::Debug for Options {
@@ -99,6 +104,10 @@ impl fmt::Debug for Options {
                 ),
             )
             .field("output_format", &self.output_format)
+            .field(
+                "agents",
+                &format_args!("<{} registered>", self.agents.len()),
+            )
             .finish()
     }
 }
@@ -139,6 +148,7 @@ pub struct OptionsBuilder {
     permission_judge: Option<Arc<dyn PermissionJudge>>,
     sdk_mcp_servers: SdkMcpRegistry,
     output_format: Option<OutputConfig>,
+    agents: HashMap<String, AgentDefinition>,
 }
 
 impl fmt::Debug for OptionsBuilder {
@@ -314,6 +324,14 @@ impl OptionsBuilder {
         self
     }
 
+    /// Register a programmatic subagent under `name`. A later registration
+    /// with the same name replaces an earlier one.
+    #[must_use]
+    pub fn agent(mut self, name: impl Into<String>, definition: AgentDefinition) -> Self {
+        self.agents.insert(name.into(), definition);
+        self
+    }
+
     /// Finalize into an [`Options`].
     ///
     /// # Panics
@@ -348,6 +366,7 @@ impl OptionsBuilder {
             permission_judge: self.permission_judge,
             sdk_mcp_servers: self.sdk_mcp_servers,
             output_format: self.output_format,
+            agents: self.agents,
         }
     }
 }
@@ -549,5 +568,21 @@ mod tests {
     #[test]
     fn output_format_defaults_to_none() {
         assert!(Options::default().output_format.is_none());
+    }
+
+    #[test]
+    fn agents_default_empty_and_builder_registers_by_name() {
+        use crate::agent::subagents::AgentDefinition;
+
+        let opts = Options::builder().build();
+        assert!(opts.agents.is_empty());
+
+        let reviewer = AgentDefinition::new("reviewer", "be careful").expect("valid");
+        let opts = Options::builder().agent("reviewer", reviewer).build();
+        assert_eq!(opts.agents.len(), 1);
+        assert_eq!(
+            opts.agents.get("reviewer").expect("present").prompt(),
+            "be careful"
+        );
     }
 }
