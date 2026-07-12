@@ -1,5 +1,6 @@
 //! The native `Runtime` over the Messages API.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -19,6 +20,7 @@ use crate::agent::permissions::{
 use crate::agent::runtime::Runtime;
 use crate::agent::runtime::permission_engine::{self, RuleStore};
 use crate::agent::stream::{MessageStream, ReceiverStream};
+use crate::agent::subagents::AgentDefinition;
 use crate::agent::types::{McpStatus, Prompt, ServerStatus, SessionId};
 use crate::client::Client;
 use crate::client::DefaultTransportPlaceholder;
@@ -31,6 +33,7 @@ use crate::transport::HttpTransport;
 use crate::types::{MaxTokens, ModelId, SystemPrompt};
 
 use super::cache::CachePolicy;
+use super::subagent::{self, ToolFilter};
 use super::{cache, convert, tools};
 
 /// Per-turn message channel capacity (natural backpressure beyond this).
@@ -66,6 +69,7 @@ pub struct ApiRuntime<T: HttpTransport = DefaultTransportPlaceholder> {
     interrupt: std::sync::Arc<AtomicBool>,
     cache_policy: CachePolicy,
     output_format: Option<OutputConfig>,
+    agents: HashMap<String, AgentDefinition>,
 }
 
 impl<T: HttpTransport> ApiRuntime<T> {
@@ -104,6 +108,7 @@ impl<T: HttpTransport> ApiRuntime<T> {
             interrupt: std::sync::Arc::new(AtomicBool::new(false)),
             cache_policy: CachePolicy::default(),
             output_format: options.output_format,
+            agents: options.agents,
         })
     }
 
@@ -173,6 +178,8 @@ impl<T: HttpTransport> Runtime for ApiRuntime<T> {
             permission_judge: self.permission_judge.clone(),
             allowed_tools: self.allowed_tools.clone(),
             output_format: self.output_format.clone(),
+            agents: self.agents.clone(),
+            tool_filter: ToolFilter::inherit_all(),
         };
         tokio::spawn(drive(ctx, prompt, tx));
         Ok(ReceiverStream::new(rx).boxed())
@@ -236,16 +243,38 @@ struct TurnContext<T: HttpTransport> {
     permission_judge: Option<Arc<dyn PermissionJudge>>,
     allowed_tools: Vec<String>,
     output_format: Option<OutputConfig>,
+    agents: HashMap<String, AgentDefinition>,
+    tool_filter: ToolFilter,
 }
 
 /// Drive the agent loop, pushing frames into `tx` until the turn ends, the
 /// turn cap is hit, an error occurs, or an interrupt is observed.
-async fn drive<T: HttpTransport>(
+///
+/// Returns a boxed, pinned future rather than an `async fn`'s opaque type:
+/// `run_tools` may route an `Agent` call back into this same function
+/// (`run_subagent`), and a self-referential opaque type cannot be named.
+/// Boxing here gives the recursion a concrete, `Send`-declared type to close
+/// the cycle on.
+fn drive<T: HttpTransport>(
+    ctx: TurnContext<T>,
+    prompt: Prompt,
+    tx: mpsc::Sender<Result<Message, AgentError>>,
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>> {
+    Box::pin(drive_inner(ctx, prompt, tx))
+}
+
+/// The actual turn-loop body, boxed by [`drive`].
+async fn drive_inner<T: HttpTransport>(
     ctx: TurnContext<T>,
     prompt: Prompt,
     tx: mpsc::Sender<Result<Message, AgentError>>,
 ) {
-    let tool_defs: Vec<WireTool> = tools::declare(&ctx.registry);
+    let mut tool_defs: Vec<WireTool> = ctx.tool_filter.apply(tools::declare(&ctx.registry));
+    if !ctx.agents.is_empty() {
+        if let Some(agent_tool) = subagent::declare_agent_tool(&ctx.agents) {
+            tool_defs.push(agent_tool);
+        }
+    }
     let mut history: Vec<InputMessage> = vec![InputMessage {
         role: Role::User,
         content: MessageContent::Text(prompt.as_str().to_string()),
@@ -457,7 +486,11 @@ async fn run_tools<T: HttpTransport>(
         match decision {
             PermissionDecision::Allow { updated_input, .. } => {
                 let gated = apply_input(use_block, updated_input);
-                let result = tools::dispatch(&ctx.registry, &gated).await;
+                let result = if subagent::is_agent_tool(gated.name.as_str()) {
+                    run_subagent(ctx, &gated).await
+                } else {
+                    tools::dispatch(&ctx.registry, &gated).await
+                };
                 results.push(WireBlock::ToolResult(result));
             }
             PermissionDecision::Deny {
@@ -491,6 +524,70 @@ fn apply_input(block: &ToolUseBlock, updated: Option<serde_json::Value>) -> Tool
             ..block.clone()
         },
     )
+}
+
+/// Derive a child turn context for a subagent: its own model/prompt/tool
+/// filter/turn cap/permission mode (each inheriting the parent when unset),
+/// the parent's inherited judge and policy, and `agents = ∅` so the child
+/// is offered no `Agent` tool (depth-1).
+fn child_context<T: HttpTransport>(
+    parent: &TurnContext<T>,
+    def: &AgentDefinition,
+) -> TurnContext<T> {
+    let n = SESSION_COUNTER.fetch_add(1, Ordering::Relaxed);
+    TurnContext {
+        client: parent.client.clone(),
+        registry: parent.registry.clone(),
+        model: def.model().cloned().unwrap_or_else(|| parent.model.clone()),
+        max_tokens: parent.max_tokens,
+        system: Some(SystemPrompt::text(def.prompt())),
+        turn_cap: def.max_turns().unwrap_or(parent.turn_cap),
+        session_id: SessionId::new(format!("api-subagent-{n}")),
+        interrupt: std::sync::Arc::clone(&parent.interrupt),
+        cache_policy: parent.cache_policy,
+        permission_mode: def.permission_mode().unwrap_or(parent.permission_mode),
+        permission_policy: parent.permission_policy.clone(),
+        permission_judge: parent.permission_judge.clone(),
+        allowed_tools: parent.allowed_tools.clone(),
+        output_format: None,
+        agents: HashMap::new(),
+        tool_filter: ToolFilter::from_definition(def),
+    }
+}
+
+/// Run a registered subagent as an isolated nested loop and return its final
+/// message as the `Agent` tool result. Intermediate child frames are drained
+/// internally (never forwarded to the parent stream) — context isolation.
+async fn run_subagent<T: HttpTransport>(
+    ctx: &TurnContext<T>,
+    block: &ToolUseBlock,
+) -> ToolResultBlock {
+    let id = block.id.clone();
+    let Some((name, prompt)) = subagent::parse_agent_call(&block.input) else {
+        return ToolResultBlock::err(id, "Agent call missing subagent_type or prompt".to_string());
+    };
+    let Some(def) = ctx.agents.get(&name) else {
+        return ToolResultBlock::err(id, format!("unknown subagent: {name}"));
+    };
+    let child = child_context(ctx, def);
+    let (tx, mut rx) = mpsc::channel::<Result<Message, AgentError>>(TURN_CHANNEL_CAPACITY);
+    tokio::spawn(drive(child, Prompt::new(prompt), tx));
+    let mut last_result: Option<ResultMessage> = None;
+    while let Some(item) = rx.recv().await {
+        match item {
+            Ok(Message::Result(result)) => last_result = Some(result),
+            Ok(_) => {} // intermediate assistant/tool frames stay inside the child
+            Err(error) => return ToolResultBlock::err(id, error.to_string()),
+        }
+    }
+    match last_result {
+        Some(result) if result.is_error => ToolResultBlock::err(id, result.result),
+        Some(result) if result.result.trim().is_empty() => {
+            ToolResultBlock::err(id, "subagent finished without output".to_string())
+        }
+        Some(result) => ToolResultBlock::text(id, result.result),
+        None => ToolResultBlock::err(id, "subagent produced no result".to_string()),
+    }
 }
 
 /// The terminal `Result` frame for a completed turn.
@@ -749,6 +846,149 @@ mod tests {
                 assert_eq!(r.result, "the answer is 5");
                 assert_eq!(r.num_turns, 2);
                 assert!(!r.is_error);
+            }
+            other => panic!("expected Result, got {other:?}"),
+        }
+    }
+
+    fn record_request_models(
+        slot: std::sync::Arc<std::sync::Mutex<Vec<serde_json::Value>>>,
+        payloads: Vec<&'static str>,
+    ) -> impl FnMut(http::Request<Bytes>) -> Result<Response<BodyStream>, TransportError> {
+        let mut call = 0usize;
+        move |req| {
+            let parsed: serde_json::Value =
+                serde_json::from_slice(req.body()).unwrap_or(serde_json::Value::Null);
+            slot.lock().unwrap().push(parsed);
+            let payload = payloads[call.min(payloads.len() - 1)];
+            call += 1;
+            let mut resp = Response::new(body(payload));
+            *resp.status_mut() = StatusCode::OK;
+            Ok(resp)
+        }
+    }
+
+    fn options_with_subagent(name: &str, def: crate::agent::subagents::AgentDefinition) -> Options {
+        Options::builder()
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(MaxTokens::new(64).unwrap())
+            .allowed_tools(vec!["Agent".to_string()])
+            .agent(name, def)
+            .build()
+    }
+
+    #[tokio::test]
+    async fn agent_tool_is_declared_when_subagents_registered() {
+        use crate::agent::subagents::AgentDefinition;
+        let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut transport = MockHttpTransport::new();
+        transport
+            .expect_send()
+            .times(1)
+            .returning(record_request_models(requests.clone(), vec![END_TURN]));
+        let def = AgentDefinition::new("cheap helper", "be brief").expect("valid");
+        let rt = ApiRuntime::new(client_with(transport), options_with_subagent("cheap", def))
+            .expect("runtime");
+        let mut stream = rt.run("hi".into()).await.expect("run");
+        let _ = collect(&mut stream).await;
+
+        let reqs = requests.lock().unwrap().clone();
+        let tools = reqs[0]["tools"].as_array().expect("tools array");
+        assert!(
+            tools.iter().any(|t| t["name"] == "Agent"),
+            "Agent tool must be declared when agents are registered"
+        );
+    }
+
+    const AGENT_CALL_TURN: &str = r#"{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"tool_use","id":"toolu_1","name":"Agent","input":{"subagent_type":"cheap","prompt":"do the subtask"}}],"stop_reason":"tool_use","stop_sequence":null,"usage":{"input_tokens":5,"output_tokens":2}}"#;
+    const CHILD_END_TURN: &str = r#"{"id":"msg_c","type":"message","role":"assistant","model":"claude-haiku-4-5","content":[{"type":"text","text":"child done"}],"stop_reason":"end_turn","stop_sequence":null,"usage":{"input_tokens":4,"output_tokens":2}}"#;
+    const PARENT_FINAL_TURN: &str = r#"{"id":"msg_2","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"text","text":"parent done"}],"stop_reason":"end_turn","stop_sequence":null,"usage":{"input_tokens":9,"output_tokens":4}}"#;
+
+    #[tokio::test]
+    async fn agent_call_runs_child_on_its_own_model_then_parent_resumes() {
+        use crate::agent::subagents::AgentDefinition;
+        let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut transport = MockHttpTransport::new();
+        // 3 requests: parent(tool_use Agent) → child(end_turn) → parent(end_turn).
+        transport
+            .expect_send()
+            .times(3)
+            .returning(record_request_models(
+                requests.clone(),
+                vec![AGENT_CALL_TURN, CHILD_END_TURN, PARENT_FINAL_TURN],
+            ));
+        let def = AgentDefinition::new("cheap helper", "be brief")
+            .expect("valid")
+            .with_model(ModelId::claude_haiku_4_5());
+        let rt = ApiRuntime::new(client_with(transport), options_with_subagent("cheap", def))
+            .expect("runtime");
+        let mut stream = rt.run("do it".into()).await.expect("run");
+        let frames = collect(&mut stream).await;
+
+        // Parent finished normally with its own final text.
+        match frames.last().expect("terminal") {
+            Message::Result(r) => assert_eq!(r.result, "parent done"),
+            other => panic!("expected Result, got {other:?}"),
+        }
+
+        let reqs = requests.lock().unwrap().clone();
+        assert_eq!(reqs.len(), 3, "parent, child, parent");
+        // Downgrade: parent on advanced model, child on the cheap model.
+        assert_eq!(reqs[0]["model"], "claude-sonnet-4-5");
+        assert_eq!(reqs[1]["model"], "claude-haiku-4-5");
+        assert_eq!(reqs[2]["model"], "claude-sonnet-4-5");
+        // Depth-1: the child request is offered no Agent tool. The wire
+        // request omits an empty `tools` array entirely (skip_serializing_if
+        // = Vec::is_empty), so absence of the key is itself proof of no tools.
+        let child_has_agent_tool = reqs[1]
+            .get("tools")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|tools| tools.iter().any(|t| t["name"] == "Agent"));
+        assert!(
+            !child_has_agent_tool,
+            "a subagent must not be offered the Agent tool (depth-1)"
+        );
+        // The child runs on the definition's prompt as its system prompt.
+        assert!(
+            reqs[1].to_string().contains("be brief"),
+            "child request must carry def.prompt as its system prompt"
+        );
+        // The child's final message text is returned verbatim to the parent as
+        // the Agent tool result — it appears in the parent's resume request.
+        assert!(
+            reqs[2].to_string().contains("child done"),
+            "child final text must be fed back as the parent's Agent tool result"
+        );
+    }
+
+    #[tokio::test]
+    async fn agent_call_with_unknown_subagent_is_an_error_result_and_loop_continues() {
+        use crate::agent::subagents::AgentDefinition;
+        // Parent calls Agent for a name that is NOT registered → error result,
+        // no child request, parent still ends normally. Only 2 requests.
+        let unknown_call = r#"{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"tool_use","id":"toolu_1","name":"Agent","input":{"subagent_type":"nope","prompt":"x"}}],"stop_reason":"tool_use","stop_sequence":null,"usage":{"input_tokens":5,"output_tokens":2}}"#;
+        let mut transport = MockHttpTransport::new();
+        let mut turn = 0u8;
+        transport.expect_send().times(2).returning(move |_req| {
+            turn += 1;
+            let payload = if turn == 1 {
+                unknown_call
+            } else {
+                PARENT_FINAL_TURN
+            };
+            let mut resp = Response::new(body(payload));
+            *resp.status_mut() = StatusCode::OK;
+            Ok(resp)
+        });
+        let def = AgentDefinition::new("cheap helper", "be brief").expect("valid");
+        let rt = ApiRuntime::new(client_with(transport), options_with_subagent("cheap", def))
+            .expect("runtime");
+        let mut stream = rt.run("do it".into()).await.expect("run");
+        let frames = collect(&mut stream).await;
+        match frames.last().expect("terminal") {
+            Message::Result(r) => {
+                assert!(!r.is_error);
+                assert_eq!(r.result, "parent done");
             }
             other => panic!("expected Result, got {other:?}"),
         }
@@ -1134,6 +1374,8 @@ mod tests {
             permission_judge: None,
             allowed_tools: Vec::new(),
             output_format,
+            agents: std::collections::HashMap::new(),
+            tool_filter: super::ToolFilter::inherit_all(),
         }
     }
 
