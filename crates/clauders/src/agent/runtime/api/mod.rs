@@ -31,6 +31,7 @@
 mod cache;
 mod convert;
 mod runtime;
+mod subagent;
 mod tools;
 
 pub use cache::CachePolicy;
