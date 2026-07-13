@@ -42,9 +42,7 @@ pub use permissions::{
     PermissionScope, PermissionUpdate,
 };
 pub use runtime::Runtime;
-pub use runtime::api::{ApiRuntime, CachePolicy};
 pub use runtime::cli::CliRuntime;
-pub use runtime::permission_judge::RuntimeJudge;
 pub use stream::MessageStream;
 pub use subagents::{AgentDefinition, AgentDefinitionError};
 pub use system_prompt::SystemPromptConfig;

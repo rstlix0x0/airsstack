@@ -4,10 +4,7 @@
 //! subprocess; `mock` is the test double. Everything above this layer (`Client`)
 //! is generic over the `Runtime` trait re-exported here.
 
-pub mod api;
 pub mod cli;
-pub(crate) mod permission_engine;
-pub mod permission_judge;
 mod port;
 
 pub use port::Runtime;

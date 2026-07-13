@@ -33,11 +33,6 @@ impl SdkMcpRegistry {
         self.servers.get(server_name).map(Arc::clone)
     }
 
-    /// Iterate the registered servers (dispatch + declaration source).
-    pub(crate) fn servers(&self) -> impl Iterator<Item = &Arc<SdkMcpServer>> {
-        self.servers.values()
-    }
-
     /// The `--mcp-config` declaration objects (`{"<name>":{"type":"sdk"}}`),
     /// one per registered server.
     pub(crate) fn declarations(&self) -> impl Iterator<Item = serde_json::Value> + '_ {

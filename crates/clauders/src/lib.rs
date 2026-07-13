@@ -41,7 +41,6 @@
 #![forbid(unsafe_code)]
 
 pub mod agent;
-pub use agent::{ApiRuntime, CachePolicy};
 
 pub mod messages;
 
