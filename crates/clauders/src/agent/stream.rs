@@ -57,6 +57,7 @@ mod tests {
     fn result_msg() -> Message {
         Message::Result(ResultMessage {
             result: "ok".into(),
+            structured_output: None,
             is_error: false,
             total_cost_usd: None,
             stop_reason: None,

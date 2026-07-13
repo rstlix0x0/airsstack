@@ -1,5 +1,6 @@
 //! Session configuration for the Agent SDK.
 
+use std::collections::HashMap;
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -8,8 +9,11 @@ use std::time::Duration;
 use crate::agent::capabilities::HookEvent;
 use crate::agent::hooks::{Hook, HookRegistry};
 use crate::agent::mcp::{SdkMcpRegistry, SdkMcpServer};
-use crate::agent::permissions::{PermissionMode, PermissionPolicy};
-use crate::agent::types::McpServerConfig;
+use crate::agent::permissions::{PermissionJudge, PermissionMode, PermissionPolicy};
+use crate::agent::subagents::AgentDefinition;
+use crate::agent::system_prompt::SystemPromptConfig;
+use crate::agent::types::{McpServerConfig, SessionControl};
+use crate::messages::structured_outputs::OutputConfig;
 use crate::types::{MaxTokens, ModelId};
 
 /// Default graceful-shutdown window before the supervisor forces a kill.
@@ -26,8 +30,8 @@ const DEFAULT_MAX_TOKENS: u32 = 4096;
 /// the runtime's reader.
 #[derive(Clone)]
 pub struct Options {
-    /// Optional system prompt forwarded in the initialize handshake.
-    pub system_prompt: Option<String>,
+    /// System-prompt configuration forwarded to the runtime.
+    pub system_prompt: SystemPromptConfig,
     /// Model override.
     pub model: Option<ModelId>,
     /// Per-request output-token ceiling forwarded to the Messages API.
@@ -58,8 +62,20 @@ pub struct Options {
     pub hooks: HookRegistry,
     /// Optional tool-permission policy.
     pub permission_policy: Option<Arc<dyn PermissionPolicy>>,
+    /// Optional model judge consulted under `PermissionMode::Auto`.
+    pub permission_judge: Option<Arc<dyn PermissionJudge>>,
     /// Registered in-process MCP servers, held by the SDK.
     pub sdk_mcp_servers: SdkMcpRegistry,
+    /// Schema-constrained structured output forwarded to the runtime.
+    pub output_format: Option<OutputConfig>,
+    /// Programmatic subagents the running agent can delegate to, keyed by the
+    /// name the model invokes.
+    pub agents: HashMap<String, AgentDefinition>,
+    /// Session continuation intent for this session.
+    pub session: SessionControl,
+    /// Native session-store root (API runtime only; ignored by the CLI
+    /// runtime). `None` selects the runtime's default store location.
+    pub session_dir: Option<PathBuf>,
 }
 
 impl fmt::Debug for Options {
@@ -84,6 +100,7 @@ impl fmt::Debug for Options {
                 &format_args!("<{} registered>", i32::from(!self.hooks.is_empty())),
             )
             .field("permission_policy", &self.permission_policy.is_some())
+            .field("permission_judge", &self.permission_judge.is_some())
             .field(
                 "sdk_mcp_servers",
                 &format_args!(
@@ -91,6 +108,13 @@ impl fmt::Debug for Options {
                     i32::from(!self.sdk_mcp_servers.is_empty())
                 ),
             )
+            .field("output_format", &self.output_format)
+            .field(
+                "agents",
+                &format_args!("<{} registered>", self.agents.len()),
+            )
+            .field("session", &self.session)
+            .field("session_dir", &self.session_dir)
             .finish()
     }
 }
@@ -112,7 +136,7 @@ impl Default for Options {
 /// Builder for [`Options`].
 #[derive(Clone, Default)]
 pub struct OptionsBuilder {
-    system_prompt: Option<String>,
+    system_prompt: SystemPromptConfig,
     model: Option<ModelId>,
     max_tokens: Option<MaxTokens>,
     permission_mode: PermissionMode,
@@ -128,7 +152,12 @@ pub struct OptionsBuilder {
     shutdown_grace: Option<Duration>,
     hooks: HookRegistry,
     permission_policy: Option<Arc<dyn PermissionPolicy>>,
+    permission_judge: Option<Arc<dyn PermissionJudge>>,
     sdk_mcp_servers: SdkMcpRegistry,
+    output_format: Option<OutputConfig>,
+    agents: HashMap<String, AgentDefinition>,
+    session: SessionControl,
+    session_dir: Option<PathBuf>,
 }
 
 impl fmt::Debug for OptionsBuilder {
@@ -147,10 +176,24 @@ impl fmt::Debug for OptionsBuilder {
 }
 
 impl OptionsBuilder {
-    /// Set the system prompt.
+    /// Set the system prompt from a string or [`SystemPromptConfig`].
     #[must_use]
-    pub fn system_prompt(mut self, prompt: impl Into<String>) -> Self {
-        self.system_prompt = Some(prompt.into());
+    pub fn system_prompt(mut self, prompt: impl Into<SystemPromptConfig>) -> Self {
+        self.system_prompt = prompt.into();
+        self
+    }
+
+    /// Set the `claude_code` preset system prompt, optionally appended to.
+    #[must_use]
+    pub fn system_prompt_preset(
+        mut self,
+        append: Option<String>,
+        exclude_dynamic_sections: bool,
+    ) -> Self {
+        self.system_prompt = SystemPromptConfig::Preset {
+            append,
+            exclude_dynamic_sections,
+        };
         self
     }
 
@@ -259,10 +302,56 @@ impl OptionsBuilder {
         self
     }
 
+    /// Set the model judge consulted under `PermissionMode::Auto`.
+    #[must_use]
+    pub fn permission_judge(mut self, judge: Arc<dyn PermissionJudge>) -> Self {
+        self.permission_judge = Some(judge);
+        self
+    }
+
     /// Register an in-process MCP server for this session.
     #[must_use]
     pub fn sdk_mcp_server(mut self, server: SdkMcpServer) -> Self {
         self.sdk_mcp_servers.register(server);
+        self
+    }
+
+    /// Constrain the result to a JSON Schema via an [`OutputConfig`].
+    #[must_use]
+    pub fn output_format(mut self, config: impl Into<OutputConfig>) -> Self {
+        self.output_format = Some(config.into());
+        self
+    }
+
+    /// Constrain the result to the given JSON Schema.
+    ///
+    /// Convenience over [`OutputConfig::json_schema`] for the common case of a
+    /// single JSON Schema value.
+    #[must_use]
+    pub fn output_schema(mut self, schema: serde_json::Value) -> Self {
+        self.output_format = Some(OutputConfig::json_schema(schema));
+        self
+    }
+
+    /// Register a programmatic subagent under `name`. A later registration
+    /// with the same name replaces an earlier one.
+    #[must_use]
+    pub fn agent(mut self, name: impl Into<String>, definition: AgentDefinition) -> Self {
+        self.agents.insert(name.into(), definition);
+        self
+    }
+
+    /// Set the session continuation intent.
+    #[must_use]
+    pub fn session(mut self, session: SessionControl) -> Self {
+        self.session = session;
+        self
+    }
+
+    /// Set the native session-store root (API runtime only).
+    #[must_use]
+    pub fn session_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.session_dir = Some(dir.into());
         self
     }
 
@@ -297,7 +386,12 @@ impl OptionsBuilder {
             shutdown_grace: self.shutdown_grace.unwrap_or(DEFAULT_SHUTDOWN_GRACE),
             hooks: self.hooks,
             permission_policy: self.permission_policy,
+            permission_judge: self.permission_judge,
             sdk_mcp_servers: self.sdk_mcp_servers,
+            output_format: self.output_format,
+            agents: self.agents,
+            session: self.session,
+            session_dir: self.session_dir,
         }
     }
 }
@@ -339,9 +433,19 @@ mod tests {
             _input: &serde_json::Value,
             _ctx: PermissionContext,
         ) -> Result<PermissionDecision, crate::agent::error::AgentError> {
-            Ok(PermissionDecision::Allow {
-                updated_input: None,
-            })
+            Ok(PermissionDecision::allow())
+        }
+    }
+
+    struct TestJudge;
+
+    #[async_trait::async_trait]
+    impl crate::agent::permissions::PermissionJudge for TestJudge {
+        async fn judge(
+            &self,
+            _req: &crate::agent::permissions::JudgeRequest<'_>,
+        ) -> Result<PermissionDecision, crate::agent::error::AgentError> {
+            Ok(PermissionDecision::allow())
         }
     }
 
@@ -430,5 +534,111 @@ mod tests {
     #[test]
     fn default_options_have_no_sdk_mcp_servers() {
         assert!(Options::default().sdk_mcp_servers.is_empty());
+    }
+
+    #[test]
+    fn builder_sets_permission_judge() {
+        let opts = Options::builder()
+            .permission_judge(Arc::new(TestJudge))
+            .build();
+        assert!(opts.permission_judge.is_some());
+    }
+
+    #[test]
+    fn default_options_have_no_judge() {
+        assert!(Options::default().permission_judge.is_none());
+    }
+
+    #[test]
+    fn default_system_prompt_is_none() {
+        use crate::agent::system_prompt::SystemPromptConfig;
+        assert_eq!(Options::default().system_prompt, SystemPromptConfig::None);
+    }
+
+    #[test]
+    fn builder_string_sets_text_variant() {
+        use crate::agent::system_prompt::SystemPromptConfig;
+        let opts = Options::builder().system_prompt("be brief").build();
+        assert_eq!(
+            opts.system_prompt,
+            SystemPromptConfig::Text("be brief".to_owned())
+        );
+    }
+
+    #[test]
+    fn builder_preset_sets_preset_variant() {
+        use crate::agent::system_prompt::SystemPromptConfig;
+        let opts = Options::builder()
+            .system_prompt_preset(Some("project rules".to_owned()), true)
+            .build();
+        assert_eq!(
+            opts.system_prompt,
+            SystemPromptConfig::Preset {
+                append: Some("project rules".to_owned()),
+                exclude_dynamic_sections: true,
+            }
+        );
+    }
+
+    #[test]
+    fn output_schema_builder_sets_json_schema_config() {
+        let opts = Options::builder()
+            .output_schema(serde_json::json!({ "type": "object" }))
+            .build();
+        let cfg = opts.output_format.expect("output_format set");
+        let j = serde_json::to_value(&cfg).expect("serialize");
+        assert_eq!(j["format"]["type"], "json_schema");
+    }
+
+    #[test]
+    fn output_format_defaults_to_none() {
+        assert!(Options::default().output_format.is_none());
+    }
+
+    #[test]
+    fn default_session_is_new_and_dir_is_none() {
+        use crate::agent::types::SessionControl;
+        let opts = Options::default();
+        assert_eq!(opts.session, SessionControl::New);
+        assert!(opts.session_dir.is_none());
+    }
+
+    #[test]
+    fn builder_sets_session_and_dir() {
+        use crate::agent::types::{SessionControl, SessionId};
+        let opts = Options::builder()
+            .session(SessionControl::Resume {
+                id: SessionId::new("sess_x"),
+                fork: true,
+            })
+            .session_dir("/tmp/clauders-sessions")
+            .build();
+        assert_eq!(
+            opts.session,
+            SessionControl::Resume {
+                id: SessionId::new("sess_x"),
+                fork: true,
+            }
+        );
+        assert_eq!(
+            opts.session_dir.as_deref(),
+            Some(std::path::Path::new("/tmp/clauders-sessions"))
+        );
+    }
+
+    #[test]
+    fn agents_default_empty_and_builder_registers_by_name() {
+        use crate::agent::subagents::AgentDefinition;
+
+        let opts = Options::builder().build();
+        assert!(opts.agents.is_empty());
+
+        let reviewer = AgentDefinition::new("reviewer", "be careful").expect("valid");
+        let opts = Options::builder().agent("reviewer", reviewer).build();
+        assert_eq!(opts.agents.len(), 1);
+        assert_eq!(
+            opts.agents.get("reviewer").expect("present").prompt(),
+            "be careful"
+        );
     }
 }

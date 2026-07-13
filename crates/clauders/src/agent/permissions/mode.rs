@@ -1,0 +1,76 @@
+//! The [`PermissionMode`] data enum forwarded to the binary on the
+//! `set_permission_mode` control request.
+
+use serde::{Deserialize, Serialize};
+
+/// How the binary should gate tool use for a session.
+///
+/// The value is forwarded verbatim to the binary's `set_permission_mode`
+/// control request. Wire names are the camelCase strings the binary expects.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PermissionMode {
+    /// Prompt per the binary's default policy.
+    #[default]
+    #[serde(rename = "default")]
+    Default,
+    /// Auto-accept file edits.
+    #[serde(rename = "acceptEdits")]
+    AcceptEdits,
+    /// Planning mode — propose without executing.
+    #[serde(rename = "plan")]
+    Plan,
+    /// Bypass all permission prompts.
+    #[serde(rename = "bypassPermissions")]
+    BypassPermissions,
+    /// Deny any tool not pre-approved, without prompting.
+    #[serde(rename = "dontAsk")]
+    DontAsk,
+    /// Approve or deny each tool call by a model judge (native `ApiRuntime`)
+    /// or the binary (`CliRuntime`).
+    #[serde(rename = "auto")]
+    Auto,
+}
+
+#[cfg(test)]
+mod tests {
+    #![expect(clippy::expect_used, reason = "test assertions use expect for context")]
+
+    use super::PermissionMode;
+
+    #[test]
+    fn default_is_default_variant() {
+        assert_eq!(PermissionMode::default(), PermissionMode::Default);
+    }
+
+    #[test]
+    fn serializes_to_wire_string() {
+        let json = serde_json::to_string(&PermissionMode::AcceptEdits).expect("serialize");
+        assert_eq!(json, "\"acceptEdits\"");
+        let json = serde_json::to_string(&PermissionMode::BypassPermissions).expect("serialize");
+        assert_eq!(json, "\"bypassPermissions\"");
+    }
+
+    #[test]
+    fn round_trips_plan_variant() {
+        let back: PermissionMode = serde_json::from_str("\"plan\"").expect("deserialize");
+        assert_eq!(back, PermissionMode::Plan);
+    }
+
+    #[test]
+    fn dont_ask_serializes_to_wire_string() {
+        let json = serde_json::to_string(&PermissionMode::DontAsk).expect("serialize");
+        assert_eq!(json, "\"dontAsk\"");
+    }
+
+    #[test]
+    fn auto_serializes_to_wire_string() {
+        let json = serde_json::to_string(&PermissionMode::Auto).expect("serialize");
+        assert_eq!(json, "\"auto\"");
+    }
+
+    #[test]
+    fn round_trips_auto_variant() {
+        let back: PermissionMode = serde_json::from_str("\"auto\"").expect("deserialize");
+        assert_eq!(back, PermissionMode::Auto);
+    }
+}

@@ -16,8 +16,8 @@ categories  = ["api-bindings", "web-programming::http-client", "asynchronous"]
 workspace = true
 
 [dependencies]
-airs-transport = { path = "../airs-transport" }
-openrouter-rs  = { path = "../openrouter-rs" }
+airs-transport = { workspace = true }
+openrouter-rs  = { workspace = true }
 serde          = { workspace = true }
 serde_json     = { workspace = true }
 thiserror      = { workspace = true }
@@ -47,6 +47,7 @@ wiremock     = { workspace = true }
 futures-util = { workspace = true }
 trybuild     = { workspace = true }
 insta        = { workspace = true }
+tempfile     = { workspace = true }
 
 [[bin]]
 name              = "clauders-agent-testchild"

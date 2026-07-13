@@ -1,11 +1,16 @@
 ---
 type: Rust Module
-title: clauders::agent::cli::demux
+title: clauders::agent::runtime::cli::demux
 description: Demux — routes decoded inbound frames to the active turn's message channel or a pending control-response waiter, keyed by correlation id.
 tags: [rust, sdk, agent, cli, demultiplexing]
-timestamp: 2026-07-03T00:00:00Z
-resource: crates/clauders/src/agent/cli/demux.rs
+timestamp: 2026-07-10T00:00:00Z
+resource: crates/clauders/src/agent/runtime/cli/demux.rs
 ---
+
+Relocated from `agent/cli/demux.rs` to `agent/runtime/cli/demux.rs` in the
+runtime-adapter regroup — see the
+[runtime layer overview](/crates/clauders/agent/runtime/overview.md).
+Behavior is unchanged by the move.
 
 The reader task decodes each stdout line into an `InboundFrame` and hands it
 here. Message frames go to the current turn's channel (cleared when the
@@ -39,13 +44,15 @@ clears it once the message is a `Result`; `InboundFrame::ControlResponse`
 resolves and removes the matching pending waiter; `InboundFrame::ControlRequest`
 fails the active turn with `AgentError::Protocol` (this layer has no
 handler — see [Dispatcher](/crates/clauders/agent/cli/dispatch.md) for the
-layer that actually answers these). `close()` fails the turn with
+layer that actually answers these, now including in-process MCP
+`mcp_message` requests). `close()` fails the turn with
 `AgentError::TransportClosed` and clears the sink.
 
 Related: [CliRuntime](/crates/clauders/agent/cli/runtime.md) (owns the
 `Demux` and spawns `reader_loop`), [protocol frames](/crates/clauders/agent/protocol/frames.md),
-[MessageStream](/crates/clauders/agent/stream.md) (fed by the turn sink).
+[MessageStream](/crates/clauders/agent/stream.md) (fed by the turn sink),
+[runtime layer overview](/crates/clauders/agent/runtime/overview.md).
 
 # Citations
 
-1. `crates/clauders/src/agent/cli/demux.rs`
+1. `crates/clauders/src/agent/runtime/cli/demux.rs`

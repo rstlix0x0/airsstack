@@ -1,3 +1,40 @@
+## 2026-07-11
+
+- **Update** — crates/clauders/agent/permissions: reflects the folder-module split (mod.rs/mode.rs/decision.rs/policy.rs); documented PermissionMode::DontAsk, PermissionDecision's new `interrupt`/`updated_permissions` fields, the `allow`/`allow_with`/`deny`/`deny_interrupt` constructors, `updated_permissions()`, and `updatedPermissions` wire attachment in `into_response_value`; resource retargeted to `permissions/mod.rs`.
+- **Creation** — crates/clauders/agent/permissions/update: PermissionUpdate/PermissionBehavior/PermissionScope, the rule-update cluster carried by PermissionDecision.
+- **Creation** — crates/clauders/agent/runtime/permission_engine: RuleStore (session-scoped, tool-name-keyed) and evaluate() — native enforcement engine (bypass -> session rule -> DontAsk -> policy/allow).
+- **Update** — crates/clauders/agent/runtime/api/runtime: documented the ApiRuntime native enforcement wiring — ToolLoopStep, gated run_tools/apply_input, one RuleStore owned across drive(), and the interrupted_result terminal frame (stop_reason "permission_denied"); cross-linked to permission_engine rather than duplicating its logic.
+- **Update** — crates/clauders/agent/runtime/overview: added the permission_engine submodule row to the module map (pub(crate), consulted only by the api adapter).
+
+## 2026-07-10
+
+- **Update** — crates/clauders/agent/cli/argv: relocated resource to agent/runtime/cli/argv.rs; documented SystemPromptConfig lowering (Preset -> --append-system-prompt/--exclude-dynamic-system-prompt-sections) and the sdk_mcp_servers --mcp-config declarations.
+- **Update** — crates/clauders/agent/cli/demux: relocated resource to agent/runtime/cli/demux.rs (runtime-adapter regroup); behavior unchanged.
+- **Update** — crates/clauders/agent/cli/discovery: relocated resource to agent/runtime/cli/discovery.rs (runtime-adapter regroup); behavior unchanged.
+- **Update** — crates/clauders/agent/cli/dispatch: relocated resource to agent/runtime/cli/dispatch.rs; documented the new mcp_message control-request path (Dispatcher now holds an Arc<SdkMcpRegistry> and answers mcp_outcome).
+- **Update** — crates/clauders/agent/cli/handshake: relocated resource to agent/runtime/cli/handshake.rs; documented system_prompt field now sourced via SystemPromptConfig::native_text.
+- **Update** — crates/clauders/agent/cli/overview: relocated resource to agent/runtime/cli/mod.rs; cross-linked sibling api/openrouter/routing/port adapters under the new agent::runtime parent.
+- **Update** — crates/clauders/agent/cli/runtime: relocated resource to agent/runtime/cli/runtime.rs; documented the Dispatcher::new mcp registry argument and CliRuntime::model() defaulting to None.
+- **Update** — crates/clauders/agent/mock: relocated resource to agent/runtime/mock.rs; documented the new model field / with_model / model() override used by routing-runtime targets.
+- **Update** — crates/clauders/agent/runtime: retargeted to agent/runtime/port.rs (the Runtime trait's new location after the mod.rs/port.rs split); documented the new default model() method.
+- **Creation** — crates/clauders/agent/system-prompt: SystemPromptConfig (None/Text/Preset), native_text/is_preset, and the per-runtime lowering table (CliRuntime argv flags vs ApiRuntime/OpenRouterRuntime degrade-to-append).
+- **Creation** — crates/clauders/agent/runtime/overview: the runtime-layer aggregator module map (port/api/cli/openrouter/routing/mock).
+- **Creation** — crates/clauders/agent/runtime/api/overview: native Messages API runtime module map.
+- **Creation** — crates/clauders/agent/runtime/api/runtime: ApiRuntime — Messages API turn loop, system-prompt degrade, capability manifest, fixed routing identity.
+- **Creation** — crates/clauders/agent/runtime/api/convert: pure wire<->agent mapping for the Messages API runtime.
+- **Creation** — crates/clauders/agent/runtime/api/cache: CachePolicy and prompt-cache breakpoint placement (prefix + rolling conversation).
+- **Creation** — crates/clauders/agent/runtime/api/tools: SdkMcpRegistry bridge to Messages API tools (declare/dispatch).
+- **Creation** — crates/clauders/agent/runtime/openrouter/overview: native OpenRouter chat-completions runtime module map.
+- **Creation** — crates/clauders/agent/runtime/openrouter/runtime: OpenRouterRuntime — chat-completions turn loop, structural twin of ApiRuntime.
+- **Creation** — crates/clauders/agent/runtime/openrouter/convert: pure wire<->agent mapping for the OpenRouter runtime.
+- **Creation** — crates/clauders/agent/runtime/openrouter/tools: SdkMcpRegistry bridge to OpenRouter function tools (declare/dispatch).
+- **Creation** — crates/clauders/agent/runtime/routing/overview: AI-driven per-request model routing module map.
+- **Creation** — crates/clauders/agent/runtime/routing/runtime: RoutingRuntime — classify/validate/delegate run(), control-op delegation, capability intersection.
+- **Creation** — crates/clauders/agent/runtime/routing/builder: RoutingRuntimeBuilder type-state builder (NeedsFallback -> Ready).
+- **Creation** — crates/clauders/agent/runtime/routing/card: ModelCard and RoutingSummary, the routing catalog entry.
+- **Creation** — crates/clauders/agent/runtime/routing/classifier: Classifier trait and RuntimeClassifier, the model-backed decision seam.
+- **Creation** — crates/clauders/agent/runtime/routing/error: RoutingError, the routing configuration/decision failure set.
+
 ## 2026-07-03
 
 - **Creation** — provisioned empty OKF bundle.

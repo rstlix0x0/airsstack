@@ -149,6 +149,7 @@ mod tests {
     fn result(text: &str) -> Message {
         Message::Result(ResultMessage {
             result: text.into(),
+            structured_output: None,
             is_error: false,
             total_cost_usd: None,
             stop_reason: None,
@@ -194,6 +195,18 @@ mod tests {
         let mock = MockRuntime::new(vec![]);
         let mut s = mock.run(Prompt::new("p")).await.expect("run");
         assert!(s.next().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn records_set_permission_mode_dont_ask() {
+        let mock = MockRuntime::new(vec![]);
+        mock.set_permission_mode(PermissionMode::DontAsk)
+            .await
+            .expect("set_permission_mode");
+        assert_eq!(
+            mock.calls().last().cloned(),
+            Some(ControlCall::SetPermissionMode(PermissionMode::DontAsk))
+        );
     }
 
     #[test]

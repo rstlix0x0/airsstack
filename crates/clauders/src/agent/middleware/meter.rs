@@ -155,6 +155,7 @@ mod tests {
     fn result_with_usage(input: u64, output: u64, cost: f64) -> Message {
         Message::Result(ResultMessage {
             result: "done".into(),
+            structured_output: None,
             is_error: false,
             total_cost_usd: Some(cost),
             stop_reason: None,
@@ -171,6 +172,7 @@ mod tests {
     fn result_with_cache(input: u64, output: u64, creation: u64, read: u64) -> Message {
         Message::Result(ResultMessage {
             result: "done".into(),
+            structured_output: None,
             is_error: false,
             total_cost_usd: None,
             stop_reason: None,

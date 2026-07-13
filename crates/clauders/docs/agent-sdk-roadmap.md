@@ -74,7 +74,7 @@ bounded concurrency + backpressure.
 | ws1 — `ApiRuntime` on `clauders` (second `Runtime` adapter) | ✅ done (41d2a02) — native `POST /v1/messages` loop, in-process tools, control ops |
 | ws2 Scope A — `OpenRouterRuntime` (third native `Runtime` adapter over openrouter-rs) | ✅ done (038bafe) |
 | ws2 Scope B — `RoutingRuntime` (model-classified dispatch across adapters) | ✅ done (49161b7) |
-| ws2 Scope C — token-efficiency | 🚧 in progress — prompt caching first slice (spec+plan approved, not executed) |
+| ws2 Scope C — token-efficiency | ✅ done (6fa63f5) — prompt caching (`CachePolicy` on `ApiRuntime`, cache-aware usage summed across turns); cost-aware routing + context pruning + per-subtask downgrade remain later/blocked slices |
 
 **This is where the README's north star lands** — mixed routing (cheaper/alternative models via
 OpenRouter: DeepSeek, Kimi K2, Qwen) and token-efficiency (prompt caching, cost-aware routing,
@@ -92,6 +92,34 @@ Architectural constraint: the native `ApiRuntime` sits at the **whole-agent boun
 control protocol, so it reimplements the loop itself and emits the same `Message` types the core
 defines. It is a large, separate build — not a config flag — kept strictly behind the `Runtime`
 trait so it never leaks into the core surface.
+
+---
+
+## Phase 4 — Official CLI-Surface Parity
+
+> Close the *worth-building* gaps against the official Python/TS Agent SDKs identified in the feature-
+> parity analysis — while deliberately skipping CLI-feature passthroughs that fight the token thesis.
+
+| Workstream | Status |
+|---|---|
+| A — system-prompt preset + append | 📋 planned |
+| B — structured output on the agent layer | 📋 planned |
+| C — `dontAsk` mode + `updated_permissions` + deny-interrupt | 📋 planned |
+| D — `auto` permission mode (model-classified, reuse `RoutingRuntime` classifier) | 📋 planned |
+| E1 — subagents `AgentDefinition` + CLI passthrough | 📋 planned |
+| E2 — subagents native nested loop on `ApiRuntime` (per-subtask downgrade) | 📋 planned |
+| F1 — sessions `SessionControl` + CLI passthrough | 📋 planned |
+| F2 — sessions native conversation-history object (context pruning) | 📋 planned |
+| G — streaming input | 📋 planned |
+| H — MCP elicitation (after G) | 📋 planned |
+
+Full scope, sequencing, per-workstream design sketches, and acceptance criteria live in the epic doc:
+[`agent-sdk/phase-4-cli-parity.md`](./agent-sdk/phase-4-cli-parity.md). Each workstream is brainstormed
+into its own SDD spec, then a plan, then executed — same structure Phases 1–3 used.
+
+The two **native** slices (E2 native subagents, F2 native history object) double as the unblockers for
+the roadmap's blocked Scope C token-efficiency slices (per-subtask downgrade, context pruning) — the
+parity work and the token north star converge there.
 
 ---
 

@@ -94,10 +94,7 @@ impl Dispatcher {
                 Err(err) => Err(err.to_string()),
             },
             // No policy registered: allow, echoing the original input.
-            None => Ok(PermissionDecision::Allow {
-                updated_input: None,
-            }
-            .into_response_value(&input)),
+            None => Ok(PermissionDecision::allow().into_response_value(&input)),
         }
     }
 
@@ -192,9 +189,7 @@ mod tests {
             _input: &serde_json::Value,
             _ctx: PermissionContext,
         ) -> Result<PermissionDecision, AgentError> {
-            Ok(PermissionDecision::Allow {
-                updated_input: None,
-            })
+            Ok(PermissionDecision::allow())
         }
     }
 
@@ -208,9 +203,7 @@ mod tests {
             _input: &serde_json::Value,
             _ctx: PermissionContext,
         ) -> Result<PermissionDecision, AgentError> {
-            Ok(PermissionDecision::Deny {
-                message: "nope".to_string(),
-            })
+            Ok(PermissionDecision::deny("nope"))
         }
     }
 
@@ -258,6 +251,7 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(&line).expect("json");
         assert_eq!(value["response"]["response"]["behavior"], "deny");
         assert_eq!(value["response"]["response"]["message"], "nope");
+        assert_eq!(value["response"]["response"]["interrupt"], false);
     }
 
     #[tokio::test]

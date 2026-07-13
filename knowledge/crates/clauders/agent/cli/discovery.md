@@ -1,11 +1,16 @@
 ---
 type: Rust Module
-title: clauders::agent::cli::discovery
+title: clauders::agent::runtime::cli::discovery
 description: discover / check_version — locates the claude binary (override, PATH, per-user fallback) and gates its reported version against the SDK's supported minimum.
 tags: [rust, sdk, agent, cli, discovery, versioning]
-timestamp: 2026-07-03T00:00:00Z
-resource: crates/clauders/src/agent/cli/discovery.rs
+timestamp: 2026-07-10T00:00:00Z
+resource: crates/clauders/src/agent/runtime/cli/discovery.rs
 ---
+
+Relocated from `agent/cli/discovery.rs` to `agent/runtime/cli/discovery.rs`
+in the runtime-adapter regroup — see the
+[runtime layer overview](/crates/clauders/agent/runtime/overview.md).
+Behavior is unchanged by the move.
 
 # Schema
 
@@ -42,8 +47,9 @@ warn and allow (forward-compat).
 Related: [Options::path_to_executable/require_min_version](/crates/clauders/agent/options.md),
 [AgentError::BinaryNotFound/BinaryVersionUnsupported](/crates/clauders/agent/error.md),
 [CliRuntime::connect](/crates/clauders/agent/cli/runtime.md) (calls `discover`
-then probes `--version` and calls `check_version`).
+then probes `--version` and calls `check_version`),
+[runtime layer overview](/crates/clauders/agent/runtime/overview.md).
 
 # Citations
 
-1. `crates/clauders/src/agent/cli/discovery.rs`
+1. `crates/clauders/src/agent/runtime/cli/discovery.rs`

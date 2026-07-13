@@ -23,6 +23,8 @@ pub mod process;
 pub mod protocol;
 pub mod runtime;
 pub mod stream;
+pub mod subagents;
+pub mod system_prompt;
 pub mod types;
 
 pub use capabilities::{Capabilities, HookEvent};
@@ -47,13 +49,20 @@ pub use middleware::{
 };
 pub use options::{Options, OptionsBuilder};
 pub use orchestration::{Limiter, Pool, SemaphoreLimiter};
-pub use permissions::{PermissionContext, PermissionDecision, PermissionMode, PermissionPolicy};
+pub use permissions::{
+    PermissionBehavior, PermissionContext, PermissionDecision, PermissionMode, PermissionPolicy,
+    PermissionScope, PermissionUpdate,
+};
 pub use runtime::Runtime;
 pub use runtime::api::{ApiRuntime, CachePolicy};
 pub use runtime::cli::CliRuntime;
 pub use runtime::openrouter::OpenRouterRuntime;
+pub use runtime::permission_judge::RuntimeJudge;
 pub use runtime::routing::{
     Classifier, ModelCard, RoutingError, RoutingRuntime, RoutingRuntimeBuilder, RoutingSummary,
     RuntimeClassifier,
 };
 pub use stream::MessageStream;
+pub use subagents::{AgentDefinition, AgentDefinitionError};
+pub use system_prompt::SystemPromptConfig;
+pub use types::SessionControl;

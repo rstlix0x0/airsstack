@@ -40,6 +40,12 @@ mockall            = "0.14.0"
 wiremock           = "0.6.5"
 insta              = "1.47.2"
 trybuild           = "1"
+tempfile           = "3.23.0"
+# Internal workspace members — path for local builds, version for publish-readiness.
+# Members inherit these with `{ workspace = true }`. Paths are relative to the workspace root.
+# (clauders has no entry: nothing else depends on it.)
+airs-transport     = { version = "0.1.0", path = "crates/airs-transport" }
+openrouter-rs      = { version = "0.1.0", path = "crates/openrouter-rs" }
 
 [workspace.lints.rust]
 unsafe_code        = "forbid"

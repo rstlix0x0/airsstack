@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository status
 
-The Cargo workspace exists (root `Cargo.toml`, `resolver = "3"`, Edition 2024). It has **two members**: `crates/clauders` (a Claude SDK crate) and `crates/openrouter-rs` (an OpenRouter SDK crate). Add new members under `crates/` only when there is concrete work for them; do not pre-create speculative crates.
+The Cargo workspace exists (root `Cargo.toml`, `resolver = "3"`, Edition 2024). It has **three members**: `crates/clauders` (a Claude SDK crate), `crates/openrouter-rs` (an OpenRouter SDK crate), and `crates/airs-transport` (a generic async transport substrate with an HTTP/reqwest layer, shared by the two SDK crates). Add new members under `crates/` only when there is concrete work for them; do not pre-create speculative crates.
 
 ## Project intent
 
@@ -21,16 +21,20 @@ Be pragmatic; do not build for an imagined future. The repo deliberately ships *
 
 ## Commands
 
-The standard Rust commands apply (`cargo build`, `cargo clippy`, `cargo fmt`). **Tests must run with `--all-features`**: `cargo test --workspace --all-features` for the full gate, or `cargo test -p <crate> --all-features` while iterating on one crate. Plain `cargo test` / `cargo test -p <crate>` compiles only the default features and **silently skips feature-gated tests** (e.g. the `__test-mocks` mock/integration tests), so a green default-feature run is NOT a valid gate. The workspace crates carry no Cargo features; every module is compiled unconditionally. The full pass/fail gate (Definition of Done) lives in the `airsstack-guideline-rust` plugin — see below.
+The standard Rust commands apply (`cargo build`, `cargo clippy`, `cargo fmt`). **The workspace is featureless** — no crate declares any Cargo `[features]`, every module compiles unconditionally, and the `mockall` test doubles live in consumer-owned dev-only `test_support` modules rather than behind a feature. So `--all-features` is a harmless no-op that equals the default build, and plain `cargo test` compiles everything. The Definition of Done nonetheless standardizes on the explicit `--all-features` form for forward-safety: `cargo test --workspace --all-features` (full gate) or `cargo test -p <crate> --all-features` (single crate). The full pass/fail gate (Definition of Done) lives in the `airsstack-guideline-rust` plugin — see below.
 
 ## AI methodology — the airsstack plugin suite
 
-This repo's AI development methodology (execution agents, spec-driven workflow, Rust guidelines, memory, orchestration) is packaged as a **Claude Code plugin suite**, not as loose `.claude/rules/` files or repo-local agents. The marketplace and plugins live in this repo:
+This repo's AI development methodology (execution agents, spec-driven workflow, Rust guidelines, memory, knowledge, orchestration) is packaged as a **Claude Code plugin suite**, not as loose `.claude/rules/` files or repo-local agents. The marketplace and plugins live in this repo. Seven plugins ship from the in-repo marketplace:
 
 - `.claude-plugin/marketplace.json` — the `airsstack` marketplace.
-- `plugins/airsstack/` — execution engine: a TDD coder, a merged code+spec reviewer, a claim verifier, a read-only explorer, an orchestration driver, process guidelines, project-local memory, and a concise output mode.
+- `plugins/airsstack/` — execution engine: a TDD coder, a merged code+spec reviewer, a claim verifier, a read-only explorer, an orchestration driver, process guidelines, project-local snapshot memory, and a concise output mode.
 - `plugins/airsstack-sdd/` — spec-driven workflow: `brainstorm` → `write-plan` → `execute-plan`.
 - `plugins/airsstack-guideline-rust/` — Rust engineering guidelines and the Definition-of-Done, delivered as a lazily-loaded skill.
+- `plugins/airsstack-journal/` — note-based experiential memory: an Obsidian-compatible journal vault written by isolated subagents (capture / note / recall / review / link / helped skills) with a derived recall index, kept outside the repo.
+- `plugins/airsstack-okf/` — Open Knowledge Format (OKF) v0.1 producer+consumer toolkit: bundle provisioning, single-concept authoring, batch enrichment, progressive-disclosure recall, and a conformance linter over the in-repo `knowledge/` bundle.
+- `plugins/airsstack-cmux/` — native cmux terminal control: four lazily-loaded skills (control / workspace / browser / config) that drive the cmux terminal.
+- `plugins/airsstack-plugin-dev/` — plugin-development toolkit for the suite: a PostToolUse cache-sync hook that mirrors edited plugin files into the install cache.
 
 To use the suite, install it from the in-repo marketplace:
 
@@ -39,11 +43,26 @@ To use the suite, install it from the in-repo marketplace:
 /plugin install airsstack@airsstack
 /plugin install airsstack-sdd@airsstack
 /plugin install airsstack-guideline-rust@airsstack
+/plugin install airsstack-journal@airsstack
+/plugin install airsstack-okf@airsstack
+/plugin install airsstack-cmux@airsstack
+/plugin install airsstack-plugin-dev@airsstack
 ```
 
 Each plugin ships its own README under `plugins/<name>/README.md`. The Rust rules, commit convention, model-routing, agent-orchestration, and superpowers-artifact policies that previously lived in `.claude/rules/` are now delivered as plugin skills/references — invoke the relevant skill (e.g. the Rust guideline) rather than expecting always-on rule files.
 
+## Project memory & knowledge — consult before re-deriving
+
+Two in-suite stores hold context the source and git history don't, and both are **token-cheap to query** (index-first, ranked pointers, capped reads). Reach for them proactively rather than re-deriving — it serves the token thesis directly:
+
+- **Development history → the journal (`airsstack-journal`).** An out-of-repo Obsidian vault of grounded session stories, decisions, and insights. When you need to know *why* something was built the way it is, what was already tried, or what a past session decided, run **`/journal-recall <topic>`** — it reads only the derived index and returns ranked pointers; open at most the one or two notes it surfaces. If a recalled note actually helped the task, mark it with **`/journal-helped <stem>`**. This is the "what happened and why" layer that `git blame` cannot answer.
+- **Crate technical knowledge → the OKF bundle (`airsstack-okf`).** The in-repo `knowledge/` bundle holds per-asset OKF concept documents (roughly one per module/type) for the Rust crates, cross-linked and cited back to source. When you need a detailed reference for a specific crate module/type without reading the whole source tree, run **`/okf-recall <question>`** — it reads `index.md` first and opens only the concepts needed (progressive disclosure, hard-capped). Prefer this over re-reading source when the bundle covers the area.
+
+These differ from the `airsstack` plugin's **snapshot memory** (`/snapshot-load`), which is per-branch *session orientation* ("where was I on this branch") — not durable history or reference knowledge. Use snapshots to resume, the journal to recall decisions, the OKF bundle to look up crate internals.
+
+**Drift caveat:** the OKF bundle is regenerated on demand (`/okf-enrich`), not automatically, so it can lag the source and some areas may be unmapped. If a concept contradicts the current code, trust the code and note the drift.
+
 ## Conventions still owned by the repo
 
-- **Commits** follow Conventional Commits v1.0.0 with workspace-aware scopes: crate name (`clauders`, `openrouter-rs`), `workspace` (root Cargo files / top-level config), or `repo` (`.claude/`, `.github/`, `plugins/`, docs). Full convention ships in the `airsstack` plugin (`conventional-commits` guideline).
+- **Commits** follow Conventional Commits v1.0.0 with workspace-aware scopes: crate name (`clauders`, `openrouter-rs`, `airs-transport`), `workspace` (root Cargo files / top-level config), or `repo` (`.claude/`, `.github/`, `plugins/`, `knowledge/`, docs). Full convention ships in the `airsstack` plugin (`conventional-commits` guideline).
 - `.claude/settings.json` carries non-secret project settings; `.claude/settings.local.json` carries machine-local permission grants (gitignored).

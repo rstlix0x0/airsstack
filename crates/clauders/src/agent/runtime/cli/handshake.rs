@@ -12,7 +12,7 @@ use crate::agent::options::Options;
 pub(super) fn initialize_request(options: &Options, request_id: &str) -> serde_json::Value {
     let mut request = serde_json::json!({
         "subtype": "initialize",
-        "system_prompt": options.system_prompt,
+        "system_prompt": options.system_prompt.native_text(),
     });
     if !options.hooks.is_empty() {
         // Caps unknown pre-handshake: declare all registered hooks; the binary
@@ -20,6 +20,11 @@ pub(super) fn initialize_request(options: &Options, request_id: &str) -> serde_j
         let hooks = options.hooks.initialize_payload(&Capabilities::default());
         if let Some(obj) = request.as_object_mut() {
             obj.insert("hooks".to_string(), hooks);
+        }
+    }
+    if let Some(config) = &options.output_format {
+        if let (Some(obj), Ok(value)) = (request.as_object_mut(), serde_json::to_value(config)) {
+            obj.insert("output_format".to_string(), value);
         }
     }
     serde_json::json!({
@@ -117,5 +122,33 @@ mod tests {
         let opts = Options::builder().system_prompt("hi").build();
         let value = initialize_request(&opts, "req_0");
         assert!(value["request"].get("hooks").is_none());
+    }
+
+    #[test]
+    fn initialize_request_carries_preset_append_as_text() {
+        let opts = Options::builder()
+            .system_prompt_preset(Some("appended".to_owned()), false)
+            .build();
+        let value = initialize_request(&opts, "req_0");
+        assert_eq!(value["request"]["system_prompt"], "appended");
+    }
+
+    #[test]
+    fn initialize_request_carries_output_format_when_set() {
+        let opts = Options::builder()
+            .output_schema(serde_json::json!({ "type": "object" }))
+            .build();
+        let value = initialize_request(&opts, "req_0");
+        assert_eq!(
+            value["request"]["output_format"]["format"]["type"],
+            "json_schema"
+        );
+    }
+
+    #[test]
+    fn initialize_request_omits_output_format_when_unset() {
+        let opts = Options::builder().build();
+        let value = initialize_request(&opts, "req_0");
+        assert!(value["request"].get("output_format").is_none());
     }
 }

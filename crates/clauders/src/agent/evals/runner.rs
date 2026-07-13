@@ -109,6 +109,7 @@ mod tests {
     fn result(is_error: bool) -> Message {
         Message::Result(ResultMessage {
             result: String::new(),
+            structured_output: None,
             is_error,
             total_cost_usd: None,
             stop_reason: None,

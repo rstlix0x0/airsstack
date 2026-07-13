@@ -12,21 +12,26 @@ the detail lives in `references/` and is read on demand.
 
 Every Rust change must pass ALL of the following before it is considered complete. Zero warnings is a
 hard bar, not a target. Scope the runs to the crate you touched with `-p <crate> --all-features`; run
-the whole workspace with `cargo test --workspace --all-features` before a release. Every test run
-carries `--all-features` — a default-feature run is not a gate (see the caution below).
+the whole workspace with `cargo test --workspace --all-targets --all-features` before a release. Every
+test run carries `--all-features` — a default-feature run is not a gate (see the caution below).
 
 ```bash
 cargo fmt --check
-cargo build --all-features          # zero warnings (treat warnings as errors)
-cargo clippy --all-features -- -D warnings
-cargo test --all-features           # all tests AND doctests green
-cargo doc --no-deps --all-features  # zero rustdoc warnings
+cargo build --all-features                        # zero warnings (treat warnings as errors)
+cargo clippy --all-features --all-targets -- -D warnings  # lints test/example/bench code too
+cargo test --all-features --all-targets           # unit + integration + examples as tests
+cargo test --all-features --doc                   # doctests (--all-targets excludes them)
+cargo doc --no-deps --all-features                # zero rustdoc warnings
 ```
 
 Rules of the gate:
 
 - **Zero warnings** from build, clippy, and rustdoc. A warning is a failure.
-- **Doctests count.** `cargo test` must exercise doctests; a failing doctest fails the gate.
+- **`--all-targets` is mandatory for clippy and the test run.** Without it, clippy and `cargo test`
+  skip test/example/bench targets and their `#[cfg(test)]` modules — so a lint or failure that lives
+  only in test code passes silently. The zero-warning bar covers test code too.
+- **Doctests count, and need a separate `--doc` run.** `--all-targets` *excludes* doctests, so they
+  are invoked explicitly with `cargo test --all-features --doc`. A failing doctest fails the gate.
 - **`--all-features` is mandatory for the test run, never optional.** Plain `cargo test` /
   `cargo test -p <crate>` / `cargo test --workspace` compiles only the default features and
   **silently skips** every `#[cfg(feature = "…")]`-gated test (e.g. the `__test-mocks` mock and

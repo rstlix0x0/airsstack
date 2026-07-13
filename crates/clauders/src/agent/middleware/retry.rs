@@ -289,6 +289,7 @@ mod tests {
     fn turn(text: &str) -> Vec<Message> {
         vec![Message::Result(ResultMessage {
             result: text.into(),
+            structured_output: None,
             is_error: false,
             total_cost_usd: None,
             stop_reason: None,

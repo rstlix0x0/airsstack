@@ -10,7 +10,9 @@ use openrouter_rs::Client as OrClient;
 use openrouter_rs::chat::message::Message as OrMessage;
 use openrouter_rs::chat::request::ChatRequest;
 use openrouter_rs::chat::response::{ChatCompletion, FinishReason};
+use openrouter_rs::chat::response_format::{JsonSchemaConfig, ResponseFormat};
 use openrouter_rs::chat::tool::{Tool as OrTool, ToolChoice};
+use openrouter_rs::types::SchemaName;
 use openrouter_rs::types::{MaxTokens as OrMaxTokens, ModelId as OrModelId};
 
 use crate::agent::capabilities::Capabilities;
@@ -24,6 +26,7 @@ use crate::agent::runtime::Runtime;
 use crate::agent::stream::{MessageStream, ReceiverStream};
 use crate::agent::types::{McpStatus, Prompt, ServerStatus, SessionId};
 use crate::client::DefaultTransportPlaceholder;
+use crate::messages::structured_outputs::{OutputConfig, OutputFormat};
 use crate::transport::HttpTransport;
 use crate::types::ModelId;
 
@@ -58,6 +61,7 @@ pub struct OpenRouterRuntime<T: HttpTransport = DefaultTransportPlaceholder> {
     model: Mutex<OrModelId>,
     permission_mode: Mutex<PermissionMode>,
     interrupt: Arc<AtomicBool>,
+    output_format: Option<OutputConfig>,
 }
 
 impl<T: HttpTransport> OpenRouterRuntime<T> {
@@ -83,7 +87,14 @@ impl<T: HttpTransport> OpenRouterRuntime<T> {
             client,
             registry: options.sdk_mcp_servers,
             max_tokens,
-            system: options.system_prompt,
+            system: {
+                if options.system_prompt.is_preset() {
+                    tracing::warn!(
+                        "system-prompt preset base is unavailable on OpenRouterRuntime; using append only"
+                    );
+                }
+                options.system_prompt.native_text()
+            },
             turn_cap: options.max_turns.unwrap_or(DEFAULT_MAX_TURNS),
             session_id: SessionId::new(format!("openrouter-session-{n}")),
             capabilities: build_capabilities(),
@@ -91,6 +102,7 @@ impl<T: HttpTransport> OpenRouterRuntime<T> {
             model: Mutex::new(model),
             permission_mode: Mutex::new(options.permission_mode),
             interrupt: Arc::new(AtomicBool::new(false)),
+            output_format: options.output_format,
         })
     }
 
@@ -109,6 +121,31 @@ fn to_or_model(model: &ModelId) -> Result<OrModelId, AgentError> {
     OrModelId::custom(model.as_str()).map_err(|e| AgentError::Protocol {
         detail: e.to_string(),
     })
+}
+
+/// The synthesized schema name for agent-layer structured output.
+///
+/// Anthropic-style [`OutputConfig`] carries no schema name, but OpenRouter's
+/// `json_schema` response format requires one, so a single fixed name is used.
+const STRUCTURED_OUTPUT_SCHEMA_NAME: &str = "structured_output";
+
+/// Map an agent-layer [`OutputConfig`] to an OpenRouter [`ResponseFormat`].
+///
+/// Returns `None` (with a warning) only if the fixed schema name fails
+/// validation, which cannot happen for the constant above.
+fn to_response_format(config: &OutputConfig) -> Option<ResponseFormat> {
+    let schema = match &config.format {
+        OutputFormat::JsonSchema { schema } => schema.clone(),
+    };
+    match SchemaName::new(STRUCTURED_OUTPUT_SCHEMA_NAME) {
+        Ok(name) => Some(ResponseFormat::JsonSchema(JsonSchemaConfig::new(
+            name, schema,
+        ))),
+        Err(error) => {
+            tracing::warn!(%error, "structured-output schema name failed validation; skipping");
+            None
+        }
+    }
 }
 
 /// The static capability manifest: no hooks, only the honored control methods.
@@ -144,6 +181,7 @@ impl<T: HttpTransport> Runtime for OpenRouterRuntime<T> {
             turn_cap: self.turn_cap,
             session_id: self.session_id.clone(),
             interrupt: Arc::clone(&self.interrupt),
+            output_format: self.output_format.clone(),
         };
         tokio::spawn(drive(ctx, prompt, tx));
         Ok(ReceiverStream::new(rx).boxed())
@@ -199,6 +237,7 @@ struct TurnContext<T: HttpTransport> {
     turn_cap: u32,
     session_id: SessionId,
     interrupt: Arc<AtomicBool>,
+    output_format: Option<OutputConfig>,
 }
 
 /// Drive the agent loop, pushing frames into `tx` until the turn ends, the turn
@@ -277,6 +316,11 @@ fn build_request<T: HttpTransport>(
             .tools(tool_defs.to_vec())
             .tool_choice(ToolChoice::Auto);
     }
+    if let Some(config) = &ctx.output_format {
+        if let Some(response_format) = to_response_format(config) {
+            builder = builder.response_format(response_format);
+        }
+    }
     builder.build()
 }
 
@@ -306,8 +350,14 @@ fn terminal_result<T: HttpTransport>(
     choice: &openrouter_rs::chat::response::Choice,
     num_turns: u32,
 ) -> Message {
+    let result = convert::content_text(&choice.message);
+    let structured_output = ctx
+        .output_format
+        .as_ref()
+        .and_then(|_| serde_json::from_str::<serde_json::Value>(&result).ok());
     Message::Result(ResultMessage {
-        result: convert::content_text(&choice.message),
+        result,
+        structured_output,
         is_error: false,
         total_cost_usd: completion.usage.and_then(|u| u.cost),
         stop_reason: choice
@@ -323,6 +373,7 @@ fn terminal_result<T: HttpTransport>(
 fn exhausted_result(session_id: &SessionId, turn_cap: u32) -> Message {
     Message::Result(ResultMessage {
         result: String::new(),
+        structured_output: None,
         is_error: true,
         total_cost_usd: None,
         stop_reason: Some("max_turns".to_string()),
@@ -611,5 +662,44 @@ mod tests {
             rt.model(),
             Some(&ModelId::custom("deepseek/deepseek-chat").expect("model"))
         );
+    }
+
+    const STOP_JSON: &str = r#"{"id":"gen-2","object":"chat.completion","created":1,"model":"deepseek/deepseek-chat","choices":[{"index":0,"message":{"role":"assistant","content":"{\"city\":\"Paris\"}"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4,"cost":0.0}}"#;
+
+    #[test]
+    fn output_config_maps_to_json_schema_response_format() {
+        use crate::messages::structured_outputs::OutputConfig;
+        let cfg = OutputConfig::json_schema(serde_json::json!({ "type": "object" }));
+        let rf = super::to_response_format(&cfg).expect("response format");
+        let v = serde_json::to_value(&rf).expect("serialize");
+        assert_eq!(v["type"], "json_schema");
+        assert_eq!(v["json_schema"]["name"], "structured_output");
+        assert_eq!(v["json_schema"]["schema"]["type"], "object");
+    }
+
+    #[tokio::test]
+    async fn structured_output_parsed_into_terminal_result() {
+        let mut transport = MockHttpTransport::new();
+        transport
+            .expect_send()
+            .times(1)
+            .returning(ok_response(STOP_JSON));
+        let opts = Options::builder()
+            .model(ModelId::custom("deepseek/deepseek-chat").expect("model"))
+            .max_tokens(MaxTokens::new(64).expect("max"))
+            .output_schema(serde_json::json!({ "type": "object" }))
+            .build();
+        let rt = OpenRouterRuntime::new(or_client(transport), opts).expect("runtime");
+        let mut stream = rt.run("hi".into()).await.expect("run");
+        let frames = collect(&mut stream).await;
+        match frames.last().expect("terminal") {
+            Message::Result(r) => {
+                assert_eq!(
+                    r.structured_output,
+                    Some(serde_json::json!({ "city": "Paris" }))
+                );
+            }
+            other => panic!("expected Result, got {other:?}"),
+        }
     }
 }
