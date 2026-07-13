@@ -67,40 +67,6 @@ pub use agent::{ApiRuntime, CachePolicy};
 /// ```
 pub use agent::OpenRouterRuntime;
 
-/// Route each agent turn to a backend model chosen by an LLM classifier.
-///
-/// ```no_run
-/// use clauders::agent::{Options, RoutingRuntime, RoutingSummary, RuntimeClassifier};
-/// use clauders::types::{MaxTokens, ModelId};
-/// use clauders::OpenRouterRuntime;
-/// use openrouter_rs::Client;
-/// use openrouter_rs::types::ApiKey;
-///
-/// # fn make(model: &str) -> Result<OpenRouterRuntime, Box<dyn std::error::Error>> {
-/// # let client = Client::builder()?
-/// #     .api_key(ApiKey::new(std::env::var("OPENROUTER_API_KEY")?)?)
-/// #     .build()?;
-/// # let options = Options::builder()
-/// #     .model(ModelId::custom(model)?)
-/// #     .max_tokens(MaxTokens::new(1024)?)
-/// #     .build();
-/// # Ok(OpenRouterRuntime::new(client, options)?)
-/// # }
-/// # fn run() -> Result<(), Box<dyn std::error::Error>> {
-/// let judge = make("deepseek/deepseek-chat")?;
-/// let cheap = make("deepseek/deepseek-chat")?;
-/// let advanced = make("anthropic/claude-opus-4-7")?;
-///
-/// let routing = RoutingRuntime::builder(RuntimeClassifier::new(judge))
-///     .target(cheap, RoutingSummary::new("cheap; routine edits and simple Q&A")?)
-///     .fallback_target(advanced, RoutingSummary::new("advanced; hard reasoning")?)
-///     .build()?;
-/// # let _ = &routing;
-/// # Ok(())
-/// # }
-/// ```
-pub use agent::RoutingRuntime;
-
 pub mod messages;
 
 pub mod models;

@@ -46,10 +46,6 @@ pub use runtime::api::{ApiRuntime, CachePolicy};
 pub use runtime::cli::CliRuntime;
 pub use runtime::openrouter::OpenRouterRuntime;
 pub use runtime::permission_judge::RuntimeJudge;
-pub use runtime::routing::{
-    Classifier, ModelCard, RoutingError, RoutingRuntime, RoutingRuntimeBuilder, RoutingSummary,
-    RuntimeClassifier,
-};
 pub use stream::MessageStream;
 pub use subagents::{AgentDefinition, AgentDefinitionError};
 pub use system_prompt::SystemPromptConfig;
