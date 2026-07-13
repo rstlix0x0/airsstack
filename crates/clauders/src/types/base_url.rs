@@ -77,10 +77,6 @@ impl BaseUrl {
         self.0.as_str()
     }
 
-    // `dead_code` fires when the `messages` feature is disabled (no callers without it),
-    // but NOT on the default build. `#[allow]` is correct for conditionally-firing lints
-    // where `#[expect]` would warn on the passing configuration.
-    #[allow(dead_code)]
     /// Join a relative path onto this base URL.
     ///
     /// Wraps [`url::Url::join`], keeping the inner `url::Url` private.
