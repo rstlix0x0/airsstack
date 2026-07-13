@@ -17,7 +17,6 @@ pub mod mcp;
 pub mod message;
 pub mod middleware;
 pub mod options;
-pub mod orchestration;
 pub mod permissions;
 pub mod process;
 pub mod protocol;
@@ -48,7 +47,6 @@ pub use middleware::{
     UsageTotals,
 };
 pub use options::{Options, OptionsBuilder};
-pub use orchestration::{Limiter, Pool, SemaphoreLimiter};
 pub use permissions::{
     PermissionBehavior, PermissionContext, PermissionDecision, PermissionMode, PermissionPolicy,
     PermissionScope, PermissionUpdate,
