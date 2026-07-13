@@ -11,7 +11,6 @@ pub mod capabilities;
 pub mod client;
 pub mod content;
 pub mod error;
-pub mod evals;
 pub mod hooks;
 pub mod mcp;
 pub mod message;
@@ -30,10 +29,6 @@ pub use capabilities::{Capabilities, HookEvent};
 pub use client::{AgentClientBuilder, Client, query};
 pub use content::ContentBlock;
 pub use error::AgentError;
-pub use evals::{
-    Case, CaseReport, EvalError as EvalsError, EvalSuite, Grader, Judge, Outcome, Report, Score,
-    Scorer,
-};
 pub use hooks::{Hook, HookDecision, HookInput, HookOutput, HookRegistry};
 pub use mcp::{
     FnTool, SdkMcpRegistry, SdkMcpServer, SdkMcpServerBuilder, Tool, ToolAnnotations, ToolContent,
