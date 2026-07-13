@@ -33,6 +33,7 @@ use crate::transport::HttpTransport;
 use crate::types::{MaxTokens, ModelId, SystemPrompt};
 
 use super::cache::CachePolicy;
+use super::session_store::{self, SessionIds, SessionSink, SessionStore};
 use super::subagent::{self, ToolFilter};
 use super::{cache, convert, tools};
 
@@ -47,6 +48,16 @@ const PROTOCOL_VERSION: &str = "api-1.0";
 /// Monotonic source of per-runtime session identifiers.
 static SESSION_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// Mint a fresh, process-unique session id for a new or forked session.
+fn mint_session_id() -> SessionId {
+    let n = SESSION_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
+    SessionId::new(format!("api-session-{nanos}-{n}"))
+}
+
 /// A [`Runtime`] that drives one agent session against the Messages API.
 ///
 /// Generic over the HTTP transport (defaulting to reqwest) so the whole loop
@@ -58,7 +69,6 @@ pub struct ApiRuntime<T: HttpTransport = DefaultTransportPlaceholder> {
     max_tokens: MaxTokens,
     system: Option<SystemPrompt>,
     turn_cap: u32,
-    session_id: SessionId,
     capabilities: Capabilities,
     identity: Option<ModelId>,
     model: Mutex<ModelId>,
@@ -70,6 +80,8 @@ pub struct ApiRuntime<T: HttpTransport = DefaultTransportPlaceholder> {
     cache_policy: CachePolicy,
     output_format: Option<OutputConfig>,
     agents: HashMap<String, AgentDefinition>,
+    store: SessionStore,
+    session: Mutex<SessionIds>,
 }
 
 impl<T: HttpTransport> ApiRuntime<T> {
@@ -83,7 +95,13 @@ impl<T: HttpTransport> ApiRuntime<T> {
         let model = options.model.ok_or_else(|| AgentError::Protocol {
             detail: "ApiRuntime requires Options.model to be set".to_string(),
         })?;
-        let n = SESSION_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let store = SessionStore::new(
+            options
+                .session_dir
+                .clone()
+                .unwrap_or_else(session_store::default_root),
+        );
+        let write = mint_session_id();
         Ok(Self {
             client,
             registry: options.sdk_mcp_servers,
@@ -97,7 +115,6 @@ impl<T: HttpTransport> ApiRuntime<T> {
                 options.system_prompt.native_text().map(SystemPrompt::text)
             },
             turn_cap: options.max_turns.unwrap_or(DEFAULT_MAX_TURNS),
-            session_id: SessionId::new(format!("api-session-{n}")),
             capabilities: build_capabilities(),
             identity: Some(model.clone()),
             model: Mutex::new(model),
@@ -109,6 +126,8 @@ impl<T: HttpTransport> ApiRuntime<T> {
             cache_policy: CachePolicy::default(),
             output_format: options.output_format,
             agents: options.agents,
+            store,
+            session: Mutex::new(SessionIds::new(write.clone(), write)),
         })
     }
 
@@ -162,6 +181,19 @@ impl<T: HttpTransport> Runtime for ApiRuntime<T> {
         // Each run starts fresh: clear any interrupt latched by a prior turn so
         // a reused runtime is never permanently poisoned by one `interrupt()`.
         self.interrupt.store(false, Ordering::SeqCst);
+
+        // Snapshot the load source and write target, then collapse the source
+        // onto the target so the next run continues from what this one writes.
+        let mut ids = self
+            .session
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let load_id = ids.load.clone();
+        let write_id = ids.write.clone();
+        ids.load = ids.write.clone();
+        drop(ids);
+        let history_seed = self.store.load(&load_id)?;
+
         let (tx, rx) = mpsc::channel::<Result<Message, AgentError>>(TURN_CHANNEL_CAPACITY);
         let ctx = TurnContext {
             client: self.client.clone(),
@@ -170,7 +202,7 @@ impl<T: HttpTransport> Runtime for ApiRuntime<T> {
             max_tokens: self.max_tokens,
             system: self.system.clone(),
             turn_cap: self.turn_cap,
-            session_id: self.session_id.clone(),
+            session_id: write_id.clone(),
             interrupt: std::sync::Arc::clone(&self.interrupt),
             cache_policy: self.cache_policy,
             permission_mode: self.current_permission_mode(),
@@ -180,6 +212,8 @@ impl<T: HttpTransport> Runtime for ApiRuntime<T> {
             output_format: self.output_format.clone(),
             agents: self.agents.clone(),
             tool_filter: ToolFilter::inherit_all(),
+            prior_history: history_seed,
+            session_sink: Some(SessionSink::new(self.store.clone(), write_id)),
         };
         tokio::spawn(drive(ctx, prompt, tx));
         Ok(ReceiverStream::new(rx).boxed())
@@ -245,6 +279,8 @@ struct TurnContext<T: HttpTransport> {
     output_format: Option<OutputConfig>,
     agents: HashMap<String, AgentDefinition>,
     tool_filter: ToolFilter,
+    prior_history: Vec<InputMessage>,
+    session_sink: Option<SessionSink>,
 }
 
 /// Drive the agent loop, pushing frames into `tx` until the turn ends, the
@@ -275,10 +311,11 @@ async fn drive_inner<T: HttpTransport>(
             tool_defs.push(agent_tool);
         }
     }
-    let mut history: Vec<InputMessage> = vec![InputMessage {
+    let mut history: Vec<InputMessage> = ctx.prior_history.clone();
+    history.push(InputMessage {
         role: Role::User,
         content: MessageContent::Text(prompt.as_str().to_string()),
-    }];
+    });
     let mut usage_total = AgentUsage::default();
     let mut store = RuleStore::new(&ctx.allowed_tools);
 
@@ -337,6 +374,7 @@ async fn drive_inner<T: HttpTransport>(
                 usage_total,
             )))
             .await;
+        persist_session(&ctx, &history, &tx).await;
         return;
     }
 
@@ -348,6 +386,21 @@ async fn drive_inner<T: HttpTransport>(
             usage_total,
         )))
         .await;
+}
+
+/// Persist the completed conversation to the session store, if this run has
+/// a sink. A save failure is surfaced as a trailing error frame — the turns
+/// already streamed; only the durable record failed.
+async fn persist_session<T: HttpTransport>(
+    ctx: &TurnContext<T>,
+    history: &[InputMessage],
+    tx: &mpsc::Sender<Result<Message, AgentError>>,
+) {
+    if let Some(sink) = &ctx.session_sink {
+        if let Err(error) = sink.save(history) {
+            let _ = tx.send(Err(error)).await;
+        }
+    }
 }
 
 /// Fold one wire response's usage into the running per-run total.
@@ -552,6 +605,8 @@ fn child_context<T: HttpTransport>(
         output_format: None,
         agents: HashMap::new(),
         tool_filter: ToolFilter::from_definition(def),
+        prior_history: Vec::new(),
+        session_sink: None,
     }
 }
 
@@ -1376,6 +1431,8 @@ mod tests {
             output_format,
             agents: std::collections::HashMap::new(),
             tool_filter: super::ToolFilter::inherit_all(),
+            prior_history: Vec::new(),
+            session_sink: None,
         }
     }
 
@@ -1433,5 +1490,42 @@ mod tests {
             }
             other => panic!("expected Result, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn second_run_sees_first_query_context() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let mut transport = MockHttpTransport::new();
+        transport
+            .expect_send()
+            .times(2)
+            .returning(record_request_models(
+                requests.clone(),
+                vec![END_TURN, END_TURN],
+            ));
+        let opts = Options::builder()
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(MaxTokens::new(64).unwrap())
+            .session_dir(dir.path().to_path_buf())
+            .build();
+        let rt = ApiRuntime::new(client_with(transport), opts).expect("runtime");
+
+        let mut first = rt.run("first".into()).await.expect("run1");
+        let _ = collect(&mut first).await;
+        let mut second = rt.run("second".into()).await.expect("run2");
+        let _ = collect(&mut second).await;
+
+        let reqs = requests.lock().unwrap().clone();
+        assert_eq!(reqs.len(), 2, "two requests, one per run");
+        let second_body = reqs[1].to_string();
+        assert!(
+            second_body.contains("first"),
+            "second request must carry the first query's turn: {second_body}"
+        );
+        assert!(
+            second_body.contains("second"),
+            "second request must carry its own prompt: {second_body}"
+        );
     }
 }

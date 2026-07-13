@@ -31,6 +31,7 @@
 mod cache;
 mod convert;
 mod runtime;
+mod session_store;
 mod subagent;
 mod tools;
 

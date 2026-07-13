@@ -72,6 +72,12 @@ pub enum AgentError {
     /// An operation exceeded its deadline.
     #[error("operation timed out")]
     Timeout,
+    /// A native session-store read/write or (de)serialization failure.
+    #[error("session store error: {detail}")]
+    SessionStore {
+        /// Human-readable description of the store failure.
+        detail: String,
+    },
 }
 
 #[cfg(test)]
@@ -92,5 +98,14 @@ mod tests {
         };
         let shown = err.to_string();
         assert!(shown.contains("/usr/bin"), "got: {shown}");
+    }
+
+    #[test]
+    fn session_store_error_displays_detail() {
+        let err = AgentError::SessionStore {
+            detail: "failed to read session `sess_x`".to_string(),
+        };
+        assert!(err.to_string().contains("session"), "got: {err}");
+        assert!(err.to_string().contains("sess_x"), "got: {err}");
     }
 }
