@@ -43,30 +43,6 @@
 pub mod agent;
 pub use agent::{ApiRuntime, CachePolicy};
 
-/// Drive an agent session against OpenRouter's chat-completions API.
-///
-/// ```no_run
-/// use clauders::agent::{OpenRouterRuntime, Options, Runtime};
-/// use clauders::types::{MaxTokens, ModelId};
-/// use openrouter_rs::Client;
-/// use openrouter_rs::types::ApiKey;
-///
-/// # async fn run() -> Result<(), Box<dyn std::error::Error>> {
-/// let client = Client::builder()?
-///     .api_key(ApiKey::new(std::env::var("OPENROUTER_API_KEY")?)?)
-///     .build()?;
-/// let options = Options::builder()
-///     .model(ModelId::custom("deepseek/deepseek-chat")?)
-///     .max_tokens(MaxTokens::new(1024)?)
-///     .build();
-/// let runtime = OpenRouterRuntime::new(client, options)?;
-/// let mut stream = runtime.run("Summarize this repo.".into()).await?;
-/// # let _ = &mut stream;
-/// # Ok(())
-/// # }
-/// ```
-pub use agent::OpenRouterRuntime;
-
 pub mod messages;
 
 pub mod models;
