@@ -5,6 +5,7 @@
 //! history; a corrupt file is an error.
 
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
 use crate::agent::error::AgentError;
 use crate::agent::types::SessionId;
@@ -22,9 +23,9 @@ pub(super) fn default_root() -> PathBuf {
 
 /// The load source and write target session ids for one runtime.
 ///
-/// They differ only for a forked session's first run; `run` collapses
-/// `load` onto `write` after the first persist so the fork continues in
-/// place thereafter.
+/// They differ only for a forked session's first run; the runtime collapses
+/// `load` onto `write` after the first successful persist (in
+/// [`SessionSink::save`]) so the fork continues in place thereafter.
 #[derive(Clone, Debug)]
 pub(super) struct SessionIds {
     pub(super) load: SessionId,
@@ -87,22 +88,91 @@ impl SessionStore {
             detail: format!("failed to commit session `{id}`: {error}"),
         })
     }
+
+    /// Whether a session file exists for `id`.
+    pub(super) fn exists(&self, id: &SessionId) -> bool {
+        self.path(id).exists()
+    }
+
+    /// The id of the most recently modified session, if any.
+    pub(super) fn most_recent(&self) -> Option<SessionId> {
+        let entries = std::fs::read_dir(&self.root).ok()?;
+        entries
+            .filter_map(Result::ok)
+            .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
+            .filter_map(|entry| {
+                let modified = entry.metadata().ok()?.modified().ok()?;
+                let stem = entry.path().file_stem()?.to_str()?.to_string();
+                Some((modified, SessionId::new(stem)))
+            })
+            .max_by_key(|(modified, _)| *modified)
+            .map(|(_, id)| id)
+    }
+
+    /// Enumerate the ids of all stored sessions (read-only discovery). A
+    /// missing store directory is an empty list, not an error.
+    pub(super) fn list(&self) -> Result<Vec<SessionId>, AgentError> {
+        let entries = match std::fs::read_dir(&self.root) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(error) => {
+                return Err(AgentError::SessionStore {
+                    detail: format!(
+                        "failed to list session store `{}`: {error}",
+                        self.root.display()
+                    ),
+                });
+            }
+        };
+        let mut ids = Vec::new();
+        for entry in entries.filter_map(Result::ok) {
+            let path = entry.path();
+            if path.extension().is_some_and(|ext| ext == "json") {
+                if let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) {
+                    ids.push(SessionId::new(stem));
+                }
+            }
+        }
+        Ok(ids)
+    }
 }
 
-/// A bound write target: a store plus the session id to persist to.
+/// A bound write target: a store, the session id to persist to, and a shared
+/// handle to the runtime's session ids so a successful save can collapse the
+/// load pointer onto the write target.
 #[derive(Clone)]
 pub(super) struct SessionSink {
     store: SessionStore,
     write: SessionId,
+    session: Arc<Mutex<SessionIds>>,
 }
 
 impl SessionSink {
-    pub(super) const fn new(store: SessionStore, write: SessionId) -> Self {
-        Self { store, write }
+    pub(super) const fn new(
+        store: SessionStore,
+        write: SessionId,
+        session: Arc<Mutex<SessionIds>>,
+    ) -> Self {
+        Self {
+            store,
+            write,
+            session,
+        }
     }
 
+    /// Persist `turns`, then — only on a successful save — collapse the shared
+    /// load pointer onto this write target so a subsequent run continues in
+    /// place. A failed save leaves the load pointer untouched (re-seedable).
     pub(super) fn save(&self, turns: &[InputMessage]) -> Result<(), AgentError> {
-        self.store.save(&self.write, turns)
+        self.store.save(&self.write, turns)?;
+        {
+            let mut ids = self
+                .session
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            ids.load = self.write.clone();
+        }
+        Ok(())
     }
 }
 
@@ -162,5 +232,39 @@ mod tests {
             .filter_map(Result::ok)
             .any(|entry| entry.file_name().to_string_lossy().ends_with(".tmp"));
         assert!(!has_tmp, "no .tmp file should remain after save");
+    }
+
+    #[test]
+    fn exists_reflects_saved_sessions() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = SessionStore::new(dir.path().to_path_buf());
+        let id = SessionId::new("sess_e");
+        assert!(!store.exists(&id));
+        store.save(&id, &[]).expect("save");
+        assert!(store.exists(&id));
+    }
+
+    #[test]
+    fn most_recent_picks_newest_by_mtime() {
+        use std::time::{Duration, SystemTime};
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = SessionStore::new(dir.path().to_path_buf());
+        store.save(&SessionId::new("old"), &[]).expect("save old");
+        store.save(&SessionId::new("new"), &[]).expect("save new");
+        // Force deterministic ordering regardless of filesystem mtime resolution.
+        let base = SystemTime::now();
+        std::fs::File::options()
+            .write(true)
+            .open(dir.path().join("old.json"))
+            .expect("open old")
+            .set_modified(base - Duration::from_secs(10))
+            .expect("set old mtime");
+        std::fs::File::options()
+            .write(true)
+            .open(dir.path().join("new.json"))
+            .expect("open new")
+            .set_modified(base)
+            .expect("set new mtime");
+        assert_eq!(store.most_recent().expect("most_recent").as_str(), "new");
     }
 }

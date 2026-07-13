@@ -21,7 +21,7 @@ use crate::agent::runtime::Runtime;
 use crate::agent::runtime::permission_engine::{self, RuleStore};
 use crate::agent::stream::{MessageStream, ReceiverStream};
 use crate::agent::subagents::AgentDefinition;
-use crate::agent::types::{McpStatus, Prompt, ServerStatus, SessionId};
+use crate::agent::types::{McpStatus, Prompt, ServerStatus, SessionControl, SessionId};
 use crate::client::Client;
 use crate::client::DefaultTransportPlaceholder;
 use crate::messages::content::ContentBlock as WireBlock;
@@ -58,6 +58,41 @@ fn mint_session_id() -> SessionId {
     SessionId::new(format!("api-session-{nanos}-{n}"))
 }
 
+/// Resolve a [`SessionControl`] against the store into the load source and
+/// write target. Errors only when a `Resume` names an id absent from the
+/// store (fail closed, matching the CLI's "no conversation found").
+fn resolve_session(
+    control: &SessionControl,
+    store: &SessionStore,
+) -> Result<SessionIds, AgentError> {
+    Ok(match control {
+        SessionControl::New => {
+            let id = mint_session_id();
+            SessionIds::new(id.clone(), id)
+        }
+        SessionControl::Continue { fork } => {
+            let source = store.most_recent().unwrap_or_else(mint_session_id);
+            if *fork {
+                SessionIds::new(source, mint_session_id())
+            } else {
+                SessionIds::new(source.clone(), source)
+            }
+        }
+        SessionControl::Resume { id, fork } => {
+            if !store.exists(id) {
+                return Err(AgentError::SessionStore {
+                    detail: format!("no conversation found with session id `{id}`"),
+                });
+            }
+            if *fork {
+                SessionIds::new(id.clone(), mint_session_id())
+            } else {
+                SessionIds::new(id.clone(), id.clone())
+            }
+        }
+    })
+}
+
 /// A [`Runtime`] that drives one agent session against the Messages API.
 ///
 /// Generic over the HTTP transport (defaulting to reqwest) so the whole loop
@@ -81,7 +116,7 @@ pub struct ApiRuntime<T: HttpTransport = DefaultTransportPlaceholder> {
     output_format: Option<OutputConfig>,
     agents: HashMap<String, AgentDefinition>,
     store: SessionStore,
-    session: Mutex<SessionIds>,
+    session: Arc<Mutex<SessionIds>>,
 }
 
 impl<T: HttpTransport> ApiRuntime<T> {
@@ -101,7 +136,6 @@ impl<T: HttpTransport> ApiRuntime<T> {
                 .clone()
                 .unwrap_or_else(session_store::default_root),
         );
-        let write = mint_session_id();
         Ok(Self {
             client,
             registry: options.sdk_mcp_servers,
@@ -126,8 +160,8 @@ impl<T: HttpTransport> ApiRuntime<T> {
             cache_policy: CachePolicy::default(),
             output_format: options.output_format,
             agents: options.agents,
+            session: Arc::new(Mutex::new(resolve_session(&options.session, &store)?)),
             store,
-            session: Mutex::new(SessionIds::new(write.clone(), write)),
         })
     }
 
@@ -138,6 +172,15 @@ impl<T: HttpTransport> ApiRuntime<T> {
     pub const fn with_cache_policy(mut self, policy: CachePolicy) -> Self {
         self.cache_policy = policy;
         self
+    }
+
+    /// Enumerate the ids of sessions persisted in this runtime's store.
+    ///
+    /// # Errors
+    /// Returns [`AgentError::SessionStore`] if the store directory exists
+    /// but cannot be read.
+    pub fn list_sessions(&self) -> Result<Vec<SessionId>, AgentError> {
+        self.store.list()
     }
 
     /// Read the current model, recovering from a poisoned lock.
@@ -182,16 +225,17 @@ impl<T: HttpTransport> Runtime for ApiRuntime<T> {
         // a reused runtime is never permanently poisoned by one `interrupt()`.
         self.interrupt.store(false, Ordering::SeqCst);
 
-        // Snapshot the load source and write target, then collapse the source
-        // onto the target so the next run continues from what this one writes.
-        let mut ids = self
-            .session
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let load_id = ids.load.clone();
-        let write_id = ids.write.clone();
-        ids.load = ids.write.clone();
-        drop(ids);
+        // Snapshot the load source and write target. The load pointer is NOT
+        // collapsed here — that happens only after a successful persist (in
+        // `SessionSink::save`), so a fork whose first run fails before the
+        // terminal persist stays re-seedable from its source on retry.
+        let (load_id, write_id) = {
+            let ids = self
+                .session
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            (ids.load.clone(), ids.write.clone())
+        };
         let history_seed = self.store.load(&load_id)?;
 
         let (tx, rx) = mpsc::channel::<Result<Message, AgentError>>(TURN_CHANNEL_CAPACITY);
@@ -213,7 +257,11 @@ impl<T: HttpTransport> Runtime for ApiRuntime<T> {
             agents: self.agents.clone(),
             tool_filter: ToolFilter::inherit_all(),
             prior_history: history_seed,
-            session_sink: Some(SessionSink::new(self.store.clone(), write_id)),
+            session_sink: Some(SessionSink::new(
+                self.store.clone(),
+                write_id,
+                std::sync::Arc::clone(&self.session),
+            )),
         };
         tokio::spawn(drive(ctx, prompt, tx));
         Ok(ReceiverStream::new(rx).boxed())
@@ -1527,5 +1575,220 @@ mod tests {
             second_body.contains("second"),
             "second request must carry its own prompt: {second_body}"
         );
+    }
+
+    #[test]
+    fn resolve_new_mints_matching_load_and_write() {
+        use crate::agent::types::SessionControl;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = super::SessionStore::new(dir.path().to_path_buf());
+        let ids = super::resolve_session(&SessionControl::New, &store).expect("resolve");
+        assert_eq!(ids.load, ids.write);
+    }
+
+    #[test]
+    fn resolve_continue_empty_store_mints() {
+        use crate::agent::types::SessionControl;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = super::SessionStore::new(dir.path().to_path_buf());
+        let ids = super::resolve_session(&SessionControl::Continue { fork: false }, &store)
+            .expect("resolve");
+        assert_eq!(ids.load, ids.write);
+    }
+
+    #[tokio::test]
+    async fn resume_unknown_id_fails_construction() {
+        use crate::agent::types::SessionId;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let opts = Options::builder()
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(MaxTokens::new(64).unwrap())
+            .session_dir(dir.path().to_path_buf())
+            .session(crate::agent::types::SessionControl::Resume {
+                id: SessionId::new("ghost"),
+                fork: false,
+            })
+            .build();
+        let result = ApiRuntime::new(client_with(MockHttpTransport::new()), opts);
+        assert!(result.is_err(), "resuming an unknown id must fail closed");
+    }
+
+    #[test]
+    fn resolve_resume_existing_ok_and_fork_branches() {
+        use crate::agent::types::{SessionControl, SessionId};
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = super::SessionStore::new(dir.path().to_path_buf());
+        let id = SessionId::new("sess_live");
+        store.save(&id, &[]).expect("seed");
+
+        let ids = super::resolve_session(
+            &SessionControl::Resume {
+                id: id.clone(),
+                fork: false,
+            },
+            &store,
+        )
+        .expect("resolve");
+        assert_eq!(ids.load, id);
+        assert_eq!(ids.write, id);
+
+        let forked = super::resolve_session(
+            &SessionControl::Resume {
+                id: id.clone(),
+                fork: true,
+            },
+            &store,
+        )
+        .expect("resolve");
+        assert_eq!(forked.load, id);
+        assert_ne!(forked.write, id, "fork writes a new id");
+    }
+
+    #[tokio::test]
+    async fn fork_leaves_source_file_untouched() {
+        use crate::agent::types::{SessionControl, SessionId};
+        use crate::messages::request::{InputMessage, MessageContent, Role};
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = super::SessionStore::new(dir.path().to_path_buf());
+        let source = SessionId::new("sess_source");
+        store
+            .save(
+                &source,
+                &[InputMessage {
+                    role: Role::User,
+                    content: MessageContent::Text("orig".to_string()),
+                }],
+            )
+            .expect("seed source");
+        let before = std::fs::read(dir.path().join("sess_source.json")).expect("read before");
+
+        let mut transport = MockHttpTransport::new();
+        transport
+            .expect_send()
+            .times(1)
+            .returning(ok_response(END_TURN));
+        let opts = Options::builder()
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(MaxTokens::new(64).unwrap())
+            .session_dir(dir.path().to_path_buf())
+            .session(SessionControl::Resume {
+                id: source.clone(),
+                fork: true,
+            })
+            .build();
+        let rt = ApiRuntime::new(client_with(transport), opts).expect("runtime");
+        let mut stream = rt.run("more".into()).await.expect("run");
+        let _ = collect(&mut stream).await;
+
+        let after = std::fs::read(dir.path().join("sess_source.json")).expect("read after");
+        assert_eq!(
+            before, after,
+            "fork must not modify the source session file"
+        );
+
+        let json_files = std::fs::read_dir(dir.path())
+            .expect("read_dir")
+            .filter_map(Result::ok)
+            .filter(|entry| entry.path().extension().is_some_and(|ext| ext == "json"))
+            .count();
+        assert!(
+            json_files >= 2,
+            "fork writes a new session file alongside the source"
+        );
+    }
+
+    #[tokio::test]
+    async fn fork_first_run_failure_keeps_source_reseedable() {
+        use crate::agent::types::{SessionControl, SessionId};
+        use crate::messages::request::{InputMessage, MessageContent, Role};
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let store = super::SessionStore::new(dir.path().to_path_buf());
+        let source = SessionId::new("sess_src");
+        store
+            .save(
+                &source,
+                &[InputMessage {
+                    role: Role::User,
+                    content: MessageContent::Text("orig".to_string()),
+                }],
+            )
+            .expect("seed source");
+
+        let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut transport = MockHttpTransport::new();
+        transport.expect_send().times(2).returning({
+            let requests = requests.clone();
+            let calls = calls.clone();
+            move |req| {
+                let parsed: serde_json::Value =
+                    serde_json::from_slice(req.body()).unwrap_or(serde_json::Value::Null);
+                requests.lock().unwrap().push(parsed);
+                let n = calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if n == 0 {
+                    Err(TransportError::Network("boom".to_string()))
+                } else {
+                    let mut resp = Response::new(body(END_TURN));
+                    *resp.status_mut() = StatusCode::OK;
+                    Ok(resp)
+                }
+            }
+        });
+
+        let opts = Options::builder()
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(MaxTokens::new(64).unwrap())
+            .session_dir(dir.path().to_path_buf())
+            .session(SessionControl::Resume {
+                id: source.clone(),
+                fork: true,
+            })
+            .build();
+        let rt = ApiRuntime::new(client_with(transport), opts).expect("runtime");
+
+        // The first run's transport failure surfaces as an error frame, not a
+        // panic-worthy `Ok` frame, so drain it directly rather than via
+        // `collect` (which asserts every frame is `Ok`).
+        let mut first = rt.run("attempt1".into()).await.expect("run1");
+        while first.next().await.is_some() {}
+        let mut second = rt.run("attempt2".into()).await.expect("run2");
+        let _ = collect(&mut second).await;
+
+        let reqs = requests.lock().unwrap().clone();
+        assert_eq!(reqs.len(), 2, "one request per run");
+        let second_body = reqs[1].to_string();
+        assert!(
+            second_body.contains("orig"),
+            "second request must still carry the source session's history \
+             after the first run failed before persist: {second_body}"
+        );
+        assert!(
+            second_body.contains("attempt2"),
+            "second request must carry its own prompt: {second_body}"
+        );
+    }
+
+    #[test]
+    fn list_sessions_reports_stored_sessions() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let opts = Options::builder()
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(MaxTokens::new(64).unwrap())
+            .session_dir(dir.path().to_path_buf())
+            .build();
+        let rt = ApiRuntime::new(client_with(MockHttpTransport::new()), opts).expect("runtime");
+        assert!(rt.list_sessions().expect("list").is_empty());
+
+        std::fs::create_dir_all(dir.path()).expect("mkdir");
+        std::fs::write(dir.path().join("sess_a.json"), b"[]").expect("write");
+        let ids: Vec<String> = rt
+            .list_sessions()
+            .expect("list")
+            .iter()
+            .map(|id| id.as_str().to_string())
+            .collect();
+        assert_eq!(ids, vec!["sess_a".to_string()]);
     }
 }
