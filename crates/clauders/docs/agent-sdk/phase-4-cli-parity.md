@@ -1,5 +1,12 @@
 # clauders Agent SDK — Phase 4: Official CLI-Surface Parity (Epic)
 
+> **Parity-first update (2026-07-13):** This epic is now scoped strictly to **Pillar 2 — the Agent
+> SDK CLI runtime** ([`../vision-and-strategy.md`](../vision-and-strategy.md)). The "CLI-surface
+> parity" workstreams (WS A–F) that survive are the CLI-passthrough halves and remain valid parity
+> work. Any workstream half that built on the native `ApiRuntime` (native structured output, native
+> permission enforcement, the auto-permission judge, the native subagent loop, the native session
+> store) has been **removed** (vision §5) — treat those halves as historical, not backlog.
+
 Umbrella planning doc for closing the *worth-building* parity gaps identified in
 [`feature-parity.md`](./feature-parity.md). This is a **planning artifact**, not an SDD design
 spec — each workstream below is brainstormed into its own dated spec under the SDD `specs/` store,
@@ -21,18 +28,18 @@ long-lived workflows) or keep the permission/prompt surface current:
 | A | System-prompt preset + append | XS | — |
 | B | Structured output on the agent layer | S | reuse `messages::structured_outputs::OutputConfig` |
 | C | `dontAsk` mode + `updated_permissions` + deny-interrupt | S–M | `permissions.rs` |
-| D | `auto` permission mode (model-classified) | M | reuse `RoutingRuntime` `Classifier` infra; after C |
+| D | ~~REMOVED (vision §5):~~ `auto` permission mode (model-classified) | M | reuse `RoutingRuntime` `Classifier` infra; after C |
 | E1 | Subagents — `AgentDefinition` + CLI passthrough | M | permissions, model routing |
-| E2 | Subagents — native nested loop on `ApiRuntime` | L | E1; **unblocks per-subtask downgrade** |
+| E2 | ~~REMOVED (vision §5):~~ Subagents — native nested loop on `ApiRuntime` | L | E1; **unblocks per-subtask downgrade** |
 | F1 | Sessions — `SessionControl` + CLI passthrough | M | frame `SessionId` wiring |
-| F2 | Sessions — native conversation-history object on `ApiRuntime` | L | F1; **unblocks context pruning** |
+| F2 | ~~REMOVED (vision §5):~~ Sessions — native conversation-history object on `ApiRuntime` | L | F1; **unblocks context pruning** |
 | G | Streaming input | L | `Prompt` type + all runtime adapters |
 | H | MCP elicitation | M | **after G** (needs interactive-input path) |
 
 **Sequence:** A → B → C → D → E1 → E2 → F1 → F2 → G → H. Trivia first, architectural last. Hard chains:
 **E2 after E1**, **F2 after F1**, **D after C**, **H after G**. A/B/C independent, can reorder freely.
-E2 and F2 are **in this epic** (the two native slices that double as the Scope C token-efficiency
-unblockers — grouped here so parity and the token north star land together).
+~~REMOVED (vision §5):~~ E2 and F2 are **in this epic** (the two native slices that double as the
+Scope C token-efficiency unblockers — grouped here so parity and the token north star land together).
 
 **Explicitly out of scope** (CLI-feature passthroughs, no thesis bearing — from `feature-parity.md`):
 `skills`, `plugins`, `sandbox`, `betas`, `session_store` mirroring, warm startup (`startup()`),
@@ -47,20 +54,20 @@ if a concrete need appears.
 These bind every workstream and are the reason the sequencing looks the way it does. All are driven
 by the Rust guideline (strong types, static dispatch, `mod.rs` export-only, object-safety).
 
-1. **`Runtime` must stay object-safe.** `RoutingRuntime` holds `HashMap<ModelId, Arc<dyn Runtime>>`
+1. ~~REMOVED (vision §5):~~ **`Runtime` must stay object-safe.** `RoutingRuntime` holds `HashMap<ModelId, Arc<dyn Runtime>>`
    and `runtime/port.rs` carries a `runtime_is_object_safe()` compile assertion. No workstream may
    add a generic method (`fn foo<T>()`) to the `Runtime` trait. Streaming input (G) therefore cannot
    introduce `run_stream<S: Stream>` on the trait — the stream must be **boxed inside the input
    type**, not a generic trait method.
 
-2. **Native runtimes reimplement the loop; the CLI runtime delegates.** For most workstreams the
+2. ~~REMOVED (vision §5):~~ **Native runtimes reimplement the loop; the CLI runtime delegates.** For most workstreams the
    `CliRuntime` change is *passthrough* (serialize a config into a CLI flag / control message) while
    the native `ApiRuntime`/`OpenRouterRuntime` change is a *real implementation* (subagent spawning,
    history persistence, elicitation plumbing). Where those diverge in cost, the WS is split into a
    CLI-passthrough slice (small) and a native slice (large). The native slices are where the
    airsstack levers live (per-subtask downgrade, context pruning).
 
-3. **Capability-gate anything the CLI supports but a native runtime doesn't (and vice versa).** The
+3. ~~REMOVED (vision §5):~~ **Capability-gate anything the CLI supports but a native runtime doesn't (and vice versa).** The
    existing `Capabilities` type already gates hook events. Preset system prompts, subagents, and
    sessions are CLI-native concepts; on `ApiRuntime` they either get a native implementation or are
    reported unsupported via `Capabilities` and error cleanly — never silently ignored.
@@ -92,13 +99,14 @@ that WS's brainstorm), **acceptance criteria**, and **open questions** the brain
   }
   ```
   `CliRuntime` maps `Preset` to the binary's preset flags; `Text` to `--system-prompt`. The
-  `claude_code` preset base is a *CLI-only* concept (the native loop has no claude binary prompt), so
-  on `ApiRuntime` `Preset` is capability-unsupported and errors — `Text`/`None` work everywhere.
+  ~~REMOVED (vision §5):~~ `claude_code` preset base is a *CLI-only* concept (the native loop has no
+  claude binary prompt), so on `ApiRuntime` `Preset` is capability-unsupported and errors —
+  `Text`/`None` work everywhere.
 - **Acceptance:**
   - `Options` carries `SystemPrompt`; existing `Option<String>` callers migrate with a `From<String>`
     / builder helper.
-  - `CliRuntime` emits the correct flags for all three variants; `ApiRuntime` handles `None`/`Text`,
-    reports `Preset` unsupported via `Capabilities`.
+  - ~~REMOVED (vision §5):~~ `CliRuntime` emits the correct flags for all three variants; `ApiRuntime`
+    handles `None`/`Text`, reports `Preset` unsupported via `Capabilities`.
   - Colocated unit tests per the unit-test mandate; DoD green.
 - **Open questions:** exact CLI flag names for preset + `exclude_dynamic_sections`
   (verify against `--help` / e2e, not docs).
@@ -109,13 +117,15 @@ that WS's brainstorm), **acceptance criteria**, and **open questions** the brain
 - **clauders today:** absent on `agent::Options`; **present** at the messages layer
   (`messages::structured_outputs::OutputConfig`, wired through `request.rs:178`).
 - **Design sketch:** add `Options::output_format: Option<OutputConfig>` reusing the existing
-  `OutputConfig` (no new type). `ApiRuntime` threads it into the `messages` request it already
-  builds. `CliRuntime` maps to the CLI `--output-format` surface. `OpenRouterRuntime` gates on
-  OpenRouter structured-output support (capability-report if the target model lacks it).
+  `OutputConfig` (no new type). ~~REMOVED (vision §5):~~ `ApiRuntime` threads it into the `messages`
+  request it already builds. `CliRuntime` maps to the CLI `--output-format` surface.
+  ~~REMOVED (vision §5):~~ `OpenRouterRuntime` gates on OpenRouter structured-output support
+  (capability-report if the target model lacks it).
 - **Acceptance:**
-  - `Options::output_format` set → `ApiRuntime` constrains the terminal result; round-trip test
-    asserts schema-conforming output on a mock transport.
-  - `CliRuntime` passthrough wired; `OpenRouterRuntime` gates unsupported models cleanly.
+  - ~~REMOVED (vision §5):~~ `Options::output_format` set → `ApiRuntime` constrains the terminal
+    result; round-trip test asserts schema-conforming output on a mock transport.
+  - `CliRuntime` passthrough wired; ~~REMOVED (vision §5):~~ `OpenRouterRuntime` gates unsupported
+    models cleanly.
   - DoD green.
 - **Open questions:** does structured output belong on `ResultMessage` as a typed `structured_output`
   field (official has one) or stay in the free-form result string? Brainstorm decides.
@@ -132,18 +142,23 @@ that WS's brainstorm), **acceptance criteria**, and **open questions** the brain
   - Extend deny: `Deny { message: String, interrupt: bool }`.
   - Add rule persistence: a `PermissionUpdate` value (scope + rule) returnable from a decision, plus a
     `PermissionRuleStore` port the runtime consults. **This is the meaty part** — persisting rules
-    needs a store abstraction; the CLI has settings-scope files, the native runtime needs an
-    in-memory/pluggable store.
+    needs a store abstraction; the CLI has settings-scope files. ~~REMOVED (vision §5):~~ the native
+    runtime needs an in-memory/pluggable store.
 - **Acceptance:**
-  - `DontAsk` denies un-preapproved tools without prompting on both `CliRuntime` and `ApiRuntime`.
+  - `DontAsk` denies un-preapproved tools without prompting on `CliRuntime` (live — this is the
+    `canUseTool` control-request seam). ~~REMOVED (vision §5):~~ and `ApiRuntime`.
   - Deny-interrupt aborts the turn.
-  - A returned `PermissionUpdate` is honored on subsequent tool calls within the session (native), and
-    passed through to the CLI on `CliRuntime`.
+  - A returned `PermissionUpdate` is passed through to the CLI on `CliRuntime`.
+    ~~REMOVED (vision §5):~~ honored on subsequent tool calls within the session (native).
   - DoD green.
-- **Open questions:** is `updated_permissions` persistence in scope for the *native* runtime now, or
-  CLI-passthrough only (native store deferred)? If it inflates past M, split the store into its own WS.
+- **Open questions:** ~~REMOVED (vision §5):~~ is `updated_permissions` persistence in scope for the
+  *native* runtime now, or CLI-passthrough only (native store deferred)? If it inflates past M, split
+  the store into its own WS.
 
-### WS D — `auto` permission mode (model-classified)  ·  M  ·  after C
+### WS D — ~~REMOVED (vision §5):~~ `auto` permission mode (model-classified)  ·  M  ·  after C
+
+> This whole workstream is the auto-permission judge, removed with the native superset (vision §5).
+> The `RoutingRuntime`/`Classifier` infrastructure it depended on is also gone. Kept below for history.
 
 - **Official:** `PermissionMode::auto` — a model classifier approves/denies each tool call.
 - **clauders today:** none. **But** the classifier machinery exists: `RoutingRuntime` already ships
@@ -171,18 +186,20 @@ that WS's brainstorm), **acceptance criteria**, and **open questions** the brain
   - **E1 (CLI passthrough, M):** serialize `AgentDefinition` to the CLI's `agents` config; subagents
     run inside the binary. Model the core fields (description, prompt, tools, disallowed_tools, model,
     max_turns, permission_mode); defer skills/memory/mcpServers/background/effort as CLI-only extras.
-  - **E2 (native, L):** `ApiRuntime` spawns a nested agentic loop per subagent invocation with the
-    sub-definition's model/prompt/tools. **This unblocks the Scope C "per-subtask downgrade" lever** —
-    route a subagent to a cheaper model. Exposed as a built-in Task-style tool the parent loop can
-    call.
+  - ~~REMOVED (vision §5):~~ **E2 (native, L):** `ApiRuntime` spawns a nested agentic loop per
+    subagent invocation with the sub-definition's model/prompt/tools. **This unblocks the Scope C
+    "per-subtask downgrade" lever** — route a subagent to a cheaper model. Exposed as a built-in
+    Task-style tool the parent loop can call.
 - **Acceptance:**
   - E1: `Options::agents` set → `CliRuntime` passes definitions; subagent runs observable via
     `SubagentStart/Stop` hooks.
-  - E2: `ApiRuntime` invokes a subagent as a nested loop on the sub-definition's model; a downgrade
-    test asserts the subagent ran on the cheaper model while the parent stayed on the advanced one.
+  - ~~REMOVED (vision §5):~~ E2: `ApiRuntime` invokes a subagent as a nested loop on the
+    sub-definition's model; a downgrade test asserts the subagent ran on the cheaper model while the
+    parent stayed on the advanced one.
   - DoD green.
-- **Open questions:** nested-loop re-entrancy on `ApiRuntime`; tool-name for the subagent-invocation
-  tool; whether E2 shares any history plumbing with F2. (E2 is **in this epic** — decided.)
+- **Open questions:** ~~REMOVED (vision §5):~~ nested-loop re-entrancy on `ApiRuntime`; tool-name for
+  the subagent-invocation tool; whether E2 shares any history plumbing with F2. (E2 is **in this
+  epic** — decided.)
 
 ### WS F — Sessions (continue / resume / fork)  ·  L
 
@@ -200,21 +217,22 @@ that WS's brainstorm), **acceptance criteria**, and **open questions** the brain
   Split by runtime:
   - **F1 (CLI passthrough, M):** map `SessionControl` to `--continue` / `--resume <id>` /
     `--fork-session`. Sessions live in the binary's store; clauders just addresses them.
-  - **F2 (native, L):** `ApiRuntime` is stateless per query today. Resume/continue on native requires
-    a **conversation/history object** that persists the message turns and reloads them — this is the
-    exact "multi-turn history primitive" `feature-parity.md`/roadmap flagged as **blocked** for
-    context pruning. Building it here **unblocks context pruning** (a later Scope C slice).
+  - ~~REMOVED (vision §5):~~ **F2 (native, L):** `ApiRuntime` is stateless per query today.
+    Resume/continue on native requires a **conversation/history object** that persists the message
+    turns and reloads them — this is the exact "multi-turn history primitive"
+    `feature-parity.md`/roadmap flagged as **blocked** for context pruning. Building it here
+    **unblocks context pruning** (a later Scope C slice).
   - Session **list/inspect/rename/tag** = read-only free functions over whatever store F2 defines;
     lower priority, likely a follow-on (F3) or evaluate-out for native.
 - **Acceptance:**
   - F1: `ContinueLatest`/`Resume{fork}` produce the correct CLI flags; a resumed CLI session continues
     prior context (e2e-gated).
-  - F2: `ApiRuntime` persists turns to a history store and a `Resume` reloads them; a two-query test
-    asserts the second query sees the first's context.
+  - ~~REMOVED (vision §5):~~ F2: `ApiRuntime` persists turns to a history store and a `Resume`
+    reloads them; a two-query test asserts the second query sees the first's context.
   - DoD green.
-- **Open questions:** history store shape and persistence backend (in-memory vs pluggable trait);
-  read-only session list/inspect/rename/tag — F3 or evaluate-out? (F2 is **in this epic** — decided,
-  it's the pruning prerequisite and belongs with the parity work.)
+- **Open questions:** ~~REMOVED (vision §5):~~ history store shape and persistence backend (in-memory
+  vs pluggable trait); read-only session list/inspect/rename/tag — F3 or evaluate-out? (F2 is **in
+  this epic** — decided, it's the pruning prerequisite and belongs with the parity work.)
 
 ### WS G — Streaming input  ·  L
 
@@ -230,16 +248,19 @@ that WS's brainstorm), **acceptance criteria**, and **open questions** the brain
   }
   ```
   `Runtime::run(&self, Prompt)` keeps its signature (object-safe). Each adapter handles `Stream`:
-  `CliRuntime` feeds NDJSON user messages to the binary's stdin as they arrive; `ApiRuntime`
-  accumulates the stream into request turns. Touches **all five adapters** (Cli, Api, OpenRouter,
-  Routing, Mock).
+  `CliRuntime` feeds NDJSON user messages to the binary's stdin as they arrive.
+  ~~REMOVED (vision §5):~~ `ApiRuntime` accumulates the stream into request turns. Touches **all
+  five adapters** (Cli, Api, OpenRouter, Routing, Mock) — of which only `CliRuntime` and
+  `MockRuntime` remain.
 - **Acceptance:**
-  - `Prompt::Stream` drives a multi-message turn on `CliRuntime` and `ApiRuntime`.
+  - `Prompt::Stream` drives a multi-message turn on `CliRuntime`. ~~REMOVED (vision §5):~~ and
+    `ApiRuntime`.
   - `Prompt::Single` unchanged (back-compat via `From<String>`).
   - `MockRuntime` records streamed inputs; deterministic test.
   - DoD green.
 - **Open questions:** `UserMessage` shape as a streamed input item (reuse the existing message type?);
-  interaction with `interrupt()`; whether `RoutingRuntime` classifies on the first streamed chunk.
+  interaction with `interrupt()`; ~~REMOVED (vision §5):~~ whether `RoutingRuntime` classifies on the
+  first streamed chunk.
 
 ### WS H — MCP elicitation  ·  M  ·  after G
 
@@ -265,6 +286,10 @@ that WS's brainstorm), **acceptance criteria**, and **open questions** the brain
 ---
 
 ## What this epic unblocks
+
+~~REMOVED (vision §5):~~ this whole section describes the shelved token-efficiency north star and the
+native E2/F2 slices that were meant to unblock it; both the native slices and the mixed-routing thesis
+they served are gone. Kept below for history.
 
 Beyond parity, three workstreams unblock the **blocked Scope C token-efficiency slices** the roadmap
 flagged as waiting on missing primitives:

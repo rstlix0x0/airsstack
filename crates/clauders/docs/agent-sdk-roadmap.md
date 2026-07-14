@@ -1,13 +1,20 @@
 # clauders Agent SDK — Phased Roadmap
 
+> **Superseded framing note (2026-07-13):** This roadmap predates the parity-first pivot. The Agent
+> SDK is now **Pillar 2** of [`vision-and-strategy.md`](./vision-and-strategy.md) — a thin driver of
+> the `claude` Code CLI (`CliRuntime` + `MockRuntime`), nothing more. Any phase below that sequences a
+> *native* Messages-loop runtime (`ApiRuntime`), OpenRouter execution, routing, middleware, evals, or
+> orchestration describes **removed** work (vision §5); read those as historical. The live parity
+> backlog is the vision doc §7.2 and [`agent-sdk/feature-parity.md`](./agent-sdk/feature-parity.md).
+
 Source of truth for sequencing the Agent SDK work. Derived from the RFC
 (`.airsstack/cc/plugins/sdd/rfcs/rust-agent-sdk.md`, §9 *Roadmap and Phasing*) and the
 Phase-1 spec (`.airsstack/cc/plugins/sdd/specs/2026-06-09-clauders-agent-core-foundation.md`).
 
-The work is sequenced so a usable, compatible artifact ships early and the expensive native
-runtime arrives only after the public surface is proven and instrumented. All of it lives in the
-existing `clauders` crate (sibling `agent/` module tree, compiled unconditionally — the crate carries
-no Cargo features) — **no new crate**.
+The work is sequenced so a usable, compatible artifact ships early, and the CLI-driving runtime
+(`CliRuntime`) is the only execution path — the parity target has no native Messages loop. All of it
+lives in the existing `clauders` crate (sibling `agent/` module tree, compiled unconditionally — the
+crate carries no Cargo features) — **no new crate**.
 
 ---
 

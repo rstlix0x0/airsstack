@@ -6,13 +6,11 @@
 //! [`PermissionPolicy`] trait used by the runtime's in-loop permission handler.
 
 mod decision;
-mod judge;
 mod mode;
 mod policy;
 mod update;
 
 pub use decision::{PermissionContext, PermissionDecision};
-pub use judge::{JudgeRequest, JudgeRubric, PermissionJudge, RubricError};
 pub use mode::PermissionMode;
 pub use policy::PermissionPolicy;
 pub use update::{PermissionBehavior, PermissionScope, PermissionUpdate};

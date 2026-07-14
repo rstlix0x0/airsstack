@@ -1,5 +1,10 @@
 # clauders Agent SDK — Feature Parity vs the Official Claude Agent SDKs
 
+> **Parity-first update (2026-07-13):** The 🟣 rows below marked clauders "ahead of the official SDK"
+> were a **superset** with no official counterpart. Per [`../vision-and-strategy.md`](../vision-and-strategy.md)
+> §5 they have been **removed** from the crate. They remain in this table (re-legended as "Removed")
+> so the parity picture is honest: clauders is now a *subset-completing* client, not a superset.
+
 Compares the `clauders` Rust Agent SDK (module `clauders::agent`) against the two **official**
 Claude Agent SDKs:
 
@@ -11,19 +16,23 @@ Official surfaces captured from `code.claude.com/docs/en/agent-sdk/{python,types
 
 > **Phase 4 update (2026-07-11, HEAD `6dce97b`):** the **WS A** (system-prompt preset + append, HEAD
 > `6f68a10`), **WS B** (structured output) and **WS C** (permission control — `dontAsk` /
-> deny-interrupt / `updated_permissions` + native `ApiRuntime` enforcement) rows below are refreshed
-> to as-landed. Other rows remain as of the 2026-07-09 baseline and may lag.
+> deny-interrupt / `updated_permissions` via the CLI `PermissionPolicy`/`can_use_tool` seam) rows
+> below are refreshed to as-landed. Other rows remain as of the 2026-07-09 baseline and may lag.
+> The native `ApiRuntime` enforcement path referenced by the original WS C landing was removed in
+> the parity-first pivot (vision §5) — see the banner above.
 
-> **Read this first — the one difference that reframes everything.**
+> **Read this first — clauders drives the CLI, same as the official SDKs.**
 > The official SDKs are **thin clients that drive the `claude` Code CLI binary as a subprocess**.
 > Every "runtime" they have is that one subprocess transport; they do **not** implement a native
 > Messages API loop, and they are **Claude-only**. `clauders` ships that same subprocess runtime
-> (`CliRuntime`) **and** three additional native runtimes the official SDKs have no equivalent of —
-> `ApiRuntime` (an in-process `POST /v1/messages` agentic loop), `OpenRouterRuntime` (native
-> non-Claude models), and `RoutingRuntime` (LLM-classified per-turn model routing). So parity is not
-> a single axis: on the *CLI-driving surface* clauders trails on session/config breadth; on
-> *native multi-provider execution + token efficiency + a typed extension system* clauders is
-> deliberately ahead and has no counterpart to compare against.
+> (`CliRuntime`) as its Agent SDK surface. It previously also shipped three native runtimes with no
+> official counterpart — `ApiRuntime` (an in-process `POST /v1/messages` agentic loop),
+> `OpenRouterRuntime` (native non-Claude models), and `RoutingRuntime` (LLM-classified per-turn model
+> routing) — but those were a superset with no parity target, and were **removed** in the
+> parity-first pivot (vision §5). So parity is a single axis now: on the *CLI-driving surface*
+> clauders trails the official SDKs on session/config breadth (see the scorecard below), and the
+> Pillar-1 bundled Messages API client (`clauders::Client`/`messages::`) remains a separate,
+> non-Agent-SDK surface — not a parity axis against the official Agent SDKs.
 
 ---
 
@@ -34,7 +43,7 @@ Official surfaces captured from `code.claude.com/docs/en/agent-sdk/{python,types
 | ✅ | Full parity — equivalent capability exists |
 | 🟡 | Partial — core exists, narrower than official |
 | ❌ | Absent in clauders |
-| 🟣 | **clauders-only** — no official counterpart |
+| 🟣 | **Removed** — clauders-only superset built ahead of the official SDK; deleted in the parity-first pivot (see [`../vision-and-strategy.md`](../vision-and-strategy.md) §5). Listed for history, not as parity gaps. |
 | — | Not applicable |
 
 ---
@@ -68,7 +77,7 @@ session management, filesystem-settings integration, and newer model/feature kno
 | Option (official name) | Python | TS | clauders field | Status |
 |---|---|---|---|---|
 | System prompt (plain string) | ✅ | ✅ | `system_prompt: SystemPromptConfig::Text` | ✅ |
-| System prompt **preset** `claude_code` + `append` | ✅ | ✅ | `SystemPromptConfig::Preset { append, exclude_dynamic_sections }` | ✅ CLI (→ `--append-system-prompt`); native degrades to append-only |
+| System prompt **preset** `claude_code` + `append` | ✅ | ✅ | `SystemPromptConfig::Preset { append, exclude_dynamic_sections }` | ✅ CLI (→ `--append-system-prompt`) |
 | `model` | ✅ | ✅ | `model: Option<ModelId>` | ✅ |
 | `fallback_model` | ✅ | ✅ | ❌ | ❌ |
 | `max_turns` | ✅ | ✅ | `max_turns: Option<u32>` | ✅ |
@@ -100,9 +109,9 @@ session management, filesystem-settings integration, and newer model/feature kno
 | `max_budget_usd` | ✅ | ✅ | ❌ | ❌ |
 | `skills`, `plugins`, `sandbox`, `betas` | ✅ | ✅ | ❌ | ❌ (CLI-feature knobs) |
 | `session_store` / `enable_file_checkpointing` | ✅ | ✅ | ❌ | ❌ |
-| Per-request `max_tokens` | — (CLI-managed) | — | `max_tokens: MaxTokens` (default 4096) | 🟣 needed by native `ApiRuntime` |
-| Prompt-cache policy | ❌ | ❌ | `CachePolicy` (via `ApiRuntime`) | 🟣 (see §13) |
-| Min-version gate / shutdown grace | — | — | `require_min_version`, `shutdown_grace` | 🟣 process-hygiene |
+| Per-request `max_tokens` | — (CLI-managed) | — | `max_tokens: MaxTokens` (default 4096) | 🟣 needed by native `ApiRuntime` — removed (vision §5) |
+| Prompt-cache policy | ❌ | ❌ | `CachePolicy` (via `ApiRuntime`) | 🟣 (see §13) — removed (vision §5) |
+| Min-version gate / shutdown grace | — | — | `require_min_version`, `shutdown_grace` | 🟣 process-hygiene — removed (vision §5) |
 
 **Verdict:** ✅ on the tool/permission/mcp/hook/cwd/env core; ❌ on sessions, subagents, setting-sources,
 and the newer model-feature knobs (thinking, budget, skills, plugins, sandbox).
@@ -134,7 +143,7 @@ clauders models a broad hook-event set and the full control-response payload.
 | Aspect | Python | TS | clauders |
 |---|---|---|---|
 | Registration with matcher | ✅ `HookMatcher` | ✅ `HookCallbackMatcher` | ✅ `Options::hook(event, matcher, Arc<dyn Hook>)` |
-| Capability-gated to binary support | — | — | 🟣 `Capabilities::supports_hook` skips unsupported events |
+| Capability-gated to binary support | — | — | 🟣 `Capabilities::supports_hook` skips unsupported events — removed (vision §5) |
 | Return: block / continue / suppressOutput / systemMessage / reason | ✅ | ✅ | ✅ `HookOutput { continue_, suppress_output, decision: Block, system_message, reason }` |
 
 **clauders `HookEvent`s:** `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmit`,
@@ -158,21 +167,23 @@ tool hooks). clauders does **not** yet model `SessionStart`/`SessionEnd` or the 
 | `acceptEdits` | ✅ | ✅ | ✅ | ✅ |
 | `plan` | ✅ | ✅ | ✅ | ✅ |
 | `bypassPermissions` | ✅ | ✅ | ✅ | ✅ |
-| `dontAsk` | ✅ | ✅ | ✅ `PermissionMode::DontAsk` (native-enforced on `ApiRuntime`; CLI passthrough) | ✅ (WS C) |
+| `dontAsk` | ✅ | ✅ | ✅ `PermissionMode::DontAsk` (CLI passthrough; native `ApiRuntime` enforcement removed, vision §5) | ✅ (WS C) |
 | `auto` (model-classified) | ✅ | ✅ | ❌ | 🟡 newer mode (WS D) |
 | `can_use_tool` callback | ✅ | ✅ | ✅ `PermissionPolicy::can_use_tool` | ✅ |
 | Allow + rewrite input | ✅ `updated_input` | ✅ | ✅ `Allow { updated_input }` | ✅ |
 | Deny + message | ✅ `message` | ✅ | ✅ `Deny { message }` | ✅ |
 | Deny + `interrupt` | ✅ | ✅ | ✅ `Deny { interrupt }` + `deny_interrupt()` (aborts the native turn → `stop_reason: "permission_denied"`) | ✅ (WS C) |
-| Return **permission updates** (persist allow/deny rules) | ✅ `updated_permissions` | ✅ `updatedPermissions` → settings scopes | ✅ `updated_permissions` (native: in-memory session-scoped `RuleStore`; CLI: passthrough to the binary's settings scopes) | 🟡 session-only natively (WS C) |
+| Return **permission updates** (persist allow/deny rules) | ✅ `updated_permissions` | ✅ `updatedPermissions` → settings scopes | ✅ `updated_permissions` (CLI: passthrough to the binary's settings scopes; the native in-memory `RuleStore` enforcement path was removed, vision §5) | 🟡 CLI-only now (WS C) |
 | Rich request context | ✅ `ToolPermissionContext` | ✅ (toolUseID, agentID, blockedPath, decisionReason…) | ✅ `PermissionContext` (all of those fields) | ✅ |
 
 **Verdict:** ✅ parity on the allow/deny + input-rewrite core, request context, `dontAsk`,
-deny-interrupt, and `updated_permissions` — with **native `ApiRuntime` enforcement** (a
-`permission_engine::{RuleStore, evaluate}` gate on the tool loop) plus CLI passthrough (WS C).
-Remaining deltas: `auto` (model-classified — WS D); native rule persistence is **session-scoped
-in-memory only** (settings-scope/disk persistence stays a CLI-binary responsibility, spec §9);
-OpenRouterRuntime native enforcement deferred (stored-inert, like the pre-existing modes).
+deny-interrupt, and `updated_permissions` — via the live CLI `PermissionPolicy`/`can_use_tool` seam
+(`canUseTool` passthrough to the `claude` Code CLI, WS C). The native `ApiRuntime` enforcement path
+(a `permission_engine::{RuleStore, evaluate}` gate on an in-process tool loop) was **removed** in the
+parity-first pivot (vision §5) along with `ApiRuntime` itself; `PermissionMode`/`PermissionUpdate` data
+types are kept, but there is no native runtime left to enforce them in-process. Remaining deltas:
+`auto` (model-classified — WS D); permission-rule persistence is entirely the CLI binary's
+responsibility now (settings-scope/disk persistence, spec §9).
 
 ---
 
@@ -251,28 +262,33 @@ frame carries more diagnostic fields.
 
 ---
 
-## 11. Runtimes / transport 🟣
+## 11. Runtimes / transport 🟣 — partially removed (vision §5)
 
-This is where clauders diverges from — and exceeds — the official SDKs.
+This was where clauders diverged from — and exceeded — the official SDKs. The *native, non-Claude*
+runtimes below have been removed; the swappable-seam abstraction and the bundled Messages API client
+were not superset claims in the same sense and remain.
 
 | Runtime | Python | TS | clauders |
 |---|---|---|---|
 | `claude` CLI subprocess | ✅ (the *only* runtime) | ✅ (the *only* runtime) | ✅ `CliRuntime` |
-| Native `POST /v1/messages` agentic loop (in-process tool loop) | ❌ | ❌ | 🟣 `ApiRuntime<T: HttpTransport>` |
-| Native non-Claude models (DeepSeek/Kimi/Qwen via OpenRouter) | ❌ | ❌ | 🟣 `OpenRouterRuntime<T>` |
-| LLM-classified per-turn model routing across backends | ❌ | ❌ | 🟣 `RoutingRuntime` (+ `Classifier`, `RuntimeClassifier`, `ModelCard`, `RoutingSummary`) |
-| Swappable runtime seam / test double | ❌ | ❌ | 🟣 `Runtime` trait + `MockRuntime` |
-| Raw Messages API client bundled in the same crate | ❌ | ❌ | 🟣 `clauders::Client` / `messages::` |
+| Native `POST /v1/messages` agentic loop (in-process tool loop) | ❌ | ❌ | 🟣 `ApiRuntime<T: HttpTransport>` — removed (vision §5) |
+| Native non-Claude models (DeepSeek/Kimi/Qwen via OpenRouter) | ❌ | ❌ | 🟣 `OpenRouterRuntime<T>` — removed (vision §5) |
+| LLM-classified per-turn model routing across backends | ❌ | ❌ | 🟣 `RoutingRuntime` (+ `Classifier`, `RuntimeClassifier`, `ModelCard`, `RoutingSummary`) — removed (vision §5) |
+| Swappable runtime seam / test double | ❌ | ❌ | 🟣 `Runtime` trait + `MockRuntime` — kept, not removed (vision §5): the object-safe seam and its test double are ordinary architecture, not a superset claim |
+| Raw Messages API client bundled in the same crate | ❌ | ❌ | 🟣 `clauders::Client` / `messages::` — kept, not removed (vision §5): the Messages API is Pillar 1, core to the parity target, not a superset |
 
-**Verdict:** 🟣 clauders is a strict superset on execution backends. The official SDKs cannot run a
-model without the `claude` binary and cannot run a non-Claude model at all. This directly serves the
-airsstack north star (mixed routing to cheaper models).
+**Verdict:** 🟣 partially removed (vision §5) — clauders *was* a strict superset on execution
+backends. The official SDKs cannot run a model without the `claude` binary and cannot run a
+non-Claude model at all; clauders no longer runs a native or non-Claude model either — `CliRuntime`
+is the only agent-execution path. The `Runtime` trait/`MockRuntime` seam and the bundled Messages API
+client remain, now framed as ordinary architecture and Pillar 1 respectively, not superset claims.
 
 ---
 
-## 12. Extension system 🟣
+## 12. Extension system 🟣 — removed (vision §5)
 
 No official counterpart — the official SDKs offer no in-SDK middleware, evals, or concurrency engine.
+This entire subsystem has been removed from clauders too.
 
 | Subsystem | clauders surface |
 |---|---|
@@ -280,21 +296,23 @@ No official counterpart — the official SDKs offer no in-SDK middleware, evals,
 | Evals harness (runtime-agnostic) | `Case`, `EvalSuite`, `Scorer`, `Grader`, `Judge`, `Score`, `Outcome`, `Report`, `CaseReport` |
 | Multi-process orchestration | `Pool`, `Limiter`, `SemaphoreLimiter` (bounded-concurrency, backpressure) |
 
-**Verdict:** 🟣 entirely clauders-only. These are the "framework" ambitions (LangChain/DSPy/DeepEval
-inspirations) the official SDKs leave to userland.
+**Verdict:** 🟣 removed (vision §5) — was entirely clauders-only. These were the "framework" ambitions
+(LangChain/DSPy/DeepEval inspirations) the official SDKs leave to userland; none of it exists in
+clauders now.
 
 ---
 
-## 13. Token efficiency 🟣
+## 13. Token efficiency 🟣 — removed (vision §5)
 
 | Capability | Python | TS | clauders |
 |---|---|---|---|
-| Programmable prompt-cache breakpoint policy | ❌ (CLI-managed) | ❌ (CLI-managed) | 🟣 `CachePolicy { Off, Prefix, PrefixAndConversation }` on `ApiRuntime` |
+| Programmable prompt-cache breakpoint policy | ❌ (CLI-managed) | ❌ (CLI-managed) | 🟣 `CachePolicy { Off, Prefix, PrefixAndConversation }` on `ApiRuntime` — removed (vision §5) |
 | Cache-aware usage accounting across a tool loop | partial (surfaced in usage) | partial | ✅ summed across turns onto the terminal `Result` |
 | Cost-aware routing / context pruning / per-subtask downgrade | ❌ | ❌ | 🚧 planned (later Scope C slices) |
 
-**Verdict:** 🟣 clauders exposes prompt caching as a first-class, programmable SDK surface on its
-native runtime — the official SDKs delegate all caching to the CLI and never surface a policy knob.
+**Verdict:** 🟣 removed (vision §5) — clauders *used to* expose prompt caching as a first-class,
+programmable SDK surface on its native runtime; that native runtime is gone. The official SDKs
+delegate all caching to the CLI and never surface a policy knob, and clauders now matches that.
 
 ---
 
@@ -306,24 +324,26 @@ native runtime — the official SDKs delegate all caching to the CLI and never s
 | In-process MCP tools | ✅ parity (minus Zod typing / rich content) |
 | Hooks | ✅ parity (event set differs at edges) |
 | Permissions core (allow/deny/rewrite/context) | ✅ parity |
-| `dontAsk` + deny-interrupt + `updated_permissions` (native enforcement) | ✅ parity (WS C; native rule store session-scoped, `auto` still behind → WS D) |
-| Structured output (`output_format` + typed result) | ✅ parity (WS B; native on Api/OpenRouter, CLI passthrough best-effort) |
+| `dontAsk` + deny-interrupt + `updated_permissions` (CLI `can_use_tool` seam) | ✅ parity (WS C; native `ApiRuntime` enforcement removed, vision §5; `auto` still behind → WS D) |
+| Structured output (`output_format` + typed result) | ✅ parity (WS B; CLI passthrough best-effort; native-on-`ApiRuntime` path removed, vision §5) |
 | Message taxonomy incl. cache usage + cost | ✅ parity |
 | Config breadth | 🟡 core covered, ~25 newer knobs missing |
 | **Subagents** (`agents`/`AgentDefinition`) | ❌ behind |
 | **Sessions** (continue/resume/fork/list) | ❌ behind |
 | **Setting sources** (filesystem config/CLAUDE.md) | ❌ behind |
-| System-prompt preset + append | ✅ parity (WS A; ✅ CLI, native degrades to append-only) |
+| System-prompt preset + append | ✅ parity (WS A; ✅ CLI) |
 | Streaming input, live MCP control, partial messages, warm start, MCP elicitation | ❌ behind |
-| **Native multi-provider runtimes** (Api/OpenRouter/Routing) | 🟣 ahead — no official equivalent |
-| **Prompt-cache policy + token efficiency** | 🟣 ahead |
-| **Middleware / evals / orchestration pool** | 🟣 ahead |
-| **Bundled raw Messages API client** | 🟣 ahead |
+| **Native multi-provider runtimes** (Api/OpenRouter/Routing) | 🟣 ahead — removed (vision §5) |
+| **Prompt-cache policy + token efficiency** | 🟣 ahead — removed (vision §5) |
+| **Middleware / evals / orchestration pool** | 🟣 ahead — removed (vision §5) |
+| **Bundled raw Messages API client** | 🟣 kept, not removed (vision §5) — reclassified as Pillar 1, not a superset |
 
 **One-line summary:** clauders is at parity on the *CLI-driving agent core* (query/client, tools,
-hooks, permissions, system prompt, messages), trails on *session management, subagents, and filesystem-settings
-integration*, and is deliberately ahead on *native multi-provider execution, token efficiency, and a
-typed extension framework* — the axes that serve the airsstack "cheaper tokens, mixed routing" thesis.
+hooks, permissions, system prompt, messages), and trails on *session management, subagents, and
+filesystem-settings integration*. The native multi-provider runtimes, prompt-cache policy, and
+middleware/evals/orchestration rows that used to read "ahead" were a superset with no official
+counterpart and were **removed** in the parity-first pivot (vision §5); clauders is now a
+subset-completing parity client, not a superset.
 
 ---
 
@@ -339,9 +359,11 @@ Ranked by leverage for the airsstack mission, not by official-checklist complete
    lowers to `--append-system-prompt` on the CLI (keeping the built-in `claude_code` base); native
    runtimes degrade to append-only text (base is CLI-only by construction).
 4. ~~**`dontAsk` permission mode + `updated_permissions` + deny-interrupt**~~ — **landed (WS C, HEAD
-   `6dce97b`)**: native `ApiRuntime` enforcement (`permission_engine` gate) + CLI passthrough. Only
-   **`auto`** (model-classified — WS D) remains; native rule persistence is session-scoped in-memory
-   only (settings-scope/disk persistence deferred to the CLI binary, spec §9).
+   `6dce97b`)** via the CLI `PermissionPolicy`/`can_use_tool` seam (`canUseTool` passthrough to the
+   `claude` Code CLI). The original landing also referenced a native `ApiRuntime` enforcement path
+   (a `permission_engine` gate); that path is **removed** along with `ApiRuntime` itself (vision §5).
+   Only **`auto`** (model-classified — WS D) remains; permission-rule persistence is entirely the
+   CLI binary's responsibility (settings-scope/disk persistence, spec §9).
 5. **Streaming input** — enables interactive multi-turn feeds into a live session.
 6. **Setting sources** — evaluate deliberately: loading `CLAUDE.md`/settings fights token hygiene;
    may stay intentionally out of scope.

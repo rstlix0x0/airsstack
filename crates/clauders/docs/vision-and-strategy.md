@@ -228,9 +228,9 @@ they serve the original mission and would sit cleanly on top of a complete Pilla
    Delete only the native halves (built on `ApiRuntime`).
 3. **`Runtime` trait — retain as mock seam, or remove?** With one real impl + one mock, the trait may
    be redundant. *Still open — decide during removal execution.*
-4. **Doc reconciliation (§10) → AFTER removal lands.** This file is the single source of truth for
-   now; `README.md`, `CLAUDE.md`, and the agent-sdk roadmap docs are rewritten once the removal is
-   executed, so docs match reality in one pass.
+4. **Doc reconciliation (§10) → DONE (2026-07-13).** `README.md`, `CLAUDE.md`, and the agent-sdk
+   roadmap / phase-4 / feature-parity docs were reconciled to this vision after the removal landed;
+   `docs/messages-api/feature-parity.md` already existed. This file remains the source of truth.
 
 ---
 
@@ -238,16 +238,13 @@ they serve the original mission and would sit cleanly on top of a complete Pilla
 
 This vision conflicts with existing repo docs. Until reconciled, **this file wins.**
 
-- `README.md` — states the token-efficiency / mixed-routing mission. **Rewrite** to the three-pillar
-  parity vision.
-- `CLAUDE.md` — "Project intent" and "Scope discipline" name the token thesis and the two-crate
-  (clauders + openrouter-rs) scope. **Update** to the parity vision and the §9.1 decision.
-- `docs/agent-sdk-roadmap.md`, `docs/agent-sdk/phase-4-cli-parity.md`,
-  `docs/agent-sdk/feature-parity.md` — the Phase-4 "CLI parity" epic and the 🟣 "clauders-only /
-  ahead" framing predate this pivot. **Rescope** to Pillar 2 (Agent SDK) and drop the superset
-  framing; the 🟣 rows become "out of scope / removed."
-- **Add** `docs/messages-api/feature-parity.md` — the Pillar-1 gap table (drafted in analysis on
-  2026-07-13; see §7.1).
+- ✅ DONE — `README.md` — rewritten to the three-pillar parity vision.
+- ✅ DONE — `CLAUDE.md` — "Project intent" and "Scope discipline" updated to the parity vision and the
+  §9.1 decision.
+- ✅ DONE — `docs/agent-sdk-roadmap.md`, `docs/agent-sdk/phase-4-cli-parity.md`,
+  `docs/agent-sdk/feature-parity.md` — rescoped to Pillar 2; the 🟣 rows re-legended as removed.
+- ✅ ALREADY PRESENT — `docs/messages-api/feature-parity.md` — the Pillar-1 gap table exists and is
+  already Pillar-1 framed.
 
 ---
 

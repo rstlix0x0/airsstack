@@ -16,18 +16,28 @@ CLI agent
 - [OpenCode \| The AI coding agent built for the terminal](https://opencode.ai/)
 - [Build, debug & deploy with AI \| Gemini CLI](https://geminicli.com/)
 
-Previously, I've been doing lot of experiments with multiple models, and then I decide to only use `Claude` models as the only advanced models. But the next problem is, it's too expensive related with it's high token consumptions, especially if we are too tightly coupled with `Claude Code`. So I'm starting to thinking to provides my own AI-SDK & AI-Agent SDK for my personal usages, by still utilizing `Claude` but combined with other alternative models through `OpenRouter`, such as:
+I decided to standardize on `Claude` as the advanced model tier. Rather than build a broad bespoke
+framework, `clauders` — the Claude SDK crate — now targets **100% feature parity and behavioral
+compatibility with Anthropic's official SDKs**, so a Rust caller gets the same capabilities a Python
+or TypeScript caller gets, with idiomatic Rust ergonomics. It covers three official surfaces: the
+**Messages API** (base SDK), the **Agent SDK** (drives the `claude` Code CLI), and **Managed Agents**
+(server-hosted stateful agents). The full rationale and scope are in
+[`crates/clauders/docs/vision-and-strategy.md`](crates/clauders/docs/vision-and-strategy.md).
 
-- `DeepSeek`
-- `Kimi K2`
-- `Qwen`
+Token-efficiency via mixed routing to cheaper models remains a longer-term direction, deliberately
+shelved until the parity core is complete (see the vision doc §8). `openrouter-rs` stays in the
+workspace as an independent standalone SDK crate, no longer wired into `clauders`.
 
 ## Rust crates (the AI-SDK & Tools)
 
-A Cargo workspace (`crates/`) with two members:
+A Cargo workspace (`crates/`) with three members:
 
 - **`clauders`** — a Claude SDK crate (Messages API, batches, structured outputs, streaming, tool use, prompt caching).
 - **`openrouter-rs`** — an OpenRouter SDK crate (chat, streaming, tool calling, structured outputs, provider routing, dual caching, model catalog).
+- **`airs-transport`** — a generic async transport substrate with an HTTP/reqwest layer, shared by the two SDK crates above.
+
+> `clauders` and `openrouter-rs` are independent crates. The earlier plan to route between them
+> lives in the vision doc's §8 re-introduction criteria, not in current scope.
 
 Standard Rust commands apply: `cargo build`, `cargo test -p <crate>`, `cargo clippy`, `cargo fmt`.
 

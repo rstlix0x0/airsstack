@@ -8,16 +8,34 @@ The Cargo workspace exists (root `Cargo.toml`, `resolver = "3"`, Edition 2024). 
 
 ## Project intent
 
-`airsstack` is the author's personal AI technology stack, written in Rust. The driving constraints (from `README.md`) shape every design decision:
+`airsstack` is the author's personal AI technology stack, written in Rust. The `clauders` crate's
+driving objective is **100% feature parity and behavioral compatibility with Anthropic's official
+SDKs** across three pillars — the **Messages API** (base SDK), the **Agent SDK** (drives the `claude`
+Code CLI as a subprocess), and **Managed Agents** (server-hosted stateful agents). A Rust caller gets
+the same capabilities a Python or TypeScript caller gets, with idiomatic Rust ergonomics. The
+authoritative statement is [`crates/clauders/docs/vision-and-strategy.md`](crates/clauders/docs/vision-and-strategy.md).
 
-- **Token efficiency over raw capability.** The author finds Claude Code too expensive due to token consumption. A primary objective of this stack is to *suppress token usage while preserving accuracy, reliability, and maintainability* — especially for software-engineering tasks. Favor designs that reduce tokens (caching, smaller models for sub-tasks, context pruning) over designs that maximize a single model's power.
-- **Claude as the advanced model, OpenRouter for alternatives.** Claude models are the "advanced" tier; cheaper/alternative models (DeepSeek, Kimi K2, Qwen) reachable via OpenRouter are the longer-term vision for mixed routing. This is a *direction*, not current scope — see "Scope discipline" below.
+The earlier token-efficiency / mixed-routing thesis (route sub-tasks to cheaper non-Claude models via
+OpenRouter) is **shelved, not abandoned** — it returns only under the vision doc's §8 re-introduction
+criteria, once all three pillars are at parity. Do not design for it now.
 
-Inspirations called out in the README: LangChain, CrewAI, DSPy, DeepEval, BeeAI (frameworks); Claude Code, OpenCode, Gemini CLI (CLI agents). Use these as reference points when shaping APIs, but don't assume the author wants a clone of any one of them.
+Inspirations called out in the README (LangChain, CrewAI, DSPy, DeepEval, BeeAI; Claude Code,
+OpenCode, Gemini CLI) remain reference points for ergonomics, not a mandate to clone any one of them.
 
 ## Scope discipline
 
-Be pragmatic; do not build for an imagined future. The repo deliberately ships **only what there is concrete work for** — today that is the `clauders` crate and the `openrouter-rs` crate. Earlier planning named a fleet of crates (`airsstack-cli`, `airsstack-core`, `provider-claude`, `provider-openrouter`, `airsdsp`); those names are **obsolete — do not reintroduce, design, or reference them**. If the author decides to add a crate, it gets named and scoped at that point.
+Be pragmatic; do not build for an imagined future. The repo ships only what serves the parity target.
+Today that is the `clauders` crate (the three-pillar parity client) and the `openrouter-rs` crate (an
+**independent** standalone OpenRouter SDK — the former `OpenRouterRuntime`/`RoutingRuntime` integration
+into `clauders` was severed per vision §9.1; the crate itself is kept).
+
+The native superset that predated the parity pivot — `ApiRuntime` (native Messages loop), cross-provider
+routing, the middleware/evals/orchestration framework tier, and the native permission/judge/subagent/
+session engines — has been **removed** (vision §5). None of it exists in the official SDKs, so none
+belongs in a parity-first `clauders`. Do not reintroduce these or the obsolete crate names
+(`airsstack-cli`, `airsstack-core`, `provider-claude`, `provider-openrouter`, `airsdsp`). If the author
+decides to add a crate or re-introduce a removed subsystem, it is named and scoped at that point under
+the vision doc's §8 criteria.
 
 ## Commands
 

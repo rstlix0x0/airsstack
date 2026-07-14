@@ -25,8 +25,8 @@ pub enum PermissionMode {
     /// Deny any tool not pre-approved, without prompting.
     #[serde(rename = "dontAsk")]
     DontAsk,
-    /// Approve or deny each tool call by a model judge (native `ApiRuntime`)
-    /// or the binary (`CliRuntime`).
+    /// Approve or deny each tool call automatically — forwarded verbatim to
+    /// the binary's `set_permission_mode` control request.
     #[serde(rename = "auto")]
     Auto,
 }
