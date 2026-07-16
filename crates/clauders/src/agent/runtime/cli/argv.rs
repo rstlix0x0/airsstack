@@ -22,9 +22,12 @@ pub(super) fn build_argv(options: &Options) -> Vec<String> {
     argv.push("--permission-mode".to_string());
     argv.push(permission_mode_wire(options.permission_mode).to_string());
 
-    // A registered policy routes tool-permission prompts over the control
-    // protocol; the `stdio` sentinel selects that path.
-    if options.permission_policy.is_some() {
+    // A caller-named prompt tool takes precedence; otherwise a registered
+    // policy routes prompts over the control protocol via the `stdio` sentinel.
+    if let Some(name) = &options.permission_prompt_tool_name {
+        argv.push("--permission-prompt-tool".to_string());
+        argv.push(name.clone());
+    } else if options.permission_policy.is_some() {
         argv.push("--permission-prompt-tool".to_string());
         argv.push("stdio".to_string());
     }
@@ -472,6 +475,70 @@ mod tests {
             build_argv(&opts)
                 .iter()
                 .any(|a| a == "--include-partial-messages")
+        );
+    }
+
+    #[test]
+    fn permission_prompt_tool_name_overrides_stdio_sentinel() {
+        let opts = Options::builder()
+            .permission_prompt_tool_name("mcp__gate__approve")
+            .build();
+        let argv = build_argv(&opts);
+        let idx = argv
+            .iter()
+            .position(|a| a == "--permission-prompt-tool")
+            .expect("flag present");
+        assert_eq!(
+            argv.get(idx + 1).map(String::as_str),
+            Some("mcp__gate__approve")
+        );
+    }
+
+    #[test]
+    fn permission_prompt_tool_name_wins_over_active_policy() {
+        use crate::agent::error::AgentError;
+        use crate::agent::permissions::{PermissionContext, PermissionDecision, PermissionPolicy};
+        use std::sync::Arc;
+
+        struct P;
+        #[async_trait::async_trait]
+        impl PermissionPolicy for P {
+            async fn can_use_tool(
+                &self,
+                _t: &str,
+                _i: &serde_json::Value,
+                _c: PermissionContext,
+            ) -> Result<PermissionDecision, AgentError> {
+                Ok(PermissionDecision::allow())
+            }
+        }
+
+        let opts = Options::builder()
+            .permission_policy(Arc::new(P))
+            .permission_prompt_tool_name("mcp__gate__approve")
+            .build();
+        let argv = build_argv(&opts);
+        let joined = argv.join(" ");
+        assert!(
+            joined.contains("--permission-prompt-tool mcp__gate__approve"),
+            "got: {joined}"
+        );
+        assert!(
+            !joined.contains("--permission-prompt-tool stdio"),
+            "got: {joined}"
+        );
+    }
+
+    #[test]
+    fn custom_prompt_tool_emits_even_without_a_policy() {
+        // A caller-owned prompt tool is emitted regardless of permission_policy.
+        let opts = Options::builder()
+            .permission_prompt_tool_name("mcp__gate__approve")
+            .build();
+        assert!(
+            build_argv(&opts)
+                .iter()
+                .any(|a| a == "--permission-prompt-tool")
         );
     }
 }
