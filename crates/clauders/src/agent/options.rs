@@ -12,7 +12,7 @@ use crate::agent::mcp::{SdkMcpRegistry, SdkMcpServer};
 use crate::agent::permissions::{PermissionMode, PermissionPolicy};
 use crate::agent::subagents::AgentDefinition;
 use crate::agent::system_prompt::SystemPromptConfig;
-use crate::agent::types::{McpServerConfig, SessionControl};
+use crate::agent::types::{BudgetUsd, McpServerConfig, SessionControl, SettingsSource};
 use crate::messages::structured_outputs::OutputConfig;
 use crate::types::{MaxTokens, ModelId};
 
@@ -74,6 +74,24 @@ pub struct Options {
     /// Native session-store root (API runtime only; ignored by the CLI
     /// runtime). `None` selects the runtime's default store location.
     pub session_dir: Option<PathBuf>,
+    /// Model to fall back to if the primary model is overloaded.
+    pub fallback_model: Option<ModelId>,
+    /// Use only `--mcp-config` servers; ignore project/user/plugin MCP config.
+    pub strict_mcp_config: bool,
+    /// Extra directories the binary's tools may access.
+    pub add_dirs: Vec<PathBuf>,
+    /// Session settings source (file path or inline JSON).
+    pub settings: Option<SettingsSource>,
+    /// Client-side spend ceiling for the session.
+    pub max_budget_usd: Option<BudgetUsd>,
+    /// Emit partial-message stream frames as the turn streams.
+    pub include_partial_messages: bool,
+    /// Name of the MCP tool that answers permission prompts, overriding the
+    /// SDK's default `stdio` bridge when set.
+    pub permission_prompt_tool_name: Option<String>,
+    /// Opaque caller identifier. Reserved for API-shape parity; has no effect
+    /// on the CLI runtime (the binary exposes no matching flag).
+    pub user: Option<String>,
 }
 
 impl fmt::Debug for Options {
@@ -112,6 +130,17 @@ impl fmt::Debug for Options {
             )
             .field("session", &self.session)
             .field("session_dir", &self.session_dir)
+            .field("fallback_model", &self.fallback_model)
+            .field("strict_mcp_config", &self.strict_mcp_config)
+            .field("add_dirs", &self.add_dirs)
+            .field("settings", &self.settings)
+            .field("max_budget_usd", &self.max_budget_usd)
+            .field("include_partial_messages", &self.include_partial_messages)
+            .field(
+                "permission_prompt_tool_name",
+                &self.permission_prompt_tool_name,
+            )
+            .field("user", &self.user)
             .finish()
     }
 }
@@ -154,6 +183,14 @@ pub struct OptionsBuilder {
     agents: HashMap<String, AgentDefinition>,
     session: SessionControl,
     session_dir: Option<PathBuf>,
+    fallback_model: Option<ModelId>,
+    strict_mcp_config: bool,
+    add_dirs: Vec<PathBuf>,
+    settings: Option<SettingsSource>,
+    max_budget_usd: Option<BudgetUsd>,
+    include_partial_messages: bool,
+    permission_prompt_tool_name: Option<String>,
+    user: Option<String>,
 }
 
 impl fmt::Debug for OptionsBuilder {
@@ -344,6 +381,69 @@ impl OptionsBuilder {
         self
     }
 
+    /// Set the fallback model.
+    #[must_use]
+    pub fn fallback_model(mut self, model: ModelId) -> Self {
+        self.fallback_model = Some(model);
+        self
+    }
+
+    /// Restrict MCP servers to those from `--mcp-config` only.
+    #[must_use]
+    pub const fn strict_mcp_config(mut self, strict: bool) -> Self {
+        self.strict_mcp_config = strict;
+        self
+    }
+
+    /// Append a directory the binary's tools may access.
+    #[must_use]
+    pub fn add_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.add_dirs.push(dir.into());
+        self
+    }
+
+    /// Set the session settings source to a settings JSON file path.
+    #[must_use]
+    pub fn settings_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.settings = Some(SettingsSource::Path(path.into()));
+        self
+    }
+
+    /// Set the session settings source to inline settings JSON.
+    #[must_use]
+    pub fn settings_inline(mut self, value: serde_json::Value) -> Self {
+        self.settings = Some(SettingsSource::Inline(value));
+        self
+    }
+
+    /// Set the client-side spend ceiling.
+    #[must_use]
+    pub const fn max_budget_usd(mut self, budget: BudgetUsd) -> Self {
+        self.max_budget_usd = Some(budget);
+        self
+    }
+
+    /// Enable partial-message stream frames.
+    #[must_use]
+    pub const fn include_partial_messages(mut self, include: bool) -> Self {
+        self.include_partial_messages = include;
+        self
+    }
+
+    /// Override the permission-prompt MCP tool name.
+    #[must_use]
+    pub fn permission_prompt_tool_name(mut self, name: impl Into<String>) -> Self {
+        self.permission_prompt_tool_name = Some(name.into());
+        self
+    }
+
+    /// Set the opaque caller identifier (reserved; no CLI effect).
+    #[must_use]
+    pub fn user(mut self, user: impl Into<String>) -> Self {
+        self.user = Some(user.into());
+        self
+    }
+
     /// Finalize into an [`Options`].
     ///
     /// # Panics
@@ -380,6 +480,14 @@ impl OptionsBuilder {
             agents: self.agents,
             session: self.session,
             session_dir: self.session_dir,
+            fallback_model: self.fallback_model,
+            strict_mcp_config: self.strict_mcp_config,
+            add_dirs: self.add_dirs,
+            settings: self.settings,
+            max_budget_usd: self.max_budget_usd,
+            include_partial_messages: self.include_partial_messages,
+            permission_prompt_tool_name: self.permission_prompt_tool_name,
+            user: self.user,
         }
     }
 }
@@ -603,5 +711,69 @@ mod tests {
             opts.agents.get("reviewer").expect("present").prompt(),
             "be careful"
         );
+    }
+
+    #[test]
+    fn new_flag_surface_defaults_are_empty() {
+        let opts = Options::default();
+        assert!(opts.fallback_model.is_none());
+        assert!(!opts.strict_mcp_config);
+        assert!(opts.add_dirs.is_empty());
+        assert!(opts.settings.is_none());
+        assert!(opts.max_budget_usd.is_none());
+        assert!(!opts.include_partial_messages);
+        assert!(opts.permission_prompt_tool_name.is_none());
+        assert!(opts.user.is_none());
+    }
+
+    #[test]
+    fn builder_sets_new_flag_surface() {
+        use crate::agent::types::{BudgetUsd, SettingsSource};
+        use crate::types::ModelId;
+
+        let opts = Options::builder()
+            .fallback_model(ModelId::custom("claude-haiku-4-5").expect("model"))
+            .strict_mcp_config(true)
+            .add_dir("/repo/a")
+            .add_dir("/repo/b")
+            .settings_path("/etc/s.json")
+            .max_budget_usd(BudgetUsd::new(5.0).expect("positive"))
+            .include_partial_messages(true)
+            .permission_prompt_tool_name("mcp__gate__approve")
+            .user("user-123")
+            .build();
+
+        assert_eq!(
+            opts.fallback_model.as_ref().map(ModelId::as_str),
+            Some("claude-haiku-4-5")
+        );
+        assert!(opts.strict_mcp_config);
+        assert_eq!(
+            opts.add_dirs,
+            vec![
+                std::path::PathBuf::from("/repo/a"),
+                std::path::PathBuf::from("/repo/b")
+            ]
+        );
+        assert_eq!(
+            opts.settings,
+            Some(SettingsSource::Path("/etc/s.json".into()))
+        );
+        assert_eq!(opts.max_budget_usd.map(BudgetUsd::get), Some(5.0));
+        assert!(opts.include_partial_messages);
+        assert_eq!(
+            opts.permission_prompt_tool_name.as_deref(),
+            Some("mcp__gate__approve")
+        );
+        assert_eq!(opts.user.as_deref(), Some("user-123"));
+    }
+
+    #[test]
+    fn settings_inline_variant_is_accepted() {
+        use crate::agent::types::SettingsSource;
+        let opts = Options::builder()
+            .settings_inline(serde_json::json!({ "k": 1 }))
+            .build();
+        assert!(matches!(opts.settings, Some(SettingsSource::Inline(_))));
     }
 }
