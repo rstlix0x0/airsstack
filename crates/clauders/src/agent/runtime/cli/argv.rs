@@ -115,6 +115,9 @@ pub(super) fn build_argv(options: &Options) -> Vec<String> {
     if options.include_partial_messages {
         argv.push("--include-partial-messages".to_string());
     }
+    if options.include_hook_events {
+        argv.push("--include-hook-events".to_string());
+    }
     argv.extend(session_args(&options.session));
     argv
 }
@@ -539,6 +542,21 @@ mod tests {
             build_argv(&opts)
                 .iter()
                 .any(|a| a == "--permission-prompt-tool")
+        );
+    }
+
+    #[test]
+    fn include_hook_events_emits_presence_flag() {
+        assert!(
+            !build_argv(&Options::default())
+                .iter()
+                .any(|a| a == "--include-hook-events")
+        );
+        let opts = Options::builder().include_hook_events(true).build();
+        assert!(
+            build_argv(&opts)
+                .iter()
+                .any(|a| a == "--include-hook-events")
         );
     }
 }

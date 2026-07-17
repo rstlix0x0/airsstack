@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use serde::Serialize;
 
 use crate::agent::error::AgentError;
+use crate::agent::message::Message;
 use crate::agent::protocol::frames::InboundFrame;
 
 /// A control-request correlation id (`req_<n>`).
@@ -50,11 +51,23 @@ impl RequestIdGen {
 
 /// Parse one inbound line into a frame.
 ///
+/// A structurally-valid JSON line that matches no known frame shape — or a
+/// known-`type` frame whose payload fails to deserialize — is captured
+/// verbatim as [`Message::Other`] rather than erroring, keeping the stdout
+/// stream forward-compatible.
+///
 /// # Errors
-/// Returns [`AgentError::Decode`] if the line is not valid JSON or does not
-/// match any known frame shape.
+/// Returns [`AgentError::Decode`] only when the line is not valid JSON.
 pub fn decode_inbound(line: &str) -> Result<InboundFrame, AgentError> {
-    serde_json::from_str(line).map_err(|e| AgentError::Decode(e.to_string()))
+    serde_json::from_str::<InboundFrame>(line).or_else(|frame_err| {
+        // Unknown frame type: capture structurally-valid JSON verbatim as a
+        // catch-all message rather than failing the turn. Genuinely
+        // malformed lines remain decode errors.
+        serde_json::from_str::<serde_json::Value>(line).map_or_else(
+            |_| Err(AgentError::Decode(frame_err.to_string())),
+            |value| Ok(InboundFrame::Message(Message::Other(value))),
+        )
+    })
 }
 
 /// Serialize an outbound frame to a single newline-terminated JSON line.
@@ -72,6 +85,7 @@ pub fn encode_line<T: Serialize>(frame: &T) -> Result<String, AgentError> {
 #[cfg(test)]
 mod tests {
     #![expect(clippy::expect_used, reason = "test assertions use expect for context")]
+    #![expect(clippy::panic, reason = "test failure signal via panic in match arms")]
 
     use super::{RequestId, decode_inbound, encode_line};
     use crate::agent::protocol::frames::{
@@ -119,5 +133,32 @@ mod tests {
             "exactly one trailing newline"
         );
         assert!(line.contains("\"subtype\":\"interrupt\""));
+    }
+
+    #[test]
+    fn unknown_frame_type_decodes_to_message_other_with_payload() {
+        use crate::agent::message::Message;
+        use crate::agent::protocol::frames::InboundFrame;
+        // A hook-lifecycle frame the enum has no typed variant for.
+        let line = r#"{"type":"hook_started","hook":"SessionStart","session_id":"s1"}"#;
+        let frame = decode_inbound(line).expect("decode");
+        match frame {
+            InboundFrame::Message(Message::Other(v)) => {
+                assert_eq!(v["type"], "hook_started");
+                assert_eq!(v["hook"], "SessionStart");
+            }
+            other => panic!("expected Message::Other, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn known_frame_types_still_decode_to_their_variants() {
+        use crate::agent::message::Message;
+        use crate::agent::protocol::frames::InboundFrame;
+        let line = r#"{"type":"result","subtype":"success","result":"ok","is_error":false,"session_id":"s1","num_turns":1}"#;
+        assert!(matches!(
+            decode_inbound(line).expect("decode"),
+            InboundFrame::Message(Message::Result(_))
+        ));
     }
 }

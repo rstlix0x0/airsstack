@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,12 +23,19 @@ const DEFAULT_SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 /// Default per-request output-token ceiling when the caller sets none.
 const DEFAULT_MAX_TOKENS: u32 = 4096;
 
+/// Per-chunk stderr callback: invoked with one valid UTF-8 chunk at a time.
+type StderrCallback = Arc<dyn Fn(&str) + Send + Sync>;
+
 /// Configuration for a `Client` / `query` session.
 ///
 /// Built via [`Options::builder`]. Carries everything the runtime needs to
 /// discover, spawn, and configure the binary. In-loop handler fields
 /// (`hooks`, `permission_policy`) carry `Arc`-wrapped handlers consulted by
 /// the runtime's reader.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each bool is an independent CLI toggle flag mirrored 1:1 from the binary's own flag surface, not a combined state machine"
+)]
 #[derive(Clone)]
 pub struct Options {
     /// System-prompt configuration forwarded to the runtime.
@@ -92,6 +100,14 @@ pub struct Options {
     /// Opaque caller identifier. Reserved for API-shape parity; has no effect
     /// on the CLI runtime (the binary exposes no matching flag).
     pub user: Option<String>,
+    /// Emit hook-lifecycle observability frames on the message stream.
+    pub include_hook_events: bool,
+    /// Per-chunk callback for the child's stderr (augments capture; does not
+    /// suppress it).
+    pub stderr: Option<StderrCallback>,
+    /// Cap on bytes buffered per stdout line before erroring (`None` =
+    /// unbounded).
+    pub max_buffer_size: Option<NonZeroUsize>,
 }
 
 impl fmt::Debug for Options {
@@ -141,6 +157,9 @@ impl fmt::Debug for Options {
                 &self.permission_prompt_tool_name,
             )
             .field("user", &self.user)
+            .field("include_hook_events", &self.include_hook_events)
+            .field("stderr", &self.stderr.is_some())
+            .field("max_buffer_size", &self.max_buffer_size)
             .finish()
     }
 }
@@ -160,6 +179,10 @@ impl Default for Options {
 }
 
 /// Builder for [`Options`].
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "mirrors Options: each bool is an independent CLI toggle flag, not a combined state machine"
+)]
 #[derive(Clone, Default)]
 pub struct OptionsBuilder {
     system_prompt: SystemPromptConfig,
@@ -191,6 +214,9 @@ pub struct OptionsBuilder {
     include_partial_messages: bool,
     permission_prompt_tool_name: Option<String>,
     user: Option<String>,
+    include_hook_events: bool,
+    stderr: Option<StderrCallback>,
+    max_buffer_size: Option<NonZeroUsize>,
 }
 
 impl fmt::Debug for OptionsBuilder {
@@ -444,6 +470,27 @@ impl OptionsBuilder {
         self
     }
 
+    /// Emit hook-lifecycle observability frames on the message stream.
+    #[must_use]
+    pub const fn include_hook_events(mut self, include: bool) -> Self {
+        self.include_hook_events = include;
+        self
+    }
+
+    /// Set a per-chunk stderr callback (augments capture; does not suppress).
+    #[must_use]
+    pub fn stderr(mut self, callback: impl Fn(&str) + Send + Sync + 'static) -> Self {
+        self.stderr = Some(Arc::new(callback));
+        self
+    }
+
+    /// Cap bytes buffered per stdout line before erroring.
+    #[must_use]
+    pub const fn max_buffer_size(mut self, cap: NonZeroUsize) -> Self {
+        self.max_buffer_size = Some(cap);
+        self
+    }
+
     /// Finalize into an [`Options`].
     ///
     /// # Panics
@@ -488,6 +535,9 @@ impl OptionsBuilder {
             include_partial_messages: self.include_partial_messages,
             permission_prompt_tool_name: self.permission_prompt_tool_name,
             user: self.user,
+            include_hook_events: self.include_hook_events,
+            stderr: self.stderr,
+            max_buffer_size: self.max_buffer_size,
         }
     }
 }
@@ -775,5 +825,46 @@ mod tests {
             .settings_inline(serde_json::json!({ "k": 1 }))
             .build();
         assert!(matches!(opts.settings, Some(SettingsSource::Inline(_))));
+    }
+
+    #[test]
+    fn runtime_behavior_knob_defaults() {
+        let opts = Options::default();
+        assert!(!opts.include_hook_events);
+        assert!(opts.stderr.is_none());
+        assert!(opts.max_buffer_size.is_none());
+    }
+
+    #[test]
+    fn builder_sets_runtime_behavior_knobs() {
+        use std::num::NonZeroUsize;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let hits = Arc::new(AtomicUsize::new(0));
+        let hits2 = Arc::clone(&hits);
+        let opts = Options::builder()
+            .include_hook_events(true)
+            .stderr(move |_line: &str| {
+                hits2.fetch_add(1, Ordering::Relaxed);
+            })
+            .max_buffer_size(NonZeroUsize::new(4096).expect("nonzero"))
+            .build();
+
+        assert!(opts.include_hook_events);
+        assert!(opts.stderr.is_some());
+        assert_eq!(opts.max_buffer_size.map(NonZeroUsize::get), Some(4096));
+        // The stored callback is invocable. `Arc<dyn Fn>` is not itself callable,
+        // so deref to `&dyn Fn` (which does implement `Fn`) before calling.
+        let cb = opts.stderr.as_deref().expect("set");
+        cb("boom");
+        assert_eq!(hits.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn debug_shows_stderr_as_bool_without_leaking_the_closure() {
+        let opts = Options::builder().stderr(|_l: &str| {}).build();
+        let shown = format!("{opts:?}");
+        assert!(shown.contains("stderr: true"), "got: {shown}");
     }
 }

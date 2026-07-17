@@ -23,6 +23,16 @@ pub enum Message {
     Result(ResultMessage),
     /// A fine-grained streaming delta event.
     StreamEvent(StreamEvent),
+    /// Any frame whose `type` is not one of the above, captured verbatim.
+    ///
+    /// Keeps the stdout stream forward-compatible: unrecognized frames — such
+    /// as the hook-lifecycle frames emitted under `include_hook_events` —
+    /// surface here instead of failing the turn. This variant is never
+    /// produced by the tagged deserializer (`#[serde(skip)]`); the protocol
+    /// codec constructs it for lines that match no known frame. It is
+    /// inbound-only and must not be serialized.
+    #[serde(skip)]
+    Other(serde_json::Value),
 }
 
 /// Assistant message payload.
@@ -230,6 +240,15 @@ mod tests {
             msg.structured_output,
             Some(serde_json::json!({ "city": "Paris" }))
         );
+    }
+
+    #[test]
+    fn other_variant_holds_raw_value() {
+        let m = Message::Other(serde_json::json!({ "type": "hook_progress" }));
+        match m {
+            Message::Other(v) => assert_eq!(v["type"], "hook_progress"),
+            other => panic!("expected Other, got {other:?}"),
+        }
     }
 
     #[test]
