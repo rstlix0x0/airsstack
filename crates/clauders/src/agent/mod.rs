@@ -30,8 +30,8 @@ pub use content::ContentBlock;
 pub use error::AgentError;
 pub use hooks::{Hook, HookDecision, HookInput, HookOutput, HookRegistry};
 pub use mcp::{
-    FnTool, SdkMcpRegistry, SdkMcpServer, SdkMcpServerBuilder, Tool, ToolAnnotations, ToolContent,
-    ToolResult, tool,
+    FnTool, ResourceContents, SdkMcpRegistry, SdkMcpServer, SdkMcpServerBuilder, Tool,
+    ToolAnnotations, ToolContent, ToolResult, tool,
 };
 pub use message::{
     AssistantMessage, Message, ResultMessage, StreamEvent, SystemMessage, Usage, UserMessage,

@@ -12,8 +12,8 @@ use async_trait::async_trait;
 
 use crate::agent::error::AgentError;
 
-/// A single content block in a tool result. `#[non_exhaustive]`: `image` and
-/// `resource` blocks are non-breaking future additions.
+/// A single content block in a tool result. `#[non_exhaustive]`: the MCP content
+/// set may grow, so new block kinds are non-breaking future additions.
 #[non_exhaustive]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ToolContent {
@@ -22,6 +22,91 @@ pub enum ToolContent {
         /// The text payload.
         text: String,
     },
+    /// An image block. `data` is base64-encoded image bytes.
+    Image {
+        /// Base64-encoded image data.
+        data: String,
+        /// The IANA media type, e.g. `image/png`.
+        mime_type: String,
+    },
+    /// An audio block. `data` is base64-encoded audio bytes.
+    Audio {
+        /// Base64-encoded audio data.
+        data: String,
+        /// The IANA media type, e.g. `audio/wav`.
+        mime_type: String,
+    },
+    /// A link to a resource the client may fetch or subscribe to.
+    ResourceLink {
+        /// The resource URI.
+        uri: String,
+        /// A short human-readable name.
+        name: String,
+        /// An optional human-readable description.
+        description: Option<String>,
+        /// The optional IANA media type of the linked resource.
+        mime_type: Option<String>,
+    },
+    /// An embedded resource carrying its content inline.
+    Resource {
+        /// The embedded resource body (text or binary).
+        resource: ResourceContents,
+    },
+}
+
+/// The body of an embedded [`ToolContent::Resource`]: text XOR binary.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ResourceContents {
+    /// A text resource.
+    Text {
+        /// The resource URI.
+        uri: String,
+        /// The optional IANA media type.
+        mime_type: Option<String>,
+        /// The text payload.
+        text: String,
+    },
+    /// A binary resource. `blob` is base64-encoded.
+    Blob {
+        /// The resource URI.
+        uri: String,
+        /// The optional IANA media type.
+        mime_type: Option<String>,
+        /// Base64-encoded binary payload.
+        blob: String,
+    },
+}
+
+impl ResourceContents {
+    /// The inner MCP `resource` object for an embedded resource block.
+    fn to_wire(&self) -> serde_json::Value {
+        let mut map = serde_json::Map::new();
+        match self {
+            Self::Text {
+                uri,
+                mime_type,
+                text,
+            } => {
+                map.insert("uri".to_string(), uri.clone().into());
+                if let Some(m) = mime_type {
+                    map.insert("mimeType".to_string(), m.clone().into());
+                }
+                map.insert("text".to_string(), text.clone().into());
+            }
+            Self::Blob {
+                uri,
+                mime_type,
+                blob,
+            } => {
+                map.insert("uri".to_string(), uri.clone().into());
+                if let Some(m) = mime_type {
+                    map.insert("mimeType".to_string(), m.clone().into());
+                }
+                map.insert("blob".to_string(), blob.clone().into());
+            }
+        }
+        serde_json::Value::Object(map)
+    }
 }
 
 impl ToolContent {
@@ -29,6 +114,33 @@ impl ToolContent {
     fn to_wire(&self) -> serde_json::Value {
         match self {
             Self::Text { text } => serde_json::json!({ "type": "text", "text": text }),
+            Self::Image { data, mime_type } => {
+                serde_json::json!({ "type": "image", "data": data, "mimeType": mime_type })
+            }
+            Self::Audio { data, mime_type } => {
+                serde_json::json!({ "type": "audio", "data": data, "mimeType": mime_type })
+            }
+            Self::ResourceLink {
+                uri,
+                name,
+                description,
+                mime_type,
+            } => {
+                let mut map = serde_json::Map::new();
+                map.insert("type".to_string(), "resource_link".into());
+                map.insert("uri".to_string(), uri.clone().into());
+                map.insert("name".to_string(), name.clone().into());
+                if let Some(d) = description {
+                    map.insert("description".to_string(), d.clone().into());
+                }
+                if let Some(m) = mime_type {
+                    map.insert("mimeType".to_string(), m.clone().into());
+                }
+                serde_json::Value::Object(map)
+            }
+            Self::Resource { resource } => {
+                serde_json::json!({ "type": "resource", "resource": resource.to_wire() })
+            }
         }
     }
 }
@@ -58,6 +170,42 @@ impl ToolResult {
         Self {
             content: vec![ToolContent::Text { text: text.into() }],
             is_error: true,
+        }
+    }
+
+    /// A successful image result. `data` is base64-encoded.
+    ///
+    /// ```
+    /// use clauders::agent::ToolResult;
+    /// let r = ToolResult::image("<base64>", "image/png");
+    /// assert!(!r.is_error);
+    /// ```
+    #[must_use]
+    pub fn image(data: impl Into<String>, mime_type: impl Into<String>) -> Self {
+        Self {
+            content: vec![ToolContent::Image {
+                data: data.into(),
+                mime_type: mime_type.into(),
+            }],
+            is_error: false,
+        }
+    }
+
+    /// A successful audio result. `data` is base64-encoded.
+    ///
+    /// ```
+    /// use clauders::agent::ToolResult;
+    /// let r = ToolResult::audio("<base64>", "audio/wav");
+    /// assert!(!r.is_error);
+    /// ```
+    #[must_use]
+    pub fn audio(data: impl Into<String>, mime_type: impl Into<String>) -> Self {
+        Self {
+            content: vec![ToolContent::Audio {
+                data: data.into(),
+                mime_type: mime_type.into(),
+            }],
+            is_error: false,
         }
     }
 
@@ -219,7 +367,7 @@ where
 mod tests {
     #![expect(clippy::expect_used, reason = "test assertions use expect for context")]
 
-    use super::{Tool, ToolAnnotations, ToolContent, ToolResult, tool};
+    use super::{ResourceContents, Tool, ToolAnnotations, ToolContent, ToolResult, tool};
 
     #[test]
     fn text_result_wire_shape() {
@@ -285,5 +433,106 @@ mod tests {
             ..Default::default()
         });
         assert_eq!(t.annotations().expect("some").read_only_hint, Some(true));
+    }
+
+    #[test]
+    fn image_wire_shape() {
+        let wire = ToolResult::image("BASE64", "image/png").to_wire();
+        assert_eq!(wire["content"][0]["type"], "image");
+        assert_eq!(wire["content"][0]["data"], "BASE64");
+        assert_eq!(wire["content"][0]["mimeType"], "image/png");
+        assert_eq!(wire["isError"], false);
+    }
+
+    #[test]
+    fn audio_wire_shape() {
+        let wire = ToolResult::audio("AUDIO64", "audio/wav").to_wire();
+        assert_eq!(wire["content"][0]["type"], "audio");
+        assert_eq!(wire["content"][0]["data"], "AUDIO64");
+        assert_eq!(wire["content"][0]["mimeType"], "audio/wav");
+    }
+
+    #[test]
+    fn image_and_audio_constructors_are_single_block_success() {
+        let img = ToolResult::image("d", "image/png");
+        assert!(!img.is_error);
+        assert_eq!(
+            img.content,
+            vec![ToolContent::Image {
+                data: "d".to_string(),
+                mime_type: "image/png".to_string(),
+            }]
+        );
+        assert!(!ToolResult::audio("d", "audio/wav").is_error);
+    }
+
+    #[test]
+    fn resource_link_wire_shape_omits_unset() {
+        let bare = ToolResult {
+            content: vec![ToolContent::ResourceLink {
+                uri: "file:///m.rs".to_string(),
+                name: "m.rs".to_string(),
+                description: None,
+                mime_type: None,
+            }],
+            is_error: false,
+        };
+        let block = &bare.to_wire()["content"][0];
+        assert_eq!(block["type"], "resource_link");
+        assert_eq!(block["uri"], "file:///m.rs");
+        assert_eq!(block["name"], "m.rs");
+        assert!(block.get("description").is_none());
+        assert!(block.get("mimeType").is_none());
+
+        let full = ToolResult {
+            content: vec![ToolContent::ResourceLink {
+                uri: "file:///m.rs".to_string(),
+                name: "m.rs".to_string(),
+                description: Some("entry".to_string()),
+                mime_type: Some("text/x-rust".to_string()),
+            }],
+            is_error: false,
+        };
+        let block = &full.to_wire()["content"][0];
+        assert_eq!(block["description"], "entry");
+        assert_eq!(block["mimeType"], "text/x-rust");
+    }
+
+    #[test]
+    fn embedded_resource_text_wire_shape() {
+        let r = ToolResult {
+            content: vec![ToolContent::Resource {
+                resource: ResourceContents::Text {
+                    uri: "file:///m.rs".to_string(),
+                    mime_type: Some("text/x-rust".to_string()),
+                    text: "fn main() {}".to_string(),
+                },
+            }],
+            is_error: false,
+        };
+        let block = &r.to_wire()["content"][0];
+        assert_eq!(block["type"], "resource");
+        assert_eq!(block["resource"]["uri"], "file:///m.rs");
+        assert_eq!(block["resource"]["text"], "fn main() {}");
+        assert_eq!(block["resource"]["mimeType"], "text/x-rust");
+        assert!(block["resource"].get("blob").is_none());
+    }
+
+    #[test]
+    fn embedded_resource_blob_wire_shape() {
+        let r = ToolResult {
+            content: vec![ToolContent::Resource {
+                resource: ResourceContents::Blob {
+                    uri: "file:///img.png".to_string(),
+                    mime_type: None,
+                    blob: "BLOB64".to_string(),
+                },
+            }],
+            is_error: false,
+        };
+        let block = &r.to_wire()["content"][0];
+        assert_eq!(block["resource"]["blob"], "BLOB64");
+        assert!(block["resource"].get("text").is_none());
+        assert!(block["resource"].get("mimeType").is_none());
     }
 }

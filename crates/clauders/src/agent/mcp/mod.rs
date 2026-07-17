@@ -11,4 +11,4 @@ pub mod tool;
 
 pub use registry::SdkMcpRegistry;
 pub use server::{SdkMcpServer, SdkMcpServerBuilder};
-pub use tool::{FnTool, Tool, ToolAnnotations, ToolContent, ToolResult, tool};
+pub use tool::{FnTool, ResourceContents, Tool, ToolAnnotations, ToolContent, ToolResult, tool};
