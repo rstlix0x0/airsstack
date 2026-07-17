@@ -46,4 +46,4 @@ pub use runtime::cli::CliRuntime;
 pub use stream::MessageStream;
 pub use subagents::{AgentDefinition, AgentDefinitionError};
 pub use system_prompt::SystemPromptConfig;
-pub use types::SessionControl;
+pub use types::{EffortLevel, SessionControl};

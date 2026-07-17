@@ -118,6 +118,10 @@ pub(super) fn build_argv(options: &Options) -> Vec<String> {
     if options.include_hook_events {
         argv.push("--include-hook-events".to_string());
     }
+    if let Some(effort) = options.effort {
+        argv.push("--effort".to_string());
+        argv.push(effort.as_str().to_string());
+    }
     argv.extend(session_args(&options.session));
     argv
 }
@@ -558,5 +562,16 @@ mod tests {
                 .iter()
                 .any(|a| a == "--include-hook-events")
         );
+    }
+
+    #[test]
+    fn lowers_effort_when_set_and_omits_when_none() {
+        use crate::agent::types::EffortLevel;
+
+        let with = build_argv(&Options::builder().effort(EffortLevel::High).build());
+        assert!(with.join(" ").contains("--effort high"));
+
+        let without = build_argv(&Options::default());
+        assert!(!without.join(" ").contains("--effort"));
     }
 }

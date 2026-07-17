@@ -72,8 +72,8 @@ live-control ops (warm start, reinitialize, live MCP set).
 ## 2. Configuration surface (`Options` / `ClaudeAgentOptions`)
 
 clauders `Options` (≈31 fields) vs the official surface (~40+ fields). The core plus the WS 1 breadth
-knobs are covered; the residual gap is `setting_sources`, the newer model/feature knobs (thinking,
-skills, plugins, sandbox), and the live-control long tail.
+knobs and `effort` (WS 2) are covered; the residual gap is `setting_sources`, the CLI-feature knobs
+(skills, plugins, sandbox), `thinking` (CLI-limited — no binary flag), and the live-control long tail.
 
 | Option (official name) | Python | TS | clauders field | Status |
 |---|---|---|---|---|
@@ -108,7 +108,8 @@ skills, plugins, sandbox), and the live-control long tail.
 | `include_hook_events` (hook-lifecycle frames) | ✅ | ✅ | `include_hook_events: bool` (→ presence `--include-hook-events`; unknown frames caught as `Message::Other`) | ✅ (WS 1) |
 | `user` | ✅ | ✅ | `user: Option<String>` (inert — API-shape parity; no CLI flag lowered) | 🟡 |
 | `output_format` / structured output (agent layer) | ✅ | ✅ | `output_format` + `ResultMessage::structured_output` (CLI best-effort passthrough) | ✅ (WS B) |
-| `thinking` / `effort` / `max_thinking_tokens` | ✅ | ✅ | ❌ | ❌ |
+| `effort` | ✅ | ✅ | `effort: Option<EffortLevel>` (→ `--effort <level>`) | ✅ (WS 2) |
+| `thinking` / `max_thinking_tokens` | ✅ | ✅ | ❌ | ❌ CLI-limited — binary `v2.1.209` exposes no thinking flag; adaptive via `--effort`; raw config via `settings`. `max_thinking_tokens` deprecated upstream |
 | `max_budget_usd` | ✅ | ✅ | `max_budget_usd: Option<BudgetUsd>` (→ `--max-budget-usd`) | ✅ (WS 1) |
 | `skills`, `plugins`, `sandbox`, `betas` | ✅ | ✅ | ❌ | ❌ (CLI-feature knobs) |
 | `session_store` / `enable_file_checkpointing` | ✅ | ✅ | ❌ | ❌ (native `SessionStore` removed, vision §5) |
@@ -118,8 +119,8 @@ skills, plugins, sandbox), and the live-control long tail.
 
 **Verdict:** ✅ on the tool/permission/mcp/hook/cwd/env core **and** the WS 1 breadth (fallback,
 strict-mcp, add-dirs, settings, budget, partial-messages, hook-events, prompt-tool override, stderr,
-max-buffer) **and** sessions + subagents; ❌ on `setting_sources` and the newer model-feature knobs
-(thinking, skills, plugins, sandbox).
+max-buffer) **and** `effort` (WS 2) **and** sessions + subagents; ❌ on `setting_sources` and the
+CLI-feature knobs (skills, plugins, sandbox); `thinking` is CLI-limited (no binary flag — see §2 table).
 
 ---
 

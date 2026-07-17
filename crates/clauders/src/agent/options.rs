@@ -13,7 +13,9 @@ use crate::agent::mcp::{SdkMcpRegistry, SdkMcpServer};
 use crate::agent::permissions::{PermissionMode, PermissionPolicy};
 use crate::agent::subagents::AgentDefinition;
 use crate::agent::system_prompt::SystemPromptConfig;
-use crate::agent::types::{BudgetUsd, McpServerConfig, SessionControl, SettingsSource};
+use crate::agent::types::{
+    BudgetUsd, EffortLevel, McpServerConfig, SessionControl, SettingsSource,
+};
 use crate::messages::structured_outputs::OutputConfig;
 use crate::types::{MaxTokens, ModelId};
 
@@ -105,6 +107,8 @@ pub struct Options {
     /// Cap on bytes buffered per stdout line before erroring (`None` =
     /// unbounded).
     pub max_buffer_size: Option<NonZeroUsize>,
+    /// Reasoning-effort level for the session (→ `--effort <level>`).
+    pub effort: Option<EffortLevel>,
 }
 
 impl fmt::Debug for Options {
@@ -156,6 +160,7 @@ impl fmt::Debug for Options {
             .field("include_hook_events", &self.include_hook_events)
             .field("stderr", &self.stderr.is_some())
             .field("max_buffer_size", &self.max_buffer_size)
+            .field("effort", &self.effort)
             .finish()
     }
 }
@@ -212,6 +217,7 @@ pub struct OptionsBuilder {
     include_hook_events: bool,
     stderr: Option<StderrCallback>,
     max_buffer_size: Option<NonZeroUsize>,
+    effort: Option<EffortLevel>,
 }
 
 impl fmt::Debug for OptionsBuilder {
@@ -437,6 +443,13 @@ impl OptionsBuilder {
         self
     }
 
+    /// Set the reasoning-effort level for the session.
+    #[must_use]
+    pub const fn effort(mut self, effort: EffortLevel) -> Self {
+        self.effort = Some(effort);
+        self
+    }
+
     /// Enable partial-message stream frames.
     #[must_use]
     pub const fn include_partial_messages(mut self, include: bool) -> Self {
@@ -525,6 +538,7 @@ impl OptionsBuilder {
             include_hook_events: self.include_hook_events,
             stderr: self.stderr,
             max_buffer_size: self.max_buffer_size,
+            effort: self.effort,
         }
     }
 }
@@ -846,5 +860,15 @@ mod tests {
         let opts = Options::builder().stderr(|_l: &str| {}).build();
         let shown = format!("{opts:?}");
         assert!(shown.contains("stderr: true"), "got: {shown}");
+    }
+
+    #[test]
+    fn effort_defaults_to_none_and_builder_sets_it() {
+        use crate::agent::types::EffortLevel;
+
+        assert!(Options::default().effort.is_none());
+
+        let opts = Options::builder().effort(EffortLevel::High).build();
+        assert_eq!(opts.effort, Some(EffortLevel::High));
     }
 }
