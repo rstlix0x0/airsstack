@@ -63,8 +63,8 @@ impl ManagedProcess {
 
         let io = ProcessIo {
             stdin,
-            stdout: StdoutLines::new(stdout),
-            stderr: StderrBuffer::drain(stderr),
+            stdout: StdoutLines::new(stdout, cfg.max_buffer_size),
+            stderr: StderrBuffer::drain(stderr, cfg.stderr_callback.clone()),
         };
         let supervisor = Arc::new(Supervisor::spawn(child, grace));
         Ok((Self { supervisor }, io))

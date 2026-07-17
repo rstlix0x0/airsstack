@@ -12,7 +12,7 @@ use crate::agent::capabilities::Capabilities;
 use crate::agent::error::AgentError;
 use crate::agent::options::Options;
 use crate::agent::permissions::PermissionMode;
-use crate::agent::process::{ManagedProcess, ProcessConfig, ProcessIo, StdoutLines};
+use crate::agent::process::{LineError, ManagedProcess, ProcessConfig, ProcessIo, StdoutLines};
 use crate::agent::protocol::{
     ControlResponseBody, OutboundControlRequest, OutboundRequestBody, RequestId, RequestIdGen,
     decode_inbound, encode_line,
@@ -63,6 +63,8 @@ impl CliRuntime {
             cwd: options.cwd.clone(),
             env: options.env.clone(),
             shutdown_grace: options.shutdown_grace,
+            max_buffer_size: options.max_buffer_size,
+            stderr_callback: options.stderr.clone(),
         };
         let (process, io) = ManagedProcess::spawn(&cfg)?;
         let ProcessIo {
@@ -277,6 +279,12 @@ async fn writer_loop(mut stdin: ChildStdin, mut rx: mpsc::UnboundedReceiver<Stri
 /// demultiplex everything else.
 async fn reader_loop(mut stdout: StdoutLines, demux: Arc<Demux>, dispatcher: Arc<Dispatcher>) {
     loop {
+        #[expect(
+            clippy::match_same_arms,
+            reason = "Ok(None) and Err(LineError::Io(_)) share a body today but are kept as \
+                      separate arms so each terminal condition (clean EOF vs. I/O failure) reads \
+                      distinctly from the Overflow error path"
+        )]
         match stdout.next_line().await {
             Ok(Some(text)) if text.trim().is_empty() => {}
             Ok(Some(text)) => match decode_inbound(&text) {
@@ -288,7 +296,20 @@ async fn reader_loop(mut stdout: StdoutLines, demux: Arc<Demux>, dispatcher: Arc
                 Ok(frame) => demux.route(frame).await,
                 Err(error) => demux.fail_turn(error).await,
             },
-            Ok(None) | Err(_) => {
+            Ok(None) => {
+                demux.close().await;
+                break;
+            }
+            Err(LineError::Overflow { cap }) => {
+                demux
+                    .fail_turn(AgentError::Protocol {
+                        detail: format!("stdout line exceeded max_buffer_size ({cap} bytes)"),
+                    })
+                    .await;
+                demux.close().await;
+                break;
+            }
+            Err(LineError::Io(_)) => {
                 demux.close().await;
                 break;
             }

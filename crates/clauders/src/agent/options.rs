@@ -79,9 +79,6 @@ pub struct Options {
     pub agents: HashMap<String, AgentDefinition>,
     /// Session continuation intent for this session.
     pub session: SessionControl,
-    /// Native session-store root (API runtime only; ignored by the CLI
-    /// runtime). `None` selects the runtime's default store location.
-    pub session_dir: Option<PathBuf>,
     /// Model to fall back to if the primary model is overloaded.
     pub fallback_model: Option<ModelId>,
     /// Use only `--mcp-config` servers; ignore project/user/plugin MCP config.
@@ -145,7 +142,6 @@ impl fmt::Debug for Options {
                 &format_args!("<{} registered>", self.agents.len()),
             )
             .field("session", &self.session)
-            .field("session_dir", &self.session_dir)
             .field("fallback_model", &self.fallback_model)
             .field("strict_mcp_config", &self.strict_mcp_config)
             .field("add_dirs", &self.add_dirs)
@@ -205,7 +201,6 @@ pub struct OptionsBuilder {
     output_format: Option<OutputConfig>,
     agents: HashMap<String, AgentDefinition>,
     session: SessionControl,
-    session_dir: Option<PathBuf>,
     fallback_model: Option<ModelId>,
     strict_mcp_config: bool,
     add_dirs: Vec<PathBuf>,
@@ -400,13 +395,6 @@ impl OptionsBuilder {
         self
     }
 
-    /// Set the native session-store root (API runtime only).
-    #[must_use]
-    pub fn session_dir(mut self, dir: impl Into<PathBuf>) -> Self {
-        self.session_dir = Some(dir.into());
-        self
-    }
-
     /// Set the fallback model.
     #[must_use]
     pub fn fallback_model(mut self, model: ModelId) -> Self {
@@ -526,7 +514,6 @@ impl OptionsBuilder {
             output_format: self.output_format,
             agents: self.agents,
             session: self.session,
-            session_dir: self.session_dir,
             fallback_model: self.fallback_model,
             strict_mcp_config: self.strict_mcp_config,
             add_dirs: self.add_dirs,
@@ -717,22 +704,19 @@ mod tests {
     }
 
     #[test]
-    fn default_session_is_new_and_dir_is_none() {
+    fn default_session_is_new() {
         use crate::agent::types::SessionControl;
-        let opts = Options::default();
-        assert_eq!(opts.session, SessionControl::New);
-        assert!(opts.session_dir.is_none());
+        assert_eq!(Options::default().session, SessionControl::New);
     }
 
     #[test]
-    fn builder_sets_session_and_dir() {
+    fn builder_sets_session() {
         use crate::agent::types::{SessionControl, SessionId};
         let opts = Options::builder()
             .session(SessionControl::Resume {
                 id: SessionId::new("sess_x"),
                 fork: true,
             })
-            .session_dir("/tmp/clauders-sessions")
             .build();
         assert_eq!(
             opts.session,
@@ -740,10 +724,6 @@ mod tests {
                 id: SessionId::new("sess_x"),
                 fork: true,
             }
-        );
-        assert_eq!(
-            opts.session_dir.as_deref(),
-            Some(std::path::Path::new("/tmp/clauders-sessions"))
         );
     }
 
