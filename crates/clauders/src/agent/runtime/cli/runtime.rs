@@ -1,8 +1,10 @@
 //! The subprocess-backed `Runtime` implementation.
 
+use std::pin::Pin;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use futures_core::Stream;
 use tokio::io::AsyncWriteExt;
 use tokio::process::ChildStdin;
 use tokio::sync::{mpsc, oneshot};
@@ -153,9 +155,16 @@ impl Runtime for CliRuntime {
     async fn run(&self, prompt: Prompt) -> Result<MessageStream, AgentError> {
         let (tx, rx) = mpsc::channel(TURN_CHANNEL_CAPACITY);
         self.demux.set_turn_sink(tx);
-        let line = encode_line(&user_message_frame(&prompt))?;
-        if self.out_tx.send(line).is_err() {
-            return Err(AgentError::TransportClosed);
+        match prompt {
+            Prompt::Single(text) => {
+                let line = encode_line(&user_message_frame(&text))?;
+                if self.out_tx.send(line).is_err() {
+                    return Err(AgentError::TransportClosed);
+                }
+            }
+            Prompt::Stream(stream) => {
+                tokio::spawn(drain_input(stream, self.out_tx.clone()));
+            }
         }
         Ok(ReceiverStream::new(rx).boxed())
     }
@@ -200,12 +209,30 @@ impl Runtime for CliRuntime {
     }
 }
 
-/// Build the outbound user-message frame carrying a prompt.
-fn user_message_frame(prompt: &Prompt) -> serde_json::Value {
+/// Build the outbound user-message frame carrying one prompt text.
+fn user_message_frame(text: &str) -> serde_json::Value {
     serde_json::json!({
         "type": "user",
-        "message": { "role": "user", "content": prompt.as_str() }
+        "message": { "role": "user", "content": text }
     })
+}
+
+/// Feed a streamed prompt to stdin: one user-message line per item, as they
+/// arrive. Ends when the stream is exhausted or the writer channel is gone.
+/// Drives the stream with `poll_fn` + `Stream::poll_next` so no `futures_util`
+/// (dev-only) leaks into the library build.
+async fn drain_input(
+    mut stream: Pin<Box<dyn Stream<Item = String> + Send + 'static>>,
+    out_tx: mpsc::UnboundedSender<String>,
+) {
+    while let Some(text) = std::future::poll_fn(|cx| stream.as_mut().poll_next(cx)).await {
+        let Ok(line) = encode_line(&user_message_frame(&text)) else {
+            break;
+        };
+        if out_tx.send(line).is_err() {
+            break;
+        }
+    }
 }
 
 /// Probe `program --version`, returning the trimmed stdout if it ran.
@@ -319,12 +346,16 @@ async fn reader_loop(mut stdout: StdoutLines, demux: Arc<Demux>, dispatcher: Arc
 
 #[cfg(test)]
 mod tests {
-    use super::user_message_frame;
-    use crate::agent::types::Prompt;
+    #![expect(
+        clippy::expect_used,
+        reason = "test asserts known-valid channel receives"
+    )]
+
+    use super::{drain_input, user_message_frame};
 
     #[test]
     fn user_message_frame_wraps_prompt_text() {
-        let value = user_message_frame(&Prompt::new("hello there"));
+        let value = user_message_frame("hello there");
         assert_eq!(value["type"], "user");
         assert_eq!(value["message"]["role"], "user");
         assert_eq!(value["message"]["content"], "hello there");
@@ -332,8 +363,23 @@ mod tests {
 
     #[test]
     fn user_message_frame_is_unchanged_by_writer_refactor() {
-        let value = user_message_frame(&Prompt::new("hi"));
+        let value = user_message_frame("hi");
         assert_eq!(value["type"], "user");
         assert_eq!(value["message"]["content"], "hi");
+    }
+
+    #[tokio::test]
+    async fn drain_input_feeds_each_item_as_user_message_line() {
+        use futures_util::StreamExt;
+
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let stream = futures_util::stream::iter(vec!["a".to_string(), "b".to_string()]).boxed();
+        drain_input(stream, tx).await;
+
+        let first = rx.recv().await.expect("first line");
+        let second = rx.recv().await.expect("second line");
+        assert!(first.contains("\"content\":\"a\""));
+        assert!(second.contains("\"content\":\"b\""));
+        assert!(rx.recv().await.is_none());
     }
 }
