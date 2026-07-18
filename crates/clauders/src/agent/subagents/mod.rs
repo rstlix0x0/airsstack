@@ -5,5 +5,7 @@
 //! [`crate::agent::Options`] and consumed by the runtimes.
 
 mod definition;
+mod memory;
 
 pub use definition::{AgentDefinition, AgentDefinitionError};
+pub use memory::MemorySource;
