@@ -37,6 +37,10 @@ pub enum HookEvent {
     SessionEnd,
     /// During session setup.
     Setup,
+    /// When an MCP server requests user input.
+    Elicitation,
+    /// After the user responds to an MCP elicitation.
+    ElicitationResult,
 }
 
 /// Features advertised by the binary in its initialize-handshake response.
@@ -131,5 +135,30 @@ mod tests {
         };
         assert!(caps.supports_hook(HookEvent::SessionStart));
         assert!(!caps.supports_hook(HookEvent::SessionEnd));
+    }
+
+    #[test]
+    fn elicitation_events_round_trip_wire_names() {
+        for (event, name) in [
+            (HookEvent::Elicitation, "\"Elicitation\""),
+            (HookEvent::ElicitationResult, "\"ElicitationResult\""),
+        ] {
+            let json = serde_json::to_string(&event).expect("serialize");
+            assert_eq!(json, name);
+            let back: HookEvent = serde_json::from_str(name).expect("deserialize");
+            assert_eq!(back, event);
+        }
+    }
+
+    #[test]
+    fn supports_hook_gates_elicitation_events() {
+        let mut supported = std::collections::HashSet::new();
+        supported.insert(HookEvent::Elicitation);
+        let caps = Capabilities {
+            supported_hook_events: supported,
+            ..Capabilities::default()
+        };
+        assert!(caps.supports_hook(HookEvent::Elicitation));
+        assert!(!caps.supports_hook(HookEvent::ElicitationResult));
     }
 }

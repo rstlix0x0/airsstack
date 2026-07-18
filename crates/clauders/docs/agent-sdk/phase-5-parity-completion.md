@@ -222,6 +222,15 @@ Exact CLI flag/control-message names are marked *verify against `--help`/live*, 
   `Options`, invoked when an in-process MCP server emits an elicitation request; plus the `Elicitation`
   `HookEvent` variant (the WS 3 companion). Interactive collection needs WS 6's bidirectional input
   path — hence the ordering. No handler + elicitation → clean error, never a hang.
+
+  > ⚠️ **Superseded** by `specs/2026-07-18-clauders-elicitation-and-session-ops.md` §A, which is
+  > grounded on the live `claude` v2.1.209 binary rather than SDK-facing docs. This sketch is wrong in
+  > four ways, kept only as the pre-grounding record: the port is **`ElicitationPolicy`**
+  > (`M-CONCISE-NAMES`); the response is **`{action:"accept"|"decline"|"cancel", content?}`**, not
+  > `{type:"declined"}`/`{type:"responded"}`; there are **two** hook events (`Elicitation` +
+  > `ElicitationResult`); and no-policy is **`{action:"decline"}`** — the binary's own fallback — not a
+  > "clean error". The port is also purely reactive (it answers elicitations from any MCP server the
+  > subprocess manages), so it does **not** depend on WS 6.
 - **Acceptance:** an in-process MCP tool that elicits routes to the handler; the returned value resumes
   the call; no-handler → clean error; DoD green.
 - **Open questions:** in-process (`sdk_mcp_servers`) tools only at first, or external-server

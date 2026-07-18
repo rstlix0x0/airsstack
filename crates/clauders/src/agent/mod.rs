@@ -10,6 +10,7 @@
 pub mod capabilities;
 pub mod client;
 pub mod content;
+pub mod elicitation;
 pub mod error;
 pub mod hooks;
 pub mod mcp;
@@ -27,6 +28,9 @@ pub mod types;
 pub use capabilities::{Capabilities, HookEvent};
 pub use client::{AgentClientBuilder, Client, query};
 pub use content::ContentBlock;
+pub use elicitation::{
+    ElicitationMode, ElicitationPolicy, ElicitationRequest, ElicitationResponse,
+};
 pub use error::AgentError;
 pub use hooks::{Hook, HookDecision, HookInput, HookOutput, HookRegistry};
 pub use mcp::{
