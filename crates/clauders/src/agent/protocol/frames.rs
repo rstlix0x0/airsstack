@@ -6,14 +6,17 @@
 //!   carrying model output, forwarded to the caller's message stream;
 //! - a **`control_response`** replying to one of our outbound control requests,
 //!   matched back to its waiter by `request_id`;
-//! - an inbound **`control_request`** (`can_use_tool`/`hook_callback`) the
-//!   binary issues to us mid-turn, answered with a correlated control response.
+//! - an inbound **`control_request`** (`can_use_tool`/`hook_callback`/
+//!   `mcp_message`/`elicitation`, plus an `Other` catch-all for a subtype this
+//!   version does not model) the binary issues to us mid-turn, answered with
+//!   a correlated control response.
 //!
 //! Outbound, the runtime writes a user-message frame (the prompt) and
 //! `control_request` frames (`interrupt`/`set_model`/…).
 
 use serde::{Deserialize, Serialize};
 
+use crate::agent::elicitation::ElicitationMode;
 use crate::agent::message::Message;
 
 /// A frame read from the binary's stdout.
@@ -136,6 +139,40 @@ pub enum InboundRequestBody {
         #[serde(default)]
         message: serde_json::Value,
     },
+    /// An MCP server requests structured input mid-tool-call.
+    Elicitation {
+        /// Correlation id the binary assigned this elicitation.
+        elicitation_id: String,
+        /// Human-readable prompt.
+        #[serde(default)]
+        message: String,
+        /// Form-mode or url-mode.
+        mode: ElicitationMode,
+        /// The requested MCP JSON Schema (form mode).
+        #[serde(default)]
+        requested_schema: Option<serde_json::Value>,
+        /// The URL to visit (url mode).
+        #[serde(default)]
+        url: Option<String>,
+        /// The MCP server that raised the elicitation.
+        #[serde(default)]
+        mcp_server_name: Option<String>,
+        /// Short human title.
+        #[serde(default)]
+        title: Option<String>,
+        /// Display name of the requesting server.
+        #[serde(default)]
+        display_name: Option<String>,
+        /// Longer human description.
+        #[serde(default)]
+        description: Option<String>,
+    },
+    /// A control-request subtype this version does not model.
+    ///
+    /// Kept so an unrecognized subtype degrades to an error control response
+    /// instead of failing the whole turn.
+    #[serde(other)]
+    Other,
 }
 
 /// An outbound `control_request` we send to the binary.
@@ -290,5 +327,81 @@ mod tests {
         };
         assert_eq!(server_name, "calc");
         assert_eq!(message["method"], "tools/list");
+    }
+
+    #[test]
+    fn decodes_form_mode_elicitation_request() {
+        use super::InboundRequestBody;
+        use crate::agent::protocol::decode_inbound;
+
+        let line = r#"{"type":"control_request","request_id":"srv_11","request":{"subtype":"elicitation","elicitation_id":"elic_1","message":"Pick a branch","mode":"form","requested_schema":{"type":"object"},"mcp_server_name":"git","title":"Branch","display_name":"Git","description":"Choose"}}"#;
+        let frame = decode_inbound(line).expect("decode");
+        let InboundFrame::ControlRequest(req) = frame else {
+            unreachable!("decoded a control request")
+        };
+        let InboundRequestBody::Elicitation {
+            elicitation_id,
+            message,
+            mode,
+            requested_schema,
+            mcp_server_name,
+            display_name,
+            ..
+        } = req.request
+        else {
+            unreachable!("decoded an elicitation request")
+        };
+        assert_eq!(elicitation_id, "elic_1");
+        assert_eq!(message, "Pick a branch");
+        assert_eq!(mode, crate::agent::elicitation::ElicitationMode::Form);
+        assert_eq!(requested_schema.expect("schema")["type"], "object");
+        assert_eq!(mcp_server_name.as_deref(), Some("git"));
+        assert_eq!(display_name.as_deref(), Some("Git"));
+    }
+
+    #[test]
+    fn decodes_url_mode_elicitation_request() {
+        use super::InboundRequestBody;
+        use crate::agent::protocol::decode_inbound;
+
+        let line = r#"{"type":"control_request","request_id":"srv_12","request":{"subtype":"elicitation","elicitation_id":"elic_2","message":"Authorize","mode":"url","url":"https://example.test/auth"}}"#;
+        let frame = decode_inbound(line).expect("decode");
+        let InboundFrame::ControlRequest(req) = frame else {
+            unreachable!("decoded a control request")
+        };
+        let InboundRequestBody::Elicitation { mode, url, .. } = req.request else {
+            unreachable!("decoded an elicitation request")
+        };
+        assert_eq!(mode, crate::agent::elicitation::ElicitationMode::Url);
+        assert_eq!(url.as_deref(), Some("https://example.test/auth"));
+    }
+
+    #[test]
+    fn unknown_elicitation_mode_still_reaches_dispatcher() {
+        use super::InboundRequestBody;
+        use crate::agent::protocol::decode_inbound;
+
+        let line = r#"{"type":"control_request","request_id":"srv_14","request":{"subtype":"elicitation","elicitation_id":"elic_3","message":"Confirm?","mode":"confirm"}}"#;
+        let frame = decode_inbound(line).expect("decode must not fail");
+        let InboundFrame::ControlRequest(req) = frame else {
+            unreachable!("decoded a control request")
+        };
+        let InboundRequestBody::Elicitation { mode, .. } = req.request else {
+            unreachable!("decoded an elicitation request")
+        };
+        assert_eq!(mode, crate::agent::elicitation::ElicitationMode::Unknown);
+    }
+
+    #[test]
+    fn unknown_control_request_subtype_decodes_to_other() {
+        use super::InboundRequestBody;
+        use crate::agent::protocol::decode_inbound;
+
+        let line = r#"{"type":"control_request","request_id":"srv_13","request":{"subtype":"some_future_subtype","whatever":1}}"#;
+        let frame = decode_inbound(line).expect("decode must not fail");
+        let InboundFrame::ControlRequest(req) = frame else {
+            unreachable!("decoded a control request")
+        };
+        assert!(matches!(req.request, InboundRequestBody::Other));
     }
 }

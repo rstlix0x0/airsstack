@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::agent::capabilities::HookEvent;
+use crate::agent::elicitation::ElicitationPolicy;
 use crate::agent::hooks::{Hook, HookRegistry};
 use crate::agent::mcp::{SdkMcpRegistry, SdkMcpServer};
 use crate::agent::permissions::{PermissionMode, PermissionPolicy};
@@ -72,6 +73,8 @@ pub struct Options {
     pub hooks: HookRegistry,
     /// Optional tool-permission policy.
     pub permission_policy: Option<Arc<dyn PermissionPolicy>>,
+    /// Optional MCP elicitation policy.
+    pub elicitation_policy: Option<Arc<dyn ElicitationPolicy>>,
     /// Registered in-process MCP servers, held by the SDK.
     pub sdk_mcp_servers: SdkMcpRegistry,
     /// Schema-constrained structured output forwarded to the runtime.
@@ -133,6 +136,7 @@ impl fmt::Debug for Options {
                 &format_args!("<{} registered>", i32::from(!self.hooks.is_empty())),
             )
             .field("permission_policy", &self.permission_policy.is_some())
+            .field("elicitation_policy", &self.elicitation_policy.is_some())
             .field(
                 "sdk_mcp_servers",
                 &format_args!(
@@ -202,6 +206,7 @@ pub struct OptionsBuilder {
     shutdown_grace: Option<Duration>,
     hooks: HookRegistry,
     permission_policy: Option<Arc<dyn PermissionPolicy>>,
+    elicitation_policy: Option<Arc<dyn ElicitationPolicy>>,
     sdk_mcp_servers: SdkMcpRegistry,
     output_format: Option<OutputConfig>,
     agents: HashMap<String, AgentDefinition>,
@@ -359,6 +364,13 @@ impl OptionsBuilder {
     #[must_use]
     pub fn permission_policy(mut self, policy: Arc<dyn PermissionPolicy>) -> Self {
         self.permission_policy = Some(policy);
+        self
+    }
+
+    /// Set the MCP elicitation policy.
+    #[must_use]
+    pub fn elicitation_policy(mut self, policy: Arc<dyn ElicitationPolicy>) -> Self {
+        self.elicitation_policy = Some(policy);
         self
     }
 
@@ -523,6 +535,7 @@ impl OptionsBuilder {
             shutdown_grace: self.shutdown_grace.unwrap_or(DEFAULT_SHUTDOWN_GRACE),
             hooks: self.hooks,
             permission_policy: self.permission_policy,
+            elicitation_policy: self.elicitation_policy,
             sdk_mcp_servers: self.sdk_mcp_servers,
             output_format: self.output_format,
             agents: self.agents,
@@ -870,5 +883,29 @@ mod tests {
 
         let opts = Options::builder().effort(EffortLevel::High).build();
         assert_eq!(opts.effort, Some(EffortLevel::High));
+    }
+
+    #[test]
+    fn elicitation_policy_is_registered_and_defaults_to_none() {
+        use crate::agent::elicitation::{
+            ElicitationPolicy, ElicitationRequest, ElicitationResponse,
+        };
+        use crate::agent::error::AgentError;
+        use std::sync::Arc;
+
+        struct H;
+        #[async_trait::async_trait]
+        impl ElicitationPolicy for H {
+            async fn elicit(
+                &self,
+                _r: ElicitationRequest,
+            ) -> Result<ElicitationResponse, AgentError> {
+                Ok(ElicitationResponse::Decline)
+            }
+        }
+
+        assert!(Options::default().elicitation_policy.is_none());
+        let opts = Options::builder().elicitation_policy(Arc::new(H)).build();
+        assert!(opts.elicitation_policy.is_some());
     }
 }

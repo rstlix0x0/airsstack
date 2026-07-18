@@ -12,6 +12,9 @@ pub enum ElicitationMode {
     Form,
     /// The user must visit `url` (OAuth-style authorization).
     Url,
+    /// A mode this version does not model.
+    #[serde(other)]
+    Unknown,
 }
 
 /// A structured-input request an MCP server raised mid-tool-call.
@@ -42,6 +45,9 @@ pub struct ElicitationRequest {
     /// Human-readable prompt to present.
     pub message: String,
     /// Whether this is a form-mode or url-mode elicitation.
+    ///
+    /// Reads [`ElicitationMode::Unknown`] when the binary sent a mode this
+    /// version does not model; decline such a request rather than guessing.
     pub mode: ElicitationMode,
     /// The requested MCP JSON Schema. Present for [`ElicitationMode::Form`].
     pub requested_schema: Option<serde_json::Value>,
@@ -72,9 +78,9 @@ mod tests {
     }
 
     #[test]
-    fn mode_rejects_unknown_wire_name() {
-        let result = serde_json::from_str::<ElicitationMode>("\"nope\"");
-        assert!(result.is_err());
+    fn mode_falls_back_to_unknown_for_unrecognized_wire_name() {
+        let mode: ElicitationMode = serde_json::from_str("\"nope\"").expect("decode");
+        assert_eq!(mode, ElicitationMode::Unknown);
     }
 
     #[test]
