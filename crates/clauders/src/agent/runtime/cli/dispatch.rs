@@ -106,6 +106,13 @@ impl Dispatcher {
                 };
                 self.elicitation_outcome(request).await
             }
+            // A recognized-but-malformed control request body: report which
+            // subtype failed to deserialize rather than failing the whole
+            // turn.
+            InboundRequestBody::Malformed { subtype } => Err(format!(
+                "malformed control request (subtype: {})",
+                subtype.as_deref().unwrap_or("absent")
+            )),
             // An unmodeled control-request subtype degrades to an error
             // response rather than failing the whole turn.
             InboundRequestBody::Other => Err("unsupported control request subtype".to_string()),
@@ -567,6 +574,59 @@ mod tests {
                 .as_str()
                 .expect("error string")
                 .contains("elicit boom")
+        );
+    }
+
+    #[tokio::test]
+    async fn malformed_control_request_becomes_error_response_naming_subtype() {
+        // Missing the required `elicitation_id` field: recognized subtype,
+        // malformed body.
+        let line = r#"{"type":"control_request","request_id":"srv_22","request":{"subtype":"elicitation","message":"Pick","mode":"form"}}"#;
+        let crate::agent::protocol::InboundFrame::ControlRequest(req) =
+            decode_inbound(line).expect("decode")
+        else {
+            unreachable!("decoded a control request")
+        };
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let dispatcher = dispatcher_with_elicitation(None, tx);
+        dispatcher.handle(req).await;
+        let line = rx.recv().await.expect("a response line");
+        let value: serde_json::Value = serde_json::from_str(&line).expect("json");
+        assert_eq!(value["response"]["subtype"], "error");
+        assert_eq!(value["response"]["request_id"], "srv_22");
+        assert!(
+            value["response"]["error"]
+                .as_str()
+                .expect("error string")
+                .contains("elicitation"),
+            "error detail should name the malformed subtype"
+        );
+    }
+
+    #[tokio::test]
+    async fn malformed_control_request_with_no_subtype_names_it_absent() {
+        // A `request` body with no `subtype` at all: the `Malformed { subtype:
+        // None }` half of the arm, not exercised by the `Some(subtype)` case
+        // covered above.
+        let line = r#"{"type":"control_request","request_id":"srv_23","request":{}}"#;
+        let crate::agent::protocol::InboundFrame::ControlRequest(req) =
+            decode_inbound(line).expect("decode")
+        else {
+            unreachable!("decoded a control request")
+        };
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let dispatcher = dispatcher_with_elicitation(None, tx);
+        dispatcher.handle(req).await;
+        let line = rx.recv().await.expect("a response line");
+        let value: serde_json::Value = serde_json::from_str(&line).expect("json");
+        assert_eq!(value["response"]["subtype"], "error");
+        assert_eq!(value["response"]["request_id"], "srv_23");
+        assert!(
+            value["response"]["error"]
+                .as_str()
+                .expect("error string")
+                .contains("absent"),
+            "error detail should report the missing subtype as absent"
         );
     }
 

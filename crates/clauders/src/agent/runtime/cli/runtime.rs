@@ -138,14 +138,35 @@ impl CliRuntime {
             return Err(AgentError::TransportClosed);
         }
 
-        match rx.await {
-            Ok(ControlResponseBody::Success { response, .. }) => Ok(response),
-            Ok(ControlResponseBody::Error { error, .. }) => Err(AgentError::ControlRequestFailed {
-                method: method.to_string(),
-                detail: error,
-            }),
-            Err(_) => Err(AgentError::TransportClosed),
-        }
+        rx.await
+            .map_or(Err(AgentError::TransportClosed), |response| {
+                control_response_outcome(response, method)
+            })
+    }
+}
+
+/// Resolve a correlated control response into the caller-facing result.
+///
+/// `Malformed` — a response body that failed to deserialize but whose
+/// `request_id` still correlated to this waiter (see
+/// [`ControlResponseBody`]) — resolves to an error rather than leaving the
+/// caller waiting: the outbound mirror of how an inbound `control_request`
+/// that fails to deserialize still gets answered instead of hanging the
+/// binary.
+fn control_response_outcome(
+    response: ControlResponseBody,
+    method: &str,
+) -> Result<serde_json::Value, AgentError> {
+    match response {
+        ControlResponseBody::Success { response, .. } => Ok(response),
+        ControlResponseBody::Error { error, .. } => Err(AgentError::ControlRequestFailed {
+            method: method.to_string(),
+            detail: error,
+        }),
+        ControlResponseBody::Malformed { detail, .. } => Err(AgentError::ControlRequestFailed {
+            method: method.to_string(),
+            detail,
+        }),
     }
 }
 
@@ -278,17 +299,8 @@ async fn handshake(
                 if let crate::agent::protocol::InboundFrame::ControlResponse(response) =
                     decode_inbound(&text)?
                 {
-                    return match response.response {
-                        ControlResponseBody::Success { response, .. } => {
-                            Ok(parse_capabilities(&response))
-                        }
-                        ControlResponseBody::Error { error, .. } => {
-                            Err(AgentError::ControlRequestFailed {
-                                method: "initialize".to_string(),
-                                detail: error,
-                            })
-                        }
-                    };
+                    return control_response_outcome(response.response, "initialize")
+                        .map(|value| parse_capabilities(&value));
                 }
                 // Ignore any pre-handshake message frames.
             }
@@ -357,8 +369,57 @@ mod tests {
         clippy::expect_used,
         reason = "test asserts known-valid channel receives"
     )]
+    #![expect(clippy::panic, reason = "test failure signal via panic in match arms")]
 
-    use super::{drain_input, user_message_frame};
+    use super::{control_response_outcome, drain_input, user_message_frame};
+    use crate::agent::error::AgentError;
+    use crate::agent::protocol::ControlResponseBody;
+
+    #[test]
+    fn control_response_outcome_maps_success_to_ok() {
+        let response = ControlResponseBody::Success {
+            request_id: "req_1".to_string(),
+            response: serde_json::json!({"ok": true}),
+        };
+        let result = control_response_outcome(response, "interrupt").expect("ok");
+        assert_eq!(result, serde_json::json!({"ok": true}));
+    }
+
+    #[test]
+    fn control_response_outcome_maps_error_to_control_request_failed() {
+        let response = ControlResponseBody::Error {
+            request_id: "req_1".to_string(),
+            error: "denied".to_string(),
+        };
+        let err = control_response_outcome(response, "interrupt").expect_err("err");
+        match err {
+            AgentError::ControlRequestFailed { method, detail } => {
+                assert_eq!(method, "interrupt");
+                assert_eq!(detail, "denied");
+            }
+            other => panic!("expected ControlRequestFailed, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn control_response_outcome_maps_malformed_to_error_instead_of_hanging() {
+        // The outbound mirror of the inbound dispatcher's `Malformed` arm: a
+        // response body that failed to deserialize still resolves the
+        // waiter, with an error, rather than leaving `send_control`'s caller
+        // blocked forever.
+        let response = ControlResponseBody::Malformed {
+            request_id: "req_1".to_string(),
+            detail: "unmodeled subtype".to_string(),
+        };
+        let err = control_response_outcome(response, "interrupt").expect_err("err");
+        match err {
+            AgentError::ControlRequestFailed { method, detail } => {
+                assert_eq!(method, "interrupt");
+                assert_eq!(detail, "unmodeled subtype");
+            }
+            other => panic!("expected ControlRequestFailed, got {other:?}"),
+        }
+    }
 
     #[test]
     fn user_message_frame_wraps_prompt_text() {

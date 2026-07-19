@@ -176,6 +176,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn routes_malformed_control_response_to_pending_waiter_instead_of_hanging() {
+        // A control_response with a subtype this version does not model, but
+        // a recoverable request_id, must still resolve the waiter — the
+        // outbound mirror of the inbound control_request rescue. A bounded
+        // timeout guards this specific assertion (rather than a bare await)
+        // because a regression here reproduces as an indefinite hang, not a
+        // clean test failure.
+        let demux = Demux::new();
+        let (tx, rx) = oneshot::channel();
+        demux.register_pending("req_9".to_string(), tx);
+        let frame = decode_inbound(
+            r#"{"type":"control_response","response":{"subtype":"some_future_subtype","request_id":"req_9"}}"#,
+        )
+        .expect("decode must not fail");
+        demux.route(frame).await;
+        let body = tokio::time::timeout(std::time::Duration::from_secs(1), rx)
+            .await
+            .expect("waiter resolved within the timeout instead of hanging")
+            .expect("resolved to a value, not a dropped sender");
+        assert_eq!(body.request_id(), "req_9");
+        assert!(
+            matches!(
+                body,
+                crate::agent::protocol::ControlResponseBody::Malformed { .. }
+            ),
+            "expected Malformed, got {body:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn remove_pending_drops_waiter_before_late_route() {
         let demux = Demux::new();
         let (tx, rx) = oneshot::channel();
