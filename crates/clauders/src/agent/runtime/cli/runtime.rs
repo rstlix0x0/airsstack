@@ -2,6 +2,7 @@
 
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use futures_core::Stream;
@@ -41,6 +42,7 @@ pub struct CliRuntime {
     demux: Arc<Demux>,
     id_gen: RequestIdGen,
     capabilities: Capabilities,
+    control_request_timeout: Duration,
     reader: JoinHandle<()>,
     writer: JoinHandle<()>,
     _process: ManagedProcess,
@@ -108,6 +110,7 @@ impl CliRuntime {
             demux,
             id_gen,
             capabilities,
+            control_request_timeout: options.control_request_timeout,
             reader,
             writer,
             _process: process,
@@ -130,18 +133,54 @@ impl CliRuntime {
         // Encode before registering so an encode failure needs no cleanup.
         let line = encode_line(&request)?;
 
+        // If this call is cancelled (e.g. dropped mid-`select!`) before any
+        // of the paths below runs, this entry outlives it in `pending`. The
+        // leak is bounded, not unbounded: `Demux::close()` drains every
+        // remaining entry when the transport closes.
+        //
+        // If `close()` has already run, `register_pending` refuses to
+        // register at all and fails fast with `TransportClosed` here,
+        // rather than parking this waiter on a transport already known to
+        // be dead until the full control-request timeout elapses.
         let (tx, rx) = oneshot::channel();
-        self.demux.register_pending(id.as_str().to_string(), tx);
+        self.demux.register_pending(id.as_str().to_string(), tx)?;
 
         if self.out_tx.send(line).is_err() {
             self.demux.remove_pending(id.as_str());
             return Err(AgentError::TransportClosed);
         }
 
-        rx.await
-            .map_or(Err(AgentError::TransportClosed), |response| {
-                control_response_outcome(response, method)
-            })
+        let result = await_control_response(rx, self.control_request_timeout, method).await;
+        if matches!(result, Err(AgentError::ControlRequestTimedOut { .. })) {
+            // The response may still arrive after the deadline; drop the
+            // stale waiter so a late `control_response` cannot resolve a
+            // receiver nobody is awaiting anymore, and so `pending` does not
+            // grow unbounded across repeated timeouts.
+            self.demux.remove_pending(id.as_str());
+        }
+        result
+    }
+}
+
+/// Await one control response, bounded by `timeout`.
+///
+/// Three outcomes: the response arrives in time (resolved via
+/// [`control_response_outcome`]); the sender is dropped without ever
+/// responding — e.g. because the transport closed and drained every pending
+/// waiter — which maps to [`AgentError::TransportClosed`]; or the bound
+/// elapses first, which maps to [`AgentError::ControlRequestTimedOut`].
+async fn await_control_response(
+    rx: oneshot::Receiver<ControlResponseBody>,
+    timeout: Duration,
+    method: &str,
+) -> Result<serde_json::Value, AgentError> {
+    match tokio::time::timeout(timeout, rx).await {
+        Ok(Ok(response)) => control_response_outcome(response, method),
+        Ok(Err(_)) => Err(AgentError::TransportClosed),
+        Err(_elapsed) => Err(AgentError::ControlRequestTimedOut {
+            method: method.to_string(),
+            elapsed: timeout,
+        }),
     }
 }
 
@@ -274,6 +313,11 @@ async fn probe_version(program: &std::path::Path) -> Option<String> {
 }
 
 /// Send the initialize request and read frames until its control response.
+///
+/// Bounded by the same [`Options::control_request_timeout`] that guards every
+/// later control request: the handshake is itself a control request/response
+/// round trip (`initialize`), so a binary that never answers it must not
+/// hang `connect()` forever either.
 async fn handshake(
     stdin: &mut ChildStdin,
     stdout: &mut StdoutLines,
@@ -292,6 +336,18 @@ async fn handshake(
         .await
         .map_err(|_| AgentError::TransportClosed)?;
 
+    let timeout = options.control_request_timeout;
+    match tokio::time::timeout(timeout, read_initialize_response(stdout)).await {
+        Ok(result) => result,
+        Err(_elapsed) => Err(AgentError::ControlRequestTimedOut {
+            method: "initialize".to_string(),
+            elapsed: timeout,
+        }),
+    }
+}
+
+/// Read frames from `stdout` until the initialize response arrives.
+async fn read_initialize_response(stdout: &mut StdoutLines) -> Result<Capabilities, AgentError> {
     loop {
         match stdout.next_line().await {
             Ok(Some(text)) if text.trim().is_empty() => {}
@@ -371,7 +427,11 @@ mod tests {
     )]
     #![expect(clippy::panic, reason = "test failure signal via panic in match arms")]
 
-    use super::{control_response_outcome, drain_input, user_message_frame};
+    use std::time::Duration;
+
+    use super::{
+        await_control_response, control_response_outcome, drain_input, user_message_frame,
+    };
     use crate::agent::error::AgentError;
     use crate::agent::protocol::ControlResponseBody;
 
@@ -434,6 +494,78 @@ mod tests {
         let value = user_message_frame("hi");
         assert_eq!(value["type"], "user");
         assert_eq!(value["message"]["content"], "hi");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn await_control_response_times_out_without_a_real_wait() {
+        // A response that never arrives must not hang the caller past the
+        // configured bound. `tokio::time::timeout` only arms its deadline on
+        // first poll, so poll the future once here (confirming it parks)
+        // before advancing virtual time past the bound. That poll-then-
+        // advance sequence is sufficient on its own to fire the timeout
+        // below, though it is not the only thing that would: tokio's idle
+        // auto-advance under `start_paused` fires the same deadline
+        // unprompted once every task is blocked, regardless of whether this
+        // test drives the advance itself.
+        use std::future::Future;
+
+        let (_tx, rx) = tokio::sync::oneshot::channel::<ControlResponseBody>();
+        let mut fut = std::pin::pin!(await_control_response(
+            rx,
+            Duration::from_secs(60),
+            "interrupt"
+        ));
+
+        let first_poll =
+            std::future::poll_fn(|cx| std::task::Poll::Ready(fut.as_mut().poll(cx))).await;
+        assert!(
+            first_poll.is_pending(),
+            "must not resolve before the deadline is armed"
+        );
+
+        tokio::time::advance(Duration::from_secs(61)).await;
+
+        // Bounded the same way demux.rs guards its malformed-response and
+        // close() tests: if the timeout logic under test regressed to a
+        // bare, timer-less `rx.await`, awaiting `fut` directly would hang
+        // indefinitely instead of failing. This outer timeout has its own
+        // deadline for tokio's idle auto-advance under `start_paused` to
+        // fire even when `fut` itself has no timer left to drive it.
+        let err = tokio::time::timeout(Duration::from_secs(1), fut)
+            .await
+            .expect("guard: must not hang if the control-response timeout regresses")
+            .expect_err("must time out, not hang");
+        match err {
+            AgentError::ControlRequestTimedOut { method, elapsed } => {
+                assert_eq!(method, "interrupt");
+                assert_eq!(elapsed, Duration::from_secs(60));
+            }
+            other => panic!("expected ControlRequestTimedOut, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn await_control_response_maps_dropped_sender_to_transport_closed() {
+        let (tx, rx) = tokio::sync::oneshot::channel::<ControlResponseBody>();
+        drop(tx);
+        let err = await_control_response(rx, Duration::from_secs(60), "interrupt")
+            .await
+            .expect_err("dropped sender must not resolve to a value");
+        assert!(matches!(err, AgentError::TransportClosed));
+    }
+
+    #[tokio::test]
+    async fn await_control_response_passes_through_a_timely_response() {
+        let (tx, rx) = tokio::sync::oneshot::channel::<ControlResponseBody>();
+        tx.send(ControlResponseBody::Success {
+            request_id: "req_1".to_string(),
+            response: serde_json::json!({"ok": true}),
+        })
+        .expect("send");
+        let value = await_control_response(rx, Duration::from_secs(60), "interrupt")
+            .await
+            .expect("ok");
+        assert_eq!(value, serde_json::json!({"ok": true}));
     }
 
     #[tokio::test]

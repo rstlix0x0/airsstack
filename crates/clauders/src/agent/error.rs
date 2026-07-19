@@ -6,6 +6,7 @@
 //! `CliRuntime` and codec can raise.
 
 use std::path::PathBuf;
+use std::time::Duration;
 
 use thiserror::Error;
 
@@ -52,6 +53,17 @@ pub enum AgentError {
     /// The subprocess stdout/stdin channel closed unexpectedly.
     #[error("transport closed before the operation completed")]
     TransportClosed,
+    /// A control request's correlated response did not arrive within the
+    /// configured [`control_request_timeout`](crate::agent::options::Options::control_request_timeout)
+    /// bound.
+    #[error("control request `{method}` timed out after {elapsed:?}")]
+    ControlRequestTimedOut {
+        /// The control subtype that timed out (e.g. `interrupt`).
+        method: String,
+        /// The configured timeout bound that expired (not measured elapsed
+        /// time — the caller waited at least this long).
+        elapsed: Duration,
+    },
     /// The binary exited nonzero or on a signal.
     #[error("claude exited with status {exit_code:?}: {stderr}")]
     Cli {
@@ -69,13 +81,12 @@ pub enum AgentError {
     /// The session was interrupted.
     #[error("operation interrupted")]
     Interrupted,
-    /// An operation exceeded its deadline.
-    #[error("operation timed out")]
-    Timeout,
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
     use super::AgentError;
     use crate::agent::process::ProcessError;
 
@@ -92,5 +103,16 @@ mod tests {
         };
         let shown = err.to_string();
         assert!(shown.contains("/usr/bin"), "got: {shown}");
+    }
+
+    #[test]
+    fn control_request_timed_out_displays_method_and_elapsed() {
+        let err = AgentError::ControlRequestTimedOut {
+            method: "interrupt".to_string(),
+            elapsed: Duration::from_secs(60),
+        };
+        let shown = err.to_string();
+        assert!(shown.contains("interrupt"), "got: {shown}");
+        assert!(shown.contains("60s"), "got: {shown}");
     }
 }

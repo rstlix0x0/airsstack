@@ -23,6 +23,10 @@ use crate::types::{MaxTokens, ModelId};
 /// Default graceful-shutdown window before the supervisor forces a kill.
 const DEFAULT_SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 
+/// Default bound on how long a control request waits for its correlated
+/// response, mirroring the official Python Agent SDK's default.
+const DEFAULT_CONTROL_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+
 /// Default per-request output-token ceiling when the caller sets none.
 const DEFAULT_MAX_TOKENS: u32 = 4096;
 
@@ -69,6 +73,10 @@ pub struct Options {
     pub require_min_version: bool,
     /// Graceful-exit window before a forced kill.
     pub shutdown_grace: Duration,
+    /// Bound on how long a control request (e.g. `interrupt`, `set_model`)
+    /// waits for its correlated response before failing with
+    /// [`AgentError::ControlRequestTimedOut`](crate::agent::error::AgentError::ControlRequestTimedOut).
+    pub control_request_timeout: Duration,
     /// Registered in-loop hooks.
     pub hooks: HookRegistry,
     /// Optional tool-permission policy.
@@ -131,6 +139,7 @@ impl fmt::Debug for Options {
             .field("executable_args", &self.executable_args)
             .field("require_min_version", &self.require_min_version)
             .field("shutdown_grace", &self.shutdown_grace)
+            .field("control_request_timeout", &self.control_request_timeout)
             .field(
                 "hooks",
                 &format_args!("<{} registered>", i32::from(!self.hooks.is_empty())),
@@ -204,6 +213,7 @@ pub struct OptionsBuilder {
     executable_args: Vec<String>,
     require_min_version: bool,
     shutdown_grace: Option<Duration>,
+    control_request_timeout: Option<Duration>,
     hooks: HookRegistry,
     permission_policy: Option<Arc<dyn PermissionPolicy>>,
     elicitation_policy: Option<Arc<dyn ElicitationPolicy>>,
@@ -350,6 +360,13 @@ impl OptionsBuilder {
     #[must_use]
     pub const fn shutdown_grace(mut self, grace: Duration) -> Self {
         self.shutdown_grace = Some(grace);
+        self
+    }
+
+    /// Override the control-request response timeout.
+    #[must_use]
+    pub const fn control_request_timeout(mut self, timeout: Duration) -> Self {
+        self.control_request_timeout = Some(timeout);
         self
     }
 
@@ -533,6 +550,9 @@ impl OptionsBuilder {
             executable_args: self.executable_args,
             require_min_version: self.require_min_version,
             shutdown_grace: self.shutdown_grace.unwrap_or(DEFAULT_SHUTDOWN_GRACE),
+            control_request_timeout: self
+                .control_request_timeout
+                .unwrap_or(DEFAULT_CONTROL_REQUEST_TIMEOUT),
             hooks: self.hooks,
             permission_policy: self.permission_policy,
             elicitation_policy: self.elicitation_policy,
@@ -602,9 +622,18 @@ mod tests {
         let opts = Options::builder().build();
         assert_eq!(opts.permission_mode, PermissionMode::Default);
         assert_eq!(opts.shutdown_grace, Duration::from_secs(5));
+        assert_eq!(opts.control_request_timeout, Duration::from_secs(60));
         assert!(!opts.require_min_version);
         assert!(opts.model.is_none());
         assert!(opts.allowed_tools.is_empty());
+    }
+
+    #[test]
+    fn builder_overrides_control_request_timeout() {
+        let opts = Options::builder()
+            .control_request_timeout(Duration::from_secs(10))
+            .build();
+        assert_eq!(opts.control_request_timeout, Duration::from_secs(10));
     }
 
     #[test]
