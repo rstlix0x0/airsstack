@@ -51,6 +51,8 @@ grep -qxF '.airsstack/' "$repo/.gitignore";           check $? ".gitignore has .
 # --- Case 3: idempotency ---
 out=$( cd "$repo" && sh "$ENSURE" )
 printf '%s' "$out" | grep -q 'already present';       check $? "second run is a no-op"
+n=$(grep -cxF '.airsstack/' "$repo/.gitignore")
+[ "$n" = "1" ];                                       check $? "second run does not duplicate the .gitignore line"
 
 # --- Case 4: key stable across a linked worktree (one store dir, no fragmentation) ---
 wt="$work/wt-feature"
@@ -80,5 +82,14 @@ san_base_sanitized=$(printf '%s' "$san_base" | LC_ALL=C tr -c 'A-Za-z0-9._-' '-'
 san_hash=$(printf '%s' "$san_abs" | shasum | cut -c1-8)
 san_key="${san_base_sanitized}-${san_hash}"
 [ -d "$home/cc/plugins/sdd/${san_key}/specs" ];           check $? "sanitizer: disallowed char '@' replaced by '-' in key base"
+
+# --- Case 7: a pre-existing .gitignore keeps its content and gains the line ---
+# Runs last: it provisions one more key dir, which would perturb the Case 4 count.
+pre="$work/pre-gitignore"
+mkdir -p "$pre"
+printf 'target/\n' > "$pre/.gitignore"
+( cd "$pre" && sh "$ENSURE" >/dev/null )
+grep -qxF 'target/' "$pre/.gitignore";                check $? "pre-existing .gitignore content preserved"
+grep -qxF '.airsstack/' "$pre/.gitignore";            check $? ".airsstack/ appended to existing .gitignore"
 
 if [ "$fail" = "0" ]; then printf '\nALL PASS\n'; else printf '\nFAILURES\n'; exit 1; fi
