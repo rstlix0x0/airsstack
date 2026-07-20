@@ -12,8 +12,10 @@ the cache, reports cache-only extras without deleting them, and reports
 version drift. Fail-open throughout; it never blocks a session.
 """
 
+import filecmp
 import json
 import os
+import shutil
 import subprocess
 import sys
 
@@ -72,3 +74,53 @@ def is_airsstack_marketplace(top):
     except (OSError, ValueError):
         return False
     return isinstance(data, dict) and data.get("name") == MARKETPLACE
+
+
+def _relative_files(root):
+    """Every file under `root` as a root-relative path, ignore-list applied."""
+    found = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in IGNORED_NAMES]
+        for name in filenames:
+            if name in IGNORED_NAMES:
+                continue
+            full = os.path.join(dirpath, name)
+            found.append(os.path.relpath(full, root))
+    return sorted(found)
+
+
+def sync_tree(src_dir, cache_dir, containment_root=None):
+    """Add-and-update-only mirror of `src_dir` into `cache_dir` (D7).
+
+    Returns {"copied": [rel, ...], "extras": [rel, ...]}. Extras are cache-only
+    files; they are REPORTED, never deleted. An unreferenced leftover is inert,
+    whereas an unattended hook with delete authority over Claude Code's data
+    directory is a larger risk than the cruft it would clean.
+
+    `containment_root` bounds every write and defaults to the install cache
+    root — the same rule the PostToolUse hook applies. It is a parameter rather
+    than an environment switch so that tests re-point the guard instead of
+    disabling it: the guard is the only bound on an unattended hook's writes,
+    so it must stay live in the code paths the tests actually exercise.
+    """
+    if containment_root is None:
+        containment_root = cache_sync.CACHE_ROOT
+
+    copied, source_files = [], _relative_files(src_dir)
+    for rel in source_files:
+        src = os.path.join(src_dir, rel)
+        dest = os.path.join(cache_dir, rel)
+        if not cache_sync.is_within(dest, containment_root):
+            continue  # containment guard, same rule as the PostToolUse hook
+        try:
+            if os.path.exists(dest) and filecmp.cmp(src, dest, shallow=False):
+                continue
+            os.makedirs(os.path.dirname(dest), exist_ok=True)
+            shutil.copy2(src, dest)
+            copied.append(rel)
+        except OSError:
+            continue  # one unwritable file must not abort the whole backfill
+
+    known = set(source_files)
+    extras = [rel for rel in _relative_files(cache_dir) if rel not in known]
+    return {"copied": copied, "extras": extras}

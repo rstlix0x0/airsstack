@@ -84,5 +84,89 @@ class TestActivation(unittest.TestCase):
         self.assertFalse(cache_guard.is_airsstack_marketplace(none))
 
 
+class TestBackfill(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.src = os.path.join(self.tmp, "src")
+        self.cache = os.path.join(self.tmp, "cache")
+        os.makedirs(os.path.join(self.src, "hooks"))
+        os.makedirs(self.cache)
+        self._write(self.src, "enforcement.json", '{"stack":"rust"}')
+        self._write(self.src, "hooks/x.sh", "echo new\n")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _sync(self):
+        """Sync with the containment guard LIVE, rooted at this test's tmpdir.
+
+        The guard is never disabled for tests — it is pointed somewhere else —
+        so every case below exercises it rather than bypassing it.
+        """
+        return cache_guard.sync_tree(self.src, self.cache, containment_root=self.tmp)
+
+    @staticmethod
+    def _write(root, rel, text):
+        path = os.path.join(root, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as fh:
+            fh.write(text)
+
+    def _read(self, root, rel):
+        with open(os.path.join(root, rel)) as fh:
+            return fh.read()
+
+    def test_missing_file_is_copied(self):
+        result = self._sync()
+        self.assertIn("enforcement.json", result["copied"])
+        self.assertEqual(self._read(self.cache, "enforcement.json"), '{"stack":"rust"}')
+
+    def test_differing_file_is_updated(self):
+        self._write(self.cache, "hooks/x.sh", "echo old\n")
+        result = self._sync()
+        self.assertIn(os.path.join("hooks", "x.sh"), result["copied"])
+        self.assertEqual(self._read(self.cache, "hooks/x.sh"), "echo new\n")
+
+    def test_identical_file_is_not_recopied(self):
+        self._sync()
+        result = self._sync()
+        self.assertEqual(result["copied"], [])
+
+    def test_cache_only_file_is_reported_and_kept(self):
+        self._write(self.cache, "hooks/enforce.js", "// removed upstream\n")
+        result = self._sync()
+        self.assertIn(os.path.join("hooks", "enforce.js"), result["extras"])
+        self.assertTrue(os.path.exists(os.path.join(self.cache, "hooks", "enforce.js")))
+
+    def test_ignored_names_never_appear_as_extras(self):
+        self._write(self.cache, ".in_use", "")
+        self._write(self.cache, ".DS_Store", "")
+        os.makedirs(os.path.join(self.cache, ".git"))
+        self._write(self.cache, ".git/HEAD", "ref: refs/heads/main\n")
+        result = self._sync()
+        self.assertEqual(result["extras"], [])
+
+    def test_source_ignored_names_are_not_copied(self):
+        self._write(self.src, ".DS_Store", "")
+        result = self._sync()
+        self.assertNotIn(".DS_Store", result["copied"])
+
+    def test_destination_outside_the_containment_root_is_refused(self):
+        """The guard is the only thing bounding an unattended hook's writes."""
+        elsewhere = os.path.join(self.tmp, "elsewhere")
+        os.makedirs(elsewhere)
+        result = cache_guard.sync_tree(
+            self.src, elsewhere, containment_root=os.path.join(self.tmp, "cache")
+        )
+        self.assertEqual(result["copied"], [])
+        self.assertFalse(os.path.exists(os.path.join(elsewhere, "enforcement.json")))
+
+    def test_containment_root_defaults_to_the_install_cache(self):
+        """Production callers must not have to remember to pass the root."""
+        result = cache_guard.sync_tree(self.src, self.cache)
+        self.assertEqual(result["copied"], [])
+        self.assertFalse(os.path.exists(os.path.join(self.cache, "enforcement.json")))
+
+
 if __name__ == "__main__":
     unittest.main()
