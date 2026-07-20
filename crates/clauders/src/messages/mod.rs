@@ -17,6 +17,7 @@
 //!
 //! Entry point: [`MessagesResource`], obtained via `client.messages()`.
 
+pub mod accumulator;
 pub mod content;
 pub mod request;
 pub mod resource;
@@ -32,6 +33,8 @@ pub mod token_counting;
 
 pub mod structured_outputs;
 
+#[doc(inline)]
+pub use accumulator::MessageAccumulator;
 #[doc(inline)]
 pub use content::{ContentBlock, TextBlock, ThinkingBlock};
 #[doc(inline)]

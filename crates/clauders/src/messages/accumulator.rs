@@ -1,0 +1,664 @@
+//! Incremental assembly of a [`Message`] from a sequence of streaming events.
+//!
+//! Exists as its own module so the accumulation rules are unit-testable
+//! without constructing an SSE byte stream, and so callers driving their own
+//! event loop can reuse them.
+//!
+//! Responsibilities:
+//! - Define [`MessageAccumulator`], the state machine that folds
+//!   [`StreamEvent`] values into a complete [`Message`].
+//!
+//! Not responsible for:
+//! - SSE parsing or transport — that lives in `streaming.rs`.
+//! - Interpreting [`StreamEvent::Error`]; the accumulator treats it as inert
+//!   so it stays a pure state machine over well-formed events. Callers
+//!   decide what an inline error means.
+//!
+//! Entry point: [`MessageAccumulator::new`].
+
+use crate::error::Error;
+use crate::messages::content::ContentBlock;
+use crate::messages::response::Message;
+use crate::messages::streaming::{ContentDelta, StreamEvent};
+
+/// Folds streaming events into a complete [`Message`].
+///
+/// Feed every event to [`accumulate`](MessageAccumulator::accumulate) in
+/// arrival order, then call [`finish`](MessageAccumulator::finish) once the
+/// stream is drained.
+///
+/// [`crate::messages::MessageStream::collect`] wraps this type and is the
+/// simpler choice when the events themselves are not needed. Drive the
+/// accumulator directly when the caller wants to observe events as they
+/// arrive *and* end up with the assembled message.
+///
+/// # Examples
+///
+/// ```
+/// use clauders::messages::MessageAccumulator;
+///
+/// let start: clauders::messages::StreamEvent = serde_json::from_str(r#"{
+///     "type": "message_start",
+///     "message": {
+///         "id": "msg_01", "type": "message", "role": "assistant",
+///         "model": "claude-sonnet-4-5", "content": [],
+///         "stop_reason": null, "stop_sequence": null,
+///         "usage": {"input_tokens": 1, "output_tokens": 0}
+///     }
+/// }"#).unwrap();
+///
+/// let mut acc = MessageAccumulator::new();
+/// acc.accumulate(&start).unwrap();
+/// let message = acc.finish().unwrap();
+/// assert_eq!(message.id.as_str(), "msg_01");
+/// ```
+#[derive(Clone, Debug)]
+pub struct MessageAccumulator {
+    snapshot: Option<Message>,
+    json_bufs: Vec<String>,
+}
+
+impl MessageAccumulator {
+    /// Create an empty accumulator awaiting a `message_start` event.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            snapshot: None,
+            json_bufs: Vec::new(),
+        }
+    }
+
+    /// Fold one event into the accumulated message.
+    ///
+    /// Events that arrive before `message_start` are ignored, as are deltas
+    /// addressing a content block that does not exist and deltas whose kind
+    /// does not match the block they address.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Stream`] when a `content_block_start` does not
+    /// address the next content position, and [`Error::Serde`] when the
+    /// JSON arguments accumulated for a tool call fail to parse at
+    /// `content_block_stop`.
+    ///
+    /// Either error leaves the accumulator internally coherent — nothing is
+    /// mutated before the error is returned, so no fabricated or
+    /// half-written block is left behind. No error is latched: the
+    /// accumulator keeps accepting events, and a later
+    /// `content_block_start` that does address the current content length
+    /// still succeeds.
+    ///
+    /// Against a real server that is a distinction without a difference,
+    /// because indices only ever advance: once a gapped
+    /// `content_block_start` is rejected, the content vector's length stops
+    /// tracking the server's index, so every subsequent start fails the
+    /// same check while every delta and stop addressing those indices
+    /// silently no-ops back to `Ok(())`. A caller that logs the error and
+    /// keeps feeding events therefore ends up with a truncated message and
+    /// exactly one signal for what may be an unbounded number of dropped
+    /// blocks.
+    pub fn accumulate(&mut self, event: &StreamEvent) -> Result<(), Error> {
+        match event {
+            StreamEvent::MessageStart { message } => {
+                self.json_bufs = vec![String::new(); message.content.len()];
+                self.snapshot = Some(message.clone());
+                Ok(())
+            }
+            StreamEvent::ContentBlockStart {
+                index,
+                content_block,
+            } => self.start_block(*index, content_block),
+            StreamEvent::ContentBlockDelta { index, delta } => {
+                self.apply_delta(*index, delta);
+                Ok(())
+            }
+            StreamEvent::ContentBlockStop { index } => self.finish_block(*index),
+            _ => Ok(()),
+        }
+    }
+
+    /// Append a newly started content block at `index`.
+    ///
+    /// The API starts content blocks in index order with no gaps: a start
+    /// event always addresses the slot immediately after the previous block,
+    /// even when deltas and stops for still-open blocks interleave after it.
+    /// A violation of that invariant is reported rather than papered over,
+    /// because the alternative — padding the content vector — leaves
+    /// fabricated blocks indistinguishable from ones the model produced.
+    fn start_block(&mut self, index: u32, block: &ContentBlock) -> Result<(), Error> {
+        let Some(snapshot) = self.snapshot.as_mut() else {
+            return Ok(());
+        };
+        let idx = index as usize;
+        if idx != snapshot.content.len() {
+            return Err(Error::Stream(format!(
+                "content_block_start index {idx} does not address the next content position {}",
+                snapshot.content.len()
+            )));
+        }
+        snapshot.content.push(block.clone());
+        self.json_bufs.push(String::new());
+        Ok(())
+    }
+
+    /// Apply one delta to the content block at `index`.
+    ///
+    /// A delta addressing a block that does not exist, or whose kind does
+    /// not match the block it addresses, is ignored: the server is the
+    /// authority on which pairings are valid, and a mismatch is far more
+    /// likely to mean this SDK release does not model the block than that
+    /// the response is corrupt.
+    fn apply_delta(&mut self, index: u32, delta: &ContentDelta) {
+        let idx = index as usize;
+
+        if let ContentDelta::InputJsonDelta { partial_json } = delta {
+            // Tool arguments stream as raw JSON fragments that are only
+            // valid once concatenated, so they are buffered beside the
+            // snapshot and parsed in one pass at content_block_stop.
+            let addresses_tool_block = matches!(
+                self.snapshot.as_ref().and_then(|s| s.content.get(idx)),
+                Some(ContentBlock::ToolUse(_))
+            );
+            if addresses_tool_block {
+                if let Some(buffer) = self.json_bufs.get_mut(idx) {
+                    buffer.push_str(partial_json);
+                }
+            }
+            return;
+        }
+
+        let Some(snapshot) = self.snapshot.as_mut() else {
+            return;
+        };
+        let Some(block) = snapshot.content.get_mut(idx) else {
+            return;
+        };
+        match delta {
+            ContentDelta::TextDelta { text } => {
+                if let ContentBlock::Text(target) = block {
+                    target.text.push_str(text);
+                }
+            }
+            ContentDelta::ThinkingDelta { thinking } => {
+                if let ContentBlock::Thinking(target) = block {
+                    target.thinking.push_str(thinking);
+                }
+            }
+            ContentDelta::SignatureDelta { signature } => {
+                // The API emits exactly one signature delta per thinking
+                // block, so replacing is equivalent to concatenating onto
+                // the empty signature the start event carries.
+                if let ContentBlock::Thinking(target) = block {
+                    target.signature = Some(signature.clone());
+                }
+            }
+            ContentDelta::InputJsonDelta { .. } | ContentDelta::Unknown(_) => {}
+        }
+    }
+
+    /// Finalize the content block at `index`.
+    ///
+    /// Parses the JSON arguments accumulated for a tool call, if any. An
+    /// empty buffer is not an error: a zero-argument tool call produces no
+    /// fragments beyond the empty one the API opens the block with, and the
+    /// input the start event carried is already correct.
+    fn finish_block(&mut self, index: u32) -> Result<(), Error> {
+        let idx = index as usize;
+        let Some(buffer) = self.json_bufs.get_mut(idx) else {
+            return Ok(());
+        };
+        if buffer.is_empty() {
+            return Ok(());
+        }
+        let parsed: serde_json::Value =
+            serde_json::from_str(buffer).map_err(|source| Error::Serde {
+                context: "ToolUseBlock.input",
+                source,
+            })?;
+        buffer.clear();
+
+        if let Some(ContentBlock::ToolUse(target)) =
+            self.snapshot.as_mut().and_then(|s| s.content.get_mut(idx))
+        {
+            target.input = parsed;
+        }
+        Ok(())
+    }
+
+    /// Consume the accumulator and return the assembled message.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::Stream`] when no `message_start` event was ever
+    /// accumulated — the stream was truncated before it began.
+    pub fn finish(self) -> Result<Message, Error> {
+        self.snapshot
+            .ok_or_else(|| Error::Stream("stream ended before message_start event".into()))
+    }
+}
+
+impl Default for MessageAccumulator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![expect(
+        clippy::unwrap_used,
+        reason = "tests unwrap known-valid fixtures; a panic is the intended failure signal"
+    )]
+    #![expect(
+        clippy::panic,
+        reason = "test-only panics on wrong-variant matches; a panic is the intended failure signal"
+    )]
+
+    use super::*;
+
+    // ── fixtures ───────────────────────────────────────────────────────────
+
+    fn event(json: &str) -> StreamEvent {
+        serde_json::from_str(json).unwrap()
+    }
+
+    fn message_start() -> StreamEvent {
+        event(
+            r#"{"type":"message_start","message":{
+                "id":"msg_01","type":"message","role":"assistant",
+                "model":"claude-sonnet-4-5","content":[],
+                "stop_reason":null,"stop_sequence":null,
+                "usage":{"input_tokens":5,"output_tokens":0}}}"#,
+        )
+    }
+
+    // ── message_start / finish ─────────────────────────────────────────────
+
+    #[test]
+    fn message_start_seeds_the_snapshot() {
+        let mut acc = MessageAccumulator::new();
+        acc.accumulate(&message_start()).unwrap();
+        let msg = acc.finish().unwrap();
+        assert_eq!(msg.id.as_str(), "msg_01");
+        assert_eq!(msg.usage.input_tokens, 5);
+        assert!(msg.content.is_empty());
+    }
+
+    #[test]
+    fn finish_without_message_start_is_a_stream_error() {
+        let result = MessageAccumulator::new().finish();
+        assert!(
+            matches!(result, Err(Error::Stream(_))),
+            "expected Error::Stream, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn json_bufs_is_seeded_to_match_a_non_empty_message_start_content() {
+        // message_start seeds json_bufs to the length of the pre-existing
+        // content it carries (spec: json_bufs stays index-parallel to
+        // snapshot.content). Starting a tool block *after* that pre-seeded
+        // block, at index 1, routes its buffer through a non-zero starting
+        // offset: if the seed were `Vec::new()` instead, the buffer pushed
+        // for this block would land at json_bufs[0] rather than
+        // json_bufs[1], and the input below would never assemble.
+        let mut acc = MessageAccumulator::new();
+        acc.accumulate(&event(
+            r#"{"type":"message_start","message":{
+                "id":"msg_01","type":"message","role":"assistant",
+                "model":"claude-sonnet-4-5",
+                "content":[{"type":"text","text":"seed"}],
+                "stop_reason":null,"stop_sequence":null,
+                "usage":{"input_tokens":5,"output_tokens":0}}}"#,
+        ))
+        .unwrap();
+        acc.accumulate(&event(&format!(
+            r#"{{"type":"content_block_start","index":1,"content_block":{TOOL_BLOCK}}}"#
+        )))
+        .unwrap();
+        acc.accumulate(&json_delta(1, r#"{"city":"#)).unwrap();
+        acc.accumulate(&json_delta(1, r#""Paris"}"#)).unwrap();
+        acc.accumulate(&block_stop(1)).unwrap();
+
+        let msg = acc.finish().unwrap();
+        assert_eq!(msg.content.len(), 2);
+        match &msg.content[1] {
+            ContentBlock::ToolUse(tu) => {
+                assert_eq!(tu.input, serde_json::json!({"city": "Paris"}));
+            }
+            other => panic!("expected tool-use block, got {other:?}"),
+        }
+    }
+
+    // ── content_block_start ────────────────────────────────────────────────
+
+    #[test]
+    fn content_block_start_appends_at_the_next_position() {
+        let mut acc = MessageAccumulator::new();
+        acc.accumulate(&message_start()).unwrap();
+        acc.accumulate(&event(
+            r#"{"type":"content_block_start","index":0,
+                "content_block":{"type":"text","text":""}}"#,
+        ))
+        .unwrap();
+        acc.accumulate(&event(
+            r#"{"type":"content_block_start","index":1,
+                "content_block":{"type":"text","text":"seed"}}"#,
+        ))
+        .unwrap();
+
+        let msg = acc.finish().unwrap();
+        assert_eq!(msg.content.len(), 2);
+        match (&msg.content[0], &msg.content[1]) {
+            (ContentBlock::Text(a), ContentBlock::Text(b)) => {
+                assert_eq!(a.text, "");
+                assert_eq!(b.text, "seed");
+            }
+            other => panic!("unexpected blocks: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn content_block_start_with_a_gap_is_a_stream_error() {
+        let mut acc = MessageAccumulator::new();
+        acc.accumulate(&message_start()).unwrap();
+        let result = acc.accumulate(&event(
+            r#"{"type":"content_block_start","index":3,
+                "content_block":{"type":"text","text":""}}"#,
+        ));
+        assert!(
+            matches!(result, Err(Error::Stream(_))),
+            "expected Error::Stream for a gapped index, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn gapped_content_block_start_does_not_fabricate_placeholder_blocks() {
+        let mut acc = MessageAccumulator::new();
+        acc.accumulate(&message_start()).unwrap();
+        let _ = acc.accumulate(&event(
+            r#"{"type":"content_block_start","index":3,
+                "content_block":{"type":"text","text":""}}"#,
+        ));
+        let msg = acc.finish().unwrap();
+        assert!(
+            msg.content.is_empty(),
+            "a rejected start must leave no blocks behind, got {:?}",
+            msg.content
+        );
+    }
+
+    #[test]
+    fn content_block_start_before_message_start_is_ignored() {
+        let mut acc = MessageAccumulator::new();
+        acc.accumulate(&event(
+            r#"{"type":"content_block_start","index":0,
+                "content_block":{"type":"text","text":""}}"#,
+        ))
+        .unwrap();
+        assert!(matches!(acc.finish(), Err(Error::Stream(_))));
+    }
+
+    // ── content_block_delta ────────────────────────────────────────────────
+
+    fn started(blocks: &[&str]) -> MessageAccumulator {
+        let mut acc = MessageAccumulator::new();
+        acc.accumulate(&message_start()).unwrap();
+        for (i, block) in blocks.iter().enumerate() {
+            acc.accumulate(&event(&format!(
+                r#"{{"type":"content_block_start","index":{i},"content_block":{block}}}"#
+            )))
+            .unwrap();
+        }
+        acc
+    }
+
+    #[test]
+    fn text_deltas_concatenate() {
+        let mut acc = started(&[r#"{"type":"text","text":""}"#]);
+        acc.accumulate(&event(
+            r#"{"type":"content_block_delta","index":0,
+                "delta":{"type":"text_delta","text":"foo"}}"#,
+        ))
+        .unwrap();
+        acc.accumulate(&event(
+            r#"{"type":"content_block_delta","index":0,
+                "delta":{"type":"text_delta","text":"bar"}}"#,
+        ))
+        .unwrap();
+
+        let msg = acc.finish().unwrap();
+        match &msg.content[0] {
+            ContentBlock::Text(tb) => assert_eq!(tb.text, "foobar"),
+            other => panic!("expected text block, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn thinking_deltas_concatenate() {
+        let mut acc = started(&[r#"{"type":"thinking","thinking":""}"#]);
+        acc.accumulate(&event(
+            r#"{"type":"content_block_delta","index":0,
+                "delta":{"type":"thinking_delta","thinking":"one "}}"#,
+        ))
+        .unwrap();
+        acc.accumulate(&event(
+            r#"{"type":"content_block_delta","index":0,
+                "delta":{"type":"thinking_delta","thinking":"two"}}"#,
+        ))
+        .unwrap();
+
+        let msg = acc.finish().unwrap();
+        match &msg.content[0] {
+            ContentBlock::Thinking(tb) => assert_eq!(tb.thinking, "one two"),
+            other => panic!("expected thinking block, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn signature_delta_replaces_rather_than_concatenating() {
+        let mut acc = started(&[r#"{"type":"thinking","thinking":""}"#]);
+        acc.accumulate(&event(
+            r#"{"type":"content_block_delta","index":0,
+                "delta":{"type":"signature_delta","signature":"first"}}"#,
+        ))
+        .unwrap();
+        acc.accumulate(&event(
+            r#"{"type":"content_block_delta","index":0,
+                "delta":{"type":"signature_delta","signature":"second"}}"#,
+        ))
+        .unwrap();
+
+        let msg = acc.finish().unwrap();
+        match &msg.content[0] {
+            ContentBlock::Thinking(tb) => assert_eq!(tb.signature.as_deref(), Some("second")),
+            other => panic!("expected thinking block, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn delta_with_out_of_range_index_is_a_no_op() {
+        let mut acc = started(&[r#"{"type":"text","text":"kept"}"#]);
+        acc.accumulate(&event(
+            r#"{"type":"content_block_delta","index":9,
+                "delta":{"type":"text_delta","text":"dropped"}}"#,
+        ))
+        .unwrap();
+
+        let msg = acc.finish().unwrap();
+        assert_eq!(msg.content.len(), 1);
+        match &msg.content[0] {
+            ContentBlock::Text(tb) => assert_eq!(tb.text, "kept"),
+            other => panic!("expected text block, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn delta_kind_not_matching_the_block_kind_is_a_no_op() {
+        let mut acc = started(&[r#"{"type":"text","text":"kept"}"#]);
+        acc.accumulate(&event(
+            r#"{"type":"content_block_delta","index":0,
+                "delta":{"type":"thinking_delta","thinking":"dropped"}}"#,
+        ))
+        .unwrap();
+
+        let msg = acc.finish().unwrap();
+        match &msg.content[0] {
+            ContentBlock::Text(tb) => assert_eq!(tb.text, "kept"),
+            other => panic!("expected text block, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn unknown_delta_kind_is_a_no_op() {
+        let mut acc = started(&[r#"{"type":"text","text":"kept"}"#]);
+        acc.accumulate(&event(
+            r#"{"type":"content_block_delta","index":0,
+                "delta":{"type":"citations_delta","citation":{"cited_text":"x"}}}"#,
+        ))
+        .unwrap();
+
+        let msg = acc.finish().unwrap();
+        match &msg.content[0] {
+            ContentBlock::Text(tb) => assert_eq!(tb.text, "kept"),
+            other => panic!("expected text block, got {other:?}"),
+        }
+    }
+
+    // ── input_json_delta + content_block_stop ──────────────────────────────
+
+    const TOOL_BLOCK: &str =
+        r#"{"type":"tool_use","id":"toolu_01","name":"get_weather","input":{}}"#;
+    const TOOL_BLOCK_2: &str =
+        r#"{"type":"tool_use","id":"toolu_02","name":"get_time","input":{}}"#;
+
+    fn json_delta(index: usize, fragment: &str) -> StreamEvent {
+        event(&format!(
+            r#"{{"type":"content_block_delta","index":{index},
+                "delta":{{"type":"input_json_delta","partial_json":{}}}}}"#,
+            serde_json::to_string(fragment).unwrap()
+        ))
+    }
+
+    fn block_stop(index: usize) -> StreamEvent {
+        event(&format!(
+            r#"{{"type":"content_block_stop","index":{index}}}"#
+        ))
+    }
+
+    #[test]
+    fn tool_input_json_buffers_across_deltas_and_parses_at_stop() {
+        let mut acc = started(&[TOOL_BLOCK]);
+        acc.accumulate(&json_delta(0, r#"{"city":"#)).unwrap();
+        acc.accumulate(&json_delta(0, r#""Paris"}"#)).unwrap();
+        acc.accumulate(&block_stop(0)).unwrap();
+
+        let msg = acc.finish().unwrap();
+        match &msg.content[0] {
+            ContentBlock::ToolUse(tu) => {
+                assert_eq!(tu.input, serde_json::json!({"city": "Paris"}));
+            }
+            other => panic!("expected tool-use block, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn empty_partial_json_leaves_the_input_untouched_and_raises_no_error() {
+        let mut acc = started(&[TOOL_BLOCK]);
+        acc.accumulate(&json_delta(0, "")).unwrap();
+        acc.accumulate(&block_stop(0)).unwrap();
+
+        let msg = acc.finish().unwrap();
+        match &msg.content[0] {
+            ContentBlock::ToolUse(tu) => assert_eq!(tu.input, serde_json::json!({})),
+            other => panic!("expected tool-use block, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn malformed_accumulated_tool_json_is_a_serde_error_at_stop() {
+        let mut acc = started(&[TOOL_BLOCK]);
+        acc.accumulate(&json_delta(0, r#"{"city":"#)).unwrap();
+        let result = acc.accumulate(&block_stop(0));
+        match result {
+            Err(Error::Serde { context, .. }) => assert_eq!(context, "ToolUseBlock.input"),
+            other => panic!("expected Error::Serde, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn two_tool_blocks_buffer_independently() {
+        let mut acc = started(&[TOOL_BLOCK, TOOL_BLOCK_2]);
+        acc.accumulate(&json_delta(0, r#"{"city":"#)).unwrap();
+        acc.accumulate(&json_delta(1, r#"{"zone":"#)).unwrap();
+        acc.accumulate(&json_delta(0, r#""Paris"}"#)).unwrap();
+        acc.accumulate(&json_delta(1, r#""UTC"}"#)).unwrap();
+        acc.accumulate(&block_stop(0)).unwrap();
+        acc.accumulate(&block_stop(1)).unwrap();
+
+        let msg = acc.finish().unwrap();
+        match (&msg.content[0], &msg.content[1]) {
+            (ContentBlock::ToolUse(a), ContentBlock::ToolUse(b)) => {
+                assert_eq!(a.input, serde_json::json!({"city": "Paris"}));
+                assert_eq!(b.input, serde_json::json!({"zone": "UTC"}));
+            }
+            other => panic!("expected two tool-use blocks, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn input_json_delta_addressed_at_a_text_block_is_a_no_op() {
+        // The fragment is deliberately malformed: if the guard that keeps
+        // input_json_delta out of a non-tool block's buffer were removed,
+        // this fragment would still land in json_bufs[0] and fail to parse
+        // at content_block_stop, turning the no-op into a spurious
+        // Error::Serde. A well-formed fragment would parse either way and
+        // would not catch that regression.
+        let mut acc = started(&[r#"{"type":"text","text":"kept"}"#]);
+        acc.accumulate(&json_delta(0, r#"{"a":"#)).unwrap();
+        acc.accumulate(&block_stop(0)).unwrap();
+
+        let msg = acc.finish().unwrap();
+        match &msg.content[0] {
+            ContentBlock::Text(tb) => assert_eq!(tb.text, "kept"),
+            other => panic!("expected text block, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn content_block_stop_with_out_of_range_index_is_a_no_op() {
+        let mut acc = started(&[r#"{"type":"text","text":"kept"}"#]);
+        acc.accumulate(&block_stop(9)).unwrap();
+
+        let msg = acc.finish().unwrap();
+        assert_eq!(msg.content.len(), 1);
+        match &msg.content[0] {
+            ContentBlock::Text(tb) => assert_eq!(tb.text, "kept"),
+            other => panic!("expected text block, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn content_block_stop_for_a_text_block_leaves_its_content_unchanged() {
+        // A stop on a text block alone can't discriminate whether the
+        // ContentBlockStop arm actually ran finish_block, since finish_block
+        // is a no-op for a block with no buffered JSON either way. Pairing it
+        // with a tool block whose input only assembles if finish_block is
+        // reached gives the assertion a target: removing the arm entirely
+        // leaves the tool input at its unparsed start-event value.
+        let mut acc = started(&[r#"{"type":"text","text":"hi"}"#, TOOL_BLOCK]);
+        acc.accumulate(&json_delta(1, r#"{"city":"Paris"}"#))
+            .unwrap();
+        acc.accumulate(&block_stop(0)).unwrap();
+        acc.accumulate(&block_stop(1)).unwrap();
+
+        let msg = acc.finish().unwrap();
+        match (&msg.content[0], &msg.content[1]) {
+            (ContentBlock::Text(tb), ContentBlock::ToolUse(tu)) => {
+                assert_eq!(tb.text, "hi");
+                assert_eq!(tu.input, serde_json::json!({"city": "Paris"}));
+            }
+            other => panic!("expected a text block and a tool-use block, got {other:?}"),
+        }
+    }
+}
