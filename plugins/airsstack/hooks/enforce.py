@@ -10,11 +10,60 @@ blocks, denies, or raises out of main().
 import fnmatch
 import json
 import os
+import re
 import sys
 import time
 
 MARKETPLACE_SUFFIX = "@airsstack"
 MARKER_MAX_AGE = 24 * 3600  # seconds; stale dedup markers are pruned past this
+
+
+def glob_to_regex(pattern):
+    """Compile a path glob into an anchored regex.
+
+    Both stdlib options are unusable on 3.9.6: `fnmatch`'s `*` crosses `/`,
+    and `PurePath.match` treats `**` as non-recursive (`full_match` arrives
+    in 3.13). Neither matches a root-level `Cargo.toml` against
+    `**/Cargo.toml`, which is this repo's most important Rust file.
+
+    `**/` deliberately matches ZERO or more leading segments.
+    """
+    i, n, out = 0, len(pattern), []
+    while i < n:
+        c = pattern[i]
+        if pattern.startswith("**/", i):
+            out.append("(?:[^/]+/)*")
+            i += 3
+        elif pattern.startswith("**", i):
+            out.append(".*")
+            i += 2
+        elif c == "*":
+            out.append("[^/]*")
+            i += 1
+        elif c == "?":
+            out.append("[^/]")
+            i += 1
+        elif c == "[":
+            j = i + 1
+            if j < n and pattern[j] in "!^":
+                j += 1
+            if j < n and pattern[j] == "]":
+                j += 1  # a leading ] is a literal member
+            while j < n and pattern[j] != "]":
+                j += 1
+            if j >= n:
+                out.append(re.escape("["))  # unclosed [ is a literal
+                i += 1
+            else:
+                body = pattern[i + 1:j].replace("\\", "\\\\")
+                if body.startswith("!"):
+                    body = "^" + body[1:]
+                out.append("[" + body + "]")
+                i = j + 1
+        else:
+            out.append(re.escape(c))
+            i += 1
+    return re.compile("^" + "".join(out) + "$")
 
 
 def _registry_path():
