@@ -47,5 +47,34 @@ class TestGlobToRegex(unittest.TestCase):
         self.assertFalse(enforce.glob_to_regex("**/*.rs").match("src/xxrs"))
 
 
+class TestProjectKey(unittest.TestCase):
+    def test_matches_the_shell_formula(self):
+        """Python key must equal the sh formula in references/artifact-paths.md."""
+        import subprocess
+        script = (
+            'if common_dir=$(git rev-parse --git-common-dir 2>/dev/null); then\n'
+            '  abs=$(cd "$(dirname "$common_dir")" 2>/dev/null && pwd -P)/$(basename "$common_dir")\n'
+            '  base=$(basename "$(dirname "$abs")")\n'
+            'else\n'
+            '  abs=$(pwd -P); base=$(basename "$abs")\n'
+            'fi\n'
+            "base=$(printf '%s' \"$base\" | LC_ALL=C tr -c 'A-Za-z0-9._-' '-')\n"
+            "hash8=$(printf '%s' \"$abs\" | shasum | cut -c1-8)\n"
+            'printf "%s-%s" "$base" "$hash8"\n'
+        )
+        here = os.path.dirname(os.path.abspath(__file__))
+        expected = subprocess.check_output(
+            ["sh", "-c", script], cwd=here
+        ).decode("utf-8").strip()
+        self.assertEqual(enforce.project_key(here), expected)
+
+    def test_no_git_falls_back_to_cwd_hash(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            key = enforce.project_key(tmp)
+            self.assertIsNotNone(key)
+            self.assertRegex(key, r"^[A-Za-z0-9._-]+-[0-9a-f]{8}$")
+
+
 if __name__ == "__main__":
     unittest.main()

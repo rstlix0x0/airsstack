@@ -8,9 +8,11 @@ blocks, denies, or raises out of main().
 """
 
 import fnmatch
+import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 
@@ -64,6 +66,48 @@ def glob_to_regex(pattern):
             out.append(re.escape(c))
             i += 1
     return re.compile("^" + "".join(out) + "$")
+
+
+def _git(cwd, args):
+    """Run git in `cwd`; return stripped stdout, or None on any failure."""
+    try:
+        out = subprocess.check_output(
+            ["git"] + args, cwd=cwd, stderr=subprocess.DEVNULL
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    text = out.decode("utf-8", "replace").strip()
+    return text or None
+
+
+def _sanitize(text):
+    """Replace every character outside [A-Za-z0-9._-] with '-' (tr -c parity)."""
+    return re.sub(r"[^A-Za-z0-9._-]", "-", text or "")
+
+
+def project_key(cwd):
+    """Stable per-repo key; every linked worktree collapses to one value.
+
+    Mirrors the sh formula in airsstack-sdd/references/artifact-paths.md,
+    which the snapshot store and the SDD roots already share. Keys, never
+    path prefixes, are what gate 1 compares — a linked worktree may live
+    anywhere on disk.
+    """
+    common = _git(cwd, ["rev-parse", "--git-common-dir"])
+    try:
+        if common:
+            if not os.path.isabs(common):
+                common = os.path.join(cwd, common)
+            parent = os.path.realpath(os.path.dirname(common) or ".")
+            abs_path = os.path.join(parent, os.path.basename(common))
+            base = os.path.basename(os.path.dirname(abs_path))
+        else:
+            abs_path = os.path.realpath(cwd)
+            base = os.path.basename(abs_path)
+    except OSError:
+        return None
+    digest = hashlib.sha1(abs_path.encode("utf-8")).hexdigest()[:8]
+    return _sanitize(base) + "-" + digest
 
 
 def _registry_path():
