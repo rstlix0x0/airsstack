@@ -17,7 +17,8 @@ import sys
 import time
 
 MARKETPLACE_SUFFIX = "@airsstack"
-MARKER_MAX_AGE = 24 * 3600  # seconds; stale dedup markers are pruned past this
+SENTINEL_PREFIX = "airsstack-enforce-"
+SENTINEL_MAX_AGE = 24 * 3600  # seconds; stale sentinels are pruned past this
 
 
 def glob_to_regex(pattern):
@@ -317,49 +318,84 @@ def _pointer(stack, skill):
     )
 
 
-def _marker_dir():
+def sentinel_dir():
     return os.environ.get("TMPDIR") or "/tmp"
 
 
-def _marker_path(session_id):
-    safe = "".join(
-        c if (c.isalnum() or c in "-_") else "-" for c in (session_id or "nosession")
-    )
-    return os.path.join(_marker_dir(), "airsstack-enforce-" + safe)
+def sentinel_path(session_id, agent, stack, phase):
+    """One sentinel per (session, agent context, stack, phase).
+
+    `agent` is the subagent id when the hook fires inside one, else 'main'.
+    Subagents inherit the parent's session_id, so without that component an
+    explorer reading one .rs file would consume the main thread's only
+    pointer — and the main thread is exactly the context this exists to
+    inform.
+    """
+    parts = [
+        _sanitize(session_id or "nosession"),
+        _sanitize(agent or "main"),
+        _sanitize(stack),
+        _sanitize(phase),
+    ]
+    return os.path.join(sentinel_dir(), SENTINEL_PREFIX + "-".join(parts))
 
 
-def _prune_markers():
+def sentinel_claimed(path):
+    """Read-only probe for the cheap gate; never creates anything."""
+    return os.path.exists(path)
+
+
+def claim(path):
+    """Atomically claim a sentinel. True means this invocation must emit.
+
+    O_CREAT|O_EXCL is atomic by construction, so no locking is needed. The
+    previous read-then-append design was an unguarded read-modify-write:
+    under measurement 3 of 4 concurrent hooks all fired.
+    """
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        return False
+    except OSError:
+        return True  # cannot write the marker: prefer a repeat over silence
+    os.close(fd)
+    return True
+
+
+def prune_sentinels():
     try:
         now = time.time()
-        d = _marker_dir()
-        for name in os.listdir(d):
-            if not name.startswith("airsstack-enforce-"):
+        directory = sentinel_dir()
+        for name in os.listdir(directory):
+            if not name.startswith(SENTINEL_PREFIX):
                 continue
-            p = os.path.join(d, name)
+            path = os.path.join(directory, name)
             try:
-                if now - os.path.getmtime(p) > MARKER_MAX_AGE:
-                    os.unlink(p)
+                if now - os.path.getmtime(path) > SENTINEL_MAX_AGE:
+                    os.unlink(path)
             except OSError:
                 pass
     except OSError:
         pass
 
 
-def _already(session_id):
+def clear_session(session_id):
+    """Unlink every sentinel for one session; returns the count removed."""
+    prefix = SENTINEL_PREFIX + _sanitize(session_id or "nosession") + "-"
+    removed = 0
     try:
-        with open(_marker_path(session_id), "r", encoding="utf-8") as fh:
-            return set(line.strip() for line in fh if line.strip())
+        directory = sentinel_dir()
+        for name in os.listdir(directory):
+            if not name.startswith(prefix):
+                continue
+            try:
+                os.unlink(os.path.join(directory, name))
+                removed += 1
+            except OSError:
+                pass
     except OSError:
-        return set()
-
-
-def _record(session_id, keys):
-    try:
-        with open(_marker_path(session_id), "a", encoding="utf-8") as fh:
-            for k in keys:
-                fh.write(k + "\n")
-    except OSError:
-        pass  # best-effort; degrade to a possible repeat, never crash
+        pass
+    return removed
 
 
 def main():
@@ -372,7 +408,9 @@ def main():
         cwd = data.get("cwd") or os.getcwd()
         session_id = data.get("session_id") or ""
 
-        _prune_markers()
+        agent = data.get("agent_id") or "main"
+
+        prune_sentinels()
 
         # T10 replaces this with the ordered `resolve` pipeline; until then the
         # dict from read_registry is flattened back to unique install paths.
@@ -390,19 +428,14 @@ def main():
         if not hits:
             return
 
-        seen = _already(session_id)
-        pointers, new_keys = [], []
+        pointers = []
         for stack, phase, skill in hits:
-            key = stack + ":" + phase
-            if key in seen or key in new_keys:
-                continue
-            new_keys.append(key)
-            pointers.append(_pointer(stack, skill))
+            if claim(sentinel_path(session_id, agent, stack, phase)):
+                pointers.append(_pointer(stack, skill))
 
         if not pointers:
             return
 
-        _record(session_id, new_keys)
         sys.stdout.write(
             json.dumps(
                 {

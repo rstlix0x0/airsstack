@@ -235,5 +235,84 @@ class TestReadRegistry(unittest.TestCase):
         self.assertEqual(enforce.read_registry("/nonexistent/registry.json"), {})
 
 
+class TestSentinels(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        self.tmp = tempfile.mkdtemp()
+        self.old = os.environ.get("TMPDIR")
+        os.environ["TMPDIR"] = self.tmp
+
+    def tearDown(self):
+        import shutil
+        if self.old is None:
+            os.environ.pop("TMPDIR", None)
+        else:
+            os.environ["TMPDIR"] = self.old
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_first_claim_wins_second_loses(self):
+        path = enforce.sentinel_path("s1", "main", "rust", "code")
+        self.assertTrue(enforce.claim(path))
+        self.assertFalse(enforce.claim(path))
+
+    def test_subagent_gets_its_own_shot(self):
+        main_path = enforce.sentinel_path("s1", "main", "rust", "code")
+        sub_path = enforce.sentinel_path("s1", "agent-7", "rust", "code")
+        self.assertNotEqual(main_path, sub_path)
+        self.assertTrue(enforce.claim(main_path))
+        self.assertTrue(enforce.claim(sub_path))
+
+    def test_components_are_sanitized(self):
+        path = enforce.sentinel_path("a/b c", "main", "ru st", "code")
+        self.assertNotIn("/", os.path.basename(path))
+        self.assertNotIn(" ", os.path.basename(path))
+
+    def test_exactly_one_of_n_concurrent_claims_succeeds(self):
+        import threading
+        path = enforce.sentinel_path("race", "main", "rust", "code")
+        results, lock = [], threading.Lock()
+        start = threading.Event()
+
+        def worker():
+            start.wait()
+            got = enforce.claim(path)
+            with lock:
+                results.append(got)
+
+        threads = [threading.Thread(target=worker) for _ in range(16)]
+        for t in threads:
+            t.start()
+        start.set()
+        for t in threads:
+            t.join()
+        self.assertEqual(results.count(True), 1, results)
+
+    def test_prune_removes_only_old_airsstack_sentinels(self):
+        import time as _time
+        old = enforce.sentinel_path("old", "main", "rust", "code")
+        fresh = enforce.sentinel_path("fresh", "main", "rust", "code")
+        foreign = os.path.join(self.tmp, "unrelated-file")
+        for p in (old, fresh, foreign):
+            open(p, "w").close()
+        stale = _time.time() - (enforce.SENTINEL_MAX_AGE + 60)
+        os.utime(old, (stale, stale))
+        os.utime(foreign, (stale, stale))
+        enforce.prune_sentinels()
+        self.assertFalse(os.path.exists(old))
+        self.assertTrue(os.path.exists(fresh))
+        self.assertTrue(os.path.exists(foreign))
+
+    def test_clear_session_unlinks_that_session_only(self):
+        mine_a = enforce.sentinel_path("s1", "main", "rust", "code")
+        mine_b = enforce.sentinel_path("s1", "agent-7", "rust", "design")
+        theirs = enforce.sentinel_path("s2", "main", "rust", "code")
+        for p in (mine_a, mine_b, theirs):
+            open(p, "w").close()
+        self.assertEqual(enforce.clear_session("s1"), 2)
+        self.assertFalse(os.path.exists(mine_a))
+        self.assertFalse(os.path.exists(mine_b))
+        self.assertTrue(os.path.exists(theirs))
+
+
 if __name__ == "__main__":
     unittest.main()
