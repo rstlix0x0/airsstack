@@ -55,7 +55,10 @@ pub struct ServerStatus {
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct McpStatus {
     /// Per-server status entries.
-    #[serde(default)]
+    ///
+    /// The binary spells this key `mcpServers` on the wire; the rename is
+    /// required for the field to bind at all.
+    #[serde(rename = "mcpServers", default)]
     pub servers: Vec<ServerStatus>,
 }
 
@@ -66,7 +69,7 @@ mod tests {
         reason = "tests assert known-valid fixtures; a panic is the intended failure signal"
     )]
 
-    use super::{McpServerConfig, ServerStatus};
+    use super::{McpServerConfig, McpStatus, ServerStatus};
 
     #[test]
     fn config_is_opaque_passthrough() {
@@ -82,5 +85,27 @@ mod tests {
         let status: ServerStatus = serde_json::from_str(json).expect("deserialize");
         assert_eq!(status.name, "fs");
         assert_eq!(status.status, "connected");
+    }
+
+    #[test]
+    fn status_binds_the_wire_key_the_binary_actually_sends() {
+        // The payload shape is the `response` object of an `mcp_status`
+        // control response: the binary keys the list `mcpServers`, not
+        // `servers`. Binding the wrong key deserializes to an empty list
+        // without erroring, so this asserts a non-empty parse.
+        let json = r#"{"mcpServers":[{"name":"fs","status":"connected"}]}"#;
+        let status: McpStatus = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(
+            status.servers.len(),
+            1,
+            "wire key `mcpServers` must bind; an empty list means the field name drifted"
+        );
+        assert_eq!(status.servers[0].name, "fs");
+    }
+
+    #[test]
+    fn status_tolerates_a_response_with_no_server_list() {
+        let status: McpStatus = serde_json::from_str("{}").expect("deserialize");
+        assert!(status.servers.is_empty());
     }
 }
