@@ -517,5 +517,69 @@ class TestMainEntryPoint(unittest.TestCase):
         self.assertEqual(done.stderr, "")
 
 
+class TestWiring(unittest.TestCase):
+    HOOKS_DIR = os.path.dirname(os.path.abspath(__file__))
+
+    def _hooks_json(self):
+        with open(os.path.join(self.HOOKS_DIR, "hooks.json")) as fh:
+            return json.load(fh)
+
+    def _launcher(self):
+        with open(os.path.join(self.HOOKS_DIR, "cache-guard.sh")) as fh:
+            return fh.read()
+
+    def test_session_start_runs_the_guard(self):
+        entries = self._hooks_json()["hooks"]["SessionStart"]
+        self.assertEqual(entries[0]["matcher"], "startup|resume|clear")
+        self.assertIn("cache-guard.sh", entries[0]["hooks"][0]["command"])
+
+    def test_post_tool_use_mirrors_writes_only(self):
+        """`Edit|Write`, deliberately NOT the dispatcher's `Read|Edit|Write`.
+
+        That matcher exists so an enforcement rule lands before the design
+        decision; a mirror hook has no such need. Reads are incidental — every
+        sweep, every grep-then-read — so triggering on Read would let merely
+        LOOKING at a plugin file from a linked worktree push that branch's
+        bytes into the shared version-keyed cache, which is the cross-branch
+        convergence the guard's main-worktree gate exists to prevent.
+        """
+        self.assertEqual(self._hooks_json()["hooks"]["PostToolUse"][0]["matcher"],
+                         "Edit|Write")
+
+    def test_the_launcher_never_execs(self):
+        """`exec` would hand python's exit status straight back to Claude Code;
+        the dispatcher's launcher shipped that bug and turned every hook fire
+        into a potential block."""
+        self.assertNotIn("exec ", self._launcher())
+
+    def test_launcher_exits_zero_when_the_module_is_broken(self):
+        work = tempfile.mkdtemp()
+        try:
+            shutil.copy2(os.path.join(self.HOOKS_DIR, "cache-guard.sh"), work)
+            with open(os.path.join(work, "cache_guard.py"), "w") as fh:
+                fh.write("def (\n")  # SyntaxError
+            code = subprocess.call(
+                ["sh", os.path.join(work, "cache-guard.sh")],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            self.assertEqual(code, 0)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+    def test_launcher_exits_zero_when_the_module_is_missing(self):
+        work = tempfile.mkdtemp()
+        try:
+            shutil.copy2(os.path.join(self.HOOKS_DIR, "cache-guard.sh"), work)
+            code = subprocess.call(
+                ["sh", os.path.join(work, "cache-guard.sh")],
+                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            self.assertEqual(code, 0)
+        finally:
+            shutil.rmtree(work, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main()
