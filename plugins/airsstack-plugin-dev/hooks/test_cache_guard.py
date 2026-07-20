@@ -168,5 +168,44 @@ class TestBackfill(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.cache, "enforcement.json")))
 
 
+class TestPluginDiscovery(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_lists_plugin_dirs_with_a_manifest(self):
+        top = os.path.join(self.tmp, "repo")
+        os.makedirs(os.path.join(top, "plugins", "alpha", ".claude-plugin"))
+        os.makedirs(os.path.join(top, "plugins", "beta", ".claude-plugin"))
+        os.makedirs(os.path.join(top, "plugins", "notaplugin"))
+        for name in ("alpha", "beta"):
+            path = os.path.join(top, "plugins", name, ".claude-plugin", "plugin.json")
+            with open(path, "w") as fh:
+                json.dump({"name": name, "version": "0.1.0"}, fh)
+        self.assertEqual(cache_guard.source_plugins(top), ["alpha", "beta"])
+
+    def test_no_plugins_dir_returns_empty(self):
+        self.assertEqual(cache_guard.source_plugins(self.tmp), [])
+
+    def test_cache_dirs_come_from_the_registry(self):
+        registry = {
+            "plugins": {
+                "alpha@airsstack": [
+                    {"installPath": "/cache/alpha/0.1.0"},
+                    {"installPath": "/cache/alpha/0.1.0"},
+                ],
+                "alpha@somewhere-else": [{"installPath": "/other/alpha"}],
+            }
+        }
+        self.assertEqual(
+            cache_guard.cache_dirs(registry, "alpha"), ["/cache/alpha/0.1.0"]
+        )
+
+    def test_unregistered_plugin_has_no_cache_dirs(self):
+        self.assertEqual(cache_guard.cache_dirs({"plugins": {}}, "alpha"), [])
+
+
 if __name__ == "__main__":
     unittest.main()

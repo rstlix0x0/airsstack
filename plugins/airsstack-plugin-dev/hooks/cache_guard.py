@@ -124,3 +124,27 @@ def sync_tree(src_dir, cache_dir, containment_root=None):
     known = set(source_files)
     extras = [rel for rel in _relative_files(cache_dir) if rel not in known]
     return {"copied": copied, "extras": extras}
+
+
+def source_plugins(top):
+    """Names of every plugin directory in the source repo, sorted."""
+    root = os.path.join(top, "plugins")
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return []
+    found = []
+    for name in sorted(names):
+        manifest = os.path.join(root, name, ".claude-plugin", "plugin.json")
+        if os.path.isfile(manifest):
+            found.append(name)
+    return found
+
+
+def cache_dirs(registry, plugin):
+    """Distinct install paths for `<plugin>@airsstack`, first-seen order.
+
+    Delegates to the PostToolUse hook's own resolver so the two never drift
+    apart on which marketplace or which records count.
+    """
+    return cache_sync.resolve_install_paths(registry, plugin)
