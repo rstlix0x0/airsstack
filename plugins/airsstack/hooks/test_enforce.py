@@ -98,5 +98,31 @@ class TestPathForMatching(unittest.TestCase):
         self.assertFalse(enforce.matches_any("README.md", ["**/*.rs"]))
 
 
+class TestDesignDoc(unittest.TestCase):
+    def setUp(self):
+        self.root = "/tmp/aihome"
+        self.sdd = os.path.join(self.root, "cc", "plugins", "sdd")
+
+    def check(self, rel):
+        return enforce.is_design_doc(os.path.join(self.sdd, rel), self.root)
+
+    def test_specs_segment_matches(self):
+        self.assertTrue(self.check("proj/specs/2026-01-01-x.md"))
+
+    def test_plans_segment_matches(self):
+        self.assertTrue(self.check("proj/plans/2026-01-01-x.md"))
+
+    def test_substring_only_rejects(self):
+        self.assertFalse(self.check("proj/myspecs/x.md"))
+        self.assertFalse(self.check("proj/specsheet/x.md"))
+
+    def test_nested_accidental_substring_rejects(self):
+        # The pre-repair '/specs/' in fp test matched this by accident.
+        self.assertFalse(self.check("proj/a/specs/b/plans/c.md"))
+
+    def test_outside_sdd_root_rejects(self):
+        self.assertFalse(enforce.is_design_doc("/elsewhere/specs/x.md", self.root))
+
+
 if __name__ == "__main__":
     unittest.main()

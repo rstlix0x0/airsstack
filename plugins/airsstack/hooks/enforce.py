@@ -147,19 +147,30 @@ def _registry_path():
     )
 
 
-def _sdd_root():
-    home = os.environ.get("AIRSSTACK_HOME") or os.path.join(
+def sdd_root(home=None):
+    base = home or os.environ.get("AIRSSTACK_HOME") or os.path.join(
         os.path.expanduser("~"), ".airsstack"
     )
-    return os.path.join(home, "cc", "plugins", "sdd")
+    return os.path.join(base, "cc", "plugins", "sdd")
 
 
-def _is_design_doc(file_path):
-    fp = os.path.abspath(file_path)
-    root = os.path.abspath(_sdd_root())
-    if not (fp == root or fp.startswith(root + os.sep)):
+def is_design_doc(file_path, home=None):
+    """True for an SDD spec/plan under the HOME-global root.
+
+    The directory name must appear as a whole path SEGMENT. The pre-repair
+    test was a substring check on '/specs/', so
+    `<key>/a/specs/b/plans/c.md` matched by accident.
+    """
+    target = os.path.abspath(file_path)
+    root = os.path.abspath(sdd_root(home))
+    if not target.startswith(root + os.sep):
         return False
-    return "/specs/" in fp or "/plans/" in fp
+    rel = os.path.relpath(target, root)
+    segments = rel.split(os.sep)[:-1]  # directories only, never the filename
+    if len(segments) < 2:
+        return False
+    # Layout is <key>/<specs|plans>/... — the artifact dir is the key's child.
+    return segments[1] in ("specs", "plans")
 
 
 def _read_registry():
@@ -246,7 +257,7 @@ def _matches(file_path, cwd, manifests):
     detect markers. Any other file is code-phase → trigger on match globs.
     """
     hits = []
-    design = _is_design_doc(file_path)
+    design = is_design_doc(file_path)
     for m in manifests:
         if design:
             if "design" in m["phase"] and _marker_active(cwd, m["detect"]):
