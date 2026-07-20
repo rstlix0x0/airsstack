@@ -220,4 +220,33 @@ grep -qi 'No agents, no hooks' "$rust_readme" \
   && fail "case12: stale 'No agents, no hooks' claim still present"
 printf 'docs ok\n' >/dev/null
 
+# --- case 14: launcher exit matrix (D10) — every mode must exit 0 --------
+# PreToolUse exit 2 blocks the tool call. Assert the launcher swallows every
+# child failure mode instead of propagating it.
+lwork="$work/launcher"; mkdir -p "$lwork"
+cp "$LAUNCHER" "$lwork/enforce.sh"
+
+probe() {  # -> prints the launcher's exit code
+  printf '{"session_id":"L","cwd":"%s","tool_input":{"file_path":"%s"}}' "$repo" "$repo/src/lib.rs" \
+  | AIRSSTACK_ENFORCE_REGISTRY="$registry" AIRSSTACK_HOME="$home" TMPDIR="$markers" \
+    sh "$lwork/enforce.sh" >/dev/null 2>&1
+  printf '%s' "$?"
+}
+
+rm -f "$lwork/enforce.py"
+[ "$(probe)" = 0 ] || fail "case14: enforce.py missing did not exit 0"
+
+printf 'import sys\n' > "$lwork/enforce.py"; chmod 000 "$lwork/enforce.py"
+[ "$(probe)" = 0 ] || fail "case14: enforce.py unreadable did not exit 0"
+chmod 644 "$lwork/enforce.py"
+
+printf 'def (\n' > "$lwork/enforce.py"
+[ "$(probe)" = 0 ] || fail "case14: enforce.py SyntaxError did not exit 0"
+
+printf 'raise SystemExit(3)\n' > "$lwork/enforce.py"
+[ "$(probe)" = 0 ] || fail "case14: enforce.py nonzero SystemExit did not exit 0"
+
+cp "$SCRIPT_DIR/enforce.py" "$lwork/enforce.py"
+[ "$(probe)" = 0 ] || fail "case14: healthy enforce.py did not exit 0"
+
 printf 'PASS\n'
