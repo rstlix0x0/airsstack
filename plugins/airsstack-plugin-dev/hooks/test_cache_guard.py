@@ -207,5 +207,102 @@ class TestPluginDiscovery(unittest.TestCase):
         self.assertEqual(cache_guard.cache_dirs({"plugins": {}}, "alpha"), [])
 
 
+class TestVersionDrift(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.repo = make_repo(os.path.join(self.tmp, "repo"))
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _manifest(self):
+        return os.path.join(self.repo, "plugins", "demo", ".claude-plugin", "plugin.json")
+
+    def _set_version(self, value):
+        with open(self._manifest()) as fh:
+            data = json.load(fh)
+        data["version"] = value
+        with open(self._manifest(), "w") as fh:
+            json.dump(data, fh)
+
+    def _touch_manifest_without_bumping(self):
+        with open(self._manifest()) as fh:
+            data = json.load(fh)
+        data["description"] = "touched"
+        with open(self._manifest(), "w") as fh:
+            json.dump(data, fh)
+
+    def _commit(self, message):
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-qm", message)
+
+    def test_bump_with_no_later_content_is_ok(self):
+        self._set_version("0.2.0")
+        self._commit("bump")
+        self.assertEqual(cache_guard.version_drift(self.repo, "demo"), "ok")
+
+    def test_content_committed_after_the_bump_is_stale(self):
+        self._set_version("0.2.0")
+        self._commit("bump")
+        with open(os.path.join(self.repo, "plugins", "demo", "new.txt"), "w") as fh:
+            fh.write("x\n")
+        self._commit("content after bump")
+        self.assertEqual(cache_guard.version_drift(self.repo, "demo"), "stale")
+
+    def test_manifest_touched_without_a_version_change_is_stale(self):
+        """The naive 'last commit touching plugin.json' rule reports a false ok here."""
+        self._set_version("0.2.0")
+        self._commit("bump")
+        self._touch_manifest_without_bumping()
+        self._commit("edit manifest, same version")
+        self.assertEqual(cache_guard.version_drift(self.repo, "demo"), "stale")
+
+    def test_squash_merged_bump_plus_content_is_stale(self):
+        """This repo's history is all squash merges; both land in one commit."""
+        self._set_version("0.2.0")
+        with open(os.path.join(self.repo, "plugins", "demo", "new.txt"), "w") as fh:
+            fh.write("x\n")
+        self._commit("squash: bump + content (#42)")
+        with open(os.path.join(self.repo, "plugins", "demo", "later.txt"), "w") as fh:
+            fh.write("y\n")
+        self._commit("more content")
+        self.assertEqual(cache_guard.version_drift(self.repo, "demo"), "stale")
+
+    def test_content_committed_elsewhere_after_the_bump_is_ok(self):
+        """Drift is per-plugin: a sibling plugin's commit must not age this one.
+
+        With seven plugins in one repo this is the common case, so an unscoped
+        rev-list would report nearly everything stale.
+        """
+        self._set_version("0.2.0")
+        self._commit("bump demo")
+        other = os.path.join(self.repo, "plugins", "other", ".claude-plugin")
+        os.makedirs(other)
+        with open(os.path.join(other, "plugin.json"), "w") as fh:
+            json.dump({"name": "other", "version": "0.1.0"}, fh)
+        self._commit("unrelated plugin")
+        self.assertEqual(cache_guard.version_drift(self.repo, "demo"), "ok")
+
+    def test_uncommitted_elsewhere_is_not_attributed_to_this_plugin(self):
+        with open(os.path.join(self.repo, "unrelated.txt"), "w") as fh:
+            fh.write("z\n")
+        self.assertFalse(cache_guard.has_uncommitted(self.repo, "demo"))
+
+    def test_first_version_at_the_root_commit_is_a_bump(self):
+        """`<root>^` does not resolve, so the parent version reads as None."""
+        self.assertEqual(cache_guard.version_drift(self.repo, "demo"), "ok")
+
+    def test_unknown_when_the_plugin_has_no_manifest_history(self):
+        self.assertEqual(cache_guard.version_drift(self.repo, "ghost"), "unknown")
+
+    def test_uncommitted_edits_are_reported(self):
+        with open(os.path.join(self.repo, "plugins", "demo", "dirty.txt"), "w") as fh:
+            fh.write("z\n")
+        self.assertTrue(cache_guard.has_uncommitted(self.repo, "demo"))
+
+    def test_clean_tree_has_no_uncommitted_edits(self):
+        self.assertFalse(cache_guard.has_uncommitted(self.repo, "demo"))
+
+
 if __name__ == "__main__":
     unittest.main()

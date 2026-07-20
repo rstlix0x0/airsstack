@@ -148,3 +148,51 @@ def cache_dirs(registry, plugin):
     apart on which marketplace or which records count.
     """
     return cache_sync.resolve_install_paths(registry, plugin)
+
+
+def _version_at(top, rev, rel_path):
+    """The `version` field of rel_path at `rev`, or None if unreadable."""
+    raw = _git(top, ["show", "%s:%s" % (rev, rel_path)])
+    if not raw:
+        return None
+    try:
+        return (json.loads(raw) or {}).get("version")
+    except ValueError:
+        return None
+
+
+def last_bump_commit(top, plugin):
+    """Newest commit where plugin.json's `version` VALUE changed.
+
+    Not 'the last commit touching plugin.json'. That naive rule reported 5 of
+    7 plugins stale on its first run — content newer than the last bump is the
+    normal state of a plugin under development — and had three proven false
+    negatives: a manifest edited without changing the version, a squash merge
+    collapsing bump and content into one commit (this repo's entire history),
+    and uncommitted work invisible to `git log`.
+    """
+    rel = os.path.join("plugins", plugin, ".claude-plugin", "plugin.json")
+    log = _git(top, ["log", "--format=%H", "--", rel])
+    if not log:
+        return None
+    for commit in log.split("\n"):
+        current = _version_at(top, commit, rel)
+        parent = _version_at(top, commit + "^", rel)
+        if current != parent:
+            return commit
+    return None
+
+
+def version_drift(top, plugin):
+    """'ok', 'stale', or 'unknown' for one plugin's committed content."""
+    bump = last_bump_commit(top, plugin)
+    if not bump:
+        return "unknown"
+    newer = _git(top, ["rev-list", bump + "..HEAD", "--", os.path.join("plugins", plugin)])
+    return "stale" if newer else "ok"
+
+
+def has_uncommitted(top, plugin):
+    """True when the working tree has changes under plugins/<plugin>/."""
+    status = _git(top, ["status", "--porcelain", "--", os.path.join("plugins", plugin)])
+    return bool(status)
