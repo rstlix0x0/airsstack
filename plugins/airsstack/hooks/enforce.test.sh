@@ -99,111 +99,6 @@ printf '%s' "$out4" | grep -q 'airsstack-guideline-rust:rust-guidelines' \
 printf '%s' "$out4" | grep -q 'airsstack-guideline-python:python-guidelines' \
   || fail "case7: design-phase python pointer not injected (polyglot)"
 
-# --- case 10: node fallback parity (skipped if node absent) ------------
-if command -v node >/dev/null 2>&1; then
-  runjs() {  # session_id file_path cwd
-    printf '{"session_id":"%s","cwd":"%s","tool_input":{"file_path":"%s"}}' "$1" "$3" "$2" \
-    | AIRSSTACK_ENFORCE_REGISTRY="$registry" AIRSSTACK_HOME="$home" TMPDIR="$markers" \
-      node "$SCRIPT_DIR/enforce.js"
-  }
-  outjs=$(runjs js1 "$repo/src/lib.rs" "$repo")
-  printf '%s' "$outjs" | grep -q 'airsstack-guideline-rust:rust-guidelines' \
-    || fail "case10: node enforce.js did not inject rust pointer"
-  printf '%s' "$outjs" | grep -q 'defer' \
-    || fail "case10: node enforce.js missing permissionDecision defer"
-  outjs2=$(runjs js1 "$repo/src/other.rs" "$repo")
-  [ -z "$outjs2" ] || fail "case10: node enforce.js dedup failed: $outjs2"
-else
-  printf 'SKIP case10: node not installed\n' >&2
-fi
-
-# --- case 13: glob char-class parity js==py ----------------------------
-# Exercises [seq] and [!seq] character-class metacharacters.  Python fnmatch
-# handles these natively; enforce.js globToRegExp must now match.
-# Skipped when node is not installed (mirrors case 10 guard).
-if command -v node >/dev/null 2>&1; then
-  # fixture: airsstack plugin whose manifest match uses a char-class glob
-  ccdir="$work/plugins/charclass"; mkdir -p "$ccdir"
-  cat > "$ccdir/enforcement.json" <<'JSON'
-{ "stack": "charclass-test", "detect": [], "match": ["**/v[0-9].rs"],
-  "skill": "charclass-skill:check", "phase": ["code"] }
-JSON
-  registry13="$work/installed_plugins_13.json"
-  cat > "$registry13" <<JSON
-{ "plugins": {
-  "airsstack-charclass@airsstack": [ { "installPath": "$ccdir" } ]
-} }
-JSON
-
-  runjs13() {  # session_id file_path cwd
-    printf '{"session_id":"%s","cwd":"%s","tool_input":{"file_path":"%s"}}' "$1" "$3" "$2" \
-    | AIRSSTACK_ENFORCE_REGISTRY="$registry13" AIRSSTACK_HOME="$home" TMPDIR="$markers" \
-      node "$SCRIPT_DIR/enforce.js"
-  }
-  runpy13() {  # session_id file_path cwd
-    printf '{"session_id":"%s","cwd":"%s","tool_input":{"file_path":"%s"}}' "$1" "$3" "$2" \
-    | AIRSSTACK_ENFORCE_REGISTRY="$registry13" AIRSSTACK_HOME="$home" TMPDIR="$markers" \
-      python3 "$SCRIPT_DIR/enforce.py"
-  }
-
-  # matching file: v3.rs  → both runtimes must inject
-  out13_js_match=$(runjs13 s13a "$repo/src/v3.rs" "$repo")
-  out13_py_match=$(runpy13 s13b "$repo/src/v3.rs" "$repo")
-  printf '%s' "$out13_js_match" | grep -q 'charclass-skill:check' \
-    || fail "case13: enforce.js did not inject for v3.rs (char-class match)"
-  printf '%s' "$out13_py_match" | grep -q 'charclass-skill:check' \
-    || fail "case13: enforce.py did not inject for v3.rs (char-class match)"
-
-  # non-matching file: vx.rs → both runtimes must be silent
-  out13_js_nomatch=$(runjs13 s13c "$repo/src/vx.rs" "$repo")
-  out13_py_nomatch=$(runpy13 s13d "$repo/src/vx.rs" "$repo")
-  [ -z "$out13_js_nomatch" ] \
-    || fail "case13: enforce.js injected for vx.rs (should not match [0-9]): $out13_js_nomatch"
-  [ -z "$out13_py_nomatch" ] \
-    || fail "case13: enforce.py injected for vx.rs (should not match [0-9]): $out13_py_nomatch"
-
-  # negated class: vx.rs must match v[!0-9].rs  (x is not a digit)
-  ccdir2="$work/plugins/charclass2"; mkdir -p "$ccdir2"
-  cat > "$ccdir2/enforcement.json" <<'JSON'
-{ "stack": "charclass-neg", "detect": [], "match": ["**/v[!0-9].rs"],
-  "skill": "charclass-neg-skill:check", "phase": ["code"] }
-JSON
-  registry13b="$work/installed_plugins_13b.json"
-  cat > "$registry13b" <<JSON
-{ "plugins": {
-  "airsstack-charclass-neg@airsstack": [ { "installPath": "$ccdir2" } ]
-} }
-JSON
-
-  runjs13b() {
-    printf '{"session_id":"%s","cwd":"%s","tool_input":{"file_path":"%s"}}' "$1" "$3" "$2" \
-    | AIRSSTACK_ENFORCE_REGISTRY="$registry13b" AIRSSTACK_HOME="$home" TMPDIR="$markers" \
-      node "$SCRIPT_DIR/enforce.js"
-  }
-  runpy13b() {
-    printf '{"session_id":"%s","cwd":"%s","tool_input":{"file_path":"%s"}}' "$1" "$3" "$2" \
-    | AIRSSTACK_ENFORCE_REGISTRY="$registry13b" AIRSSTACK_HOME="$home" TMPDIR="$markers" \
-      python3 "$SCRIPT_DIR/enforce.py"
-  }
-
-  # vx.rs matches v[!0-9].rs → both inject
-  out13b_js_match=$(runjs13b s13e "$repo/src/vx.rs" "$repo")
-  out13b_py_match=$(runpy13b s13f "$repo/src/vx.rs" "$repo")
-  printf '%s' "$out13b_js_match" | grep -q 'charclass-neg-skill:check' \
-    || fail "case13: enforce.js did not inject for vx.rs (negated char-class [!0-9])"
-  printf '%s' "$out13b_py_match" | grep -q 'charclass-neg-skill:check' \
-    || fail "case13: enforce.py did not inject for vx.rs (negated char-class [!0-9])"
-
-  # v3.rs does NOT match v[!0-9].rs → both silent
-  out13b_js_nomatch=$(runjs13b s13g "$repo/src/v3.rs" "$repo")
-  out13b_py_nomatch=$(runpy13b s13h "$repo/src/v3.rs" "$repo")
-  [ -z "$out13b_js_nomatch" ] \
-    || fail "case13: enforce.js injected for v3.rs against [!0-9] (should not match): $out13b_js_nomatch"
-  [ -z "$out13b_py_nomatch" ] \
-    || fail "case13: enforce.py injected for v3.rs against [!0-9] (should not match): $out13b_py_nomatch"
-else
-  printf 'SKIP case13: node not installed\n' >&2
-fi
 
 # --- case 11: hooks.json registers PreToolUse → enforce.sh -------------
 hooks_json="$SCRIPT_DIR/hooks.json"
@@ -248,5 +143,17 @@ printf 'raise SystemExit(3)\n' > "$lwork/enforce.py"
 
 cp "$SCRIPT_DIR/enforce.py" "$lwork/enforce.py"
 [ "$(probe)" = 0 ] || fail "case14: healthy enforce.py did not exit 0"
+
+# --- case 15: node runtime fully removed (D5) ---------------------------
+# The runtime's filename is assembled from parts on purpose: this file is one
+# of the files scanned below, so spelling the name literally here would make
+# the check match its own source and fail forever.
+js_stem='enforce'
+[ -e "$SCRIPT_DIR/${js_stem}.js" ] && fail "case15: node runtime file still exists"
+for f in "$SCRIPT_DIR/enforce.sh" "$SCRIPT_DIR/hooks.json" "$SCRIPT_DIR/enforce.test.sh" \
+         "$SCRIPT_DIR/../README.md"; do
+  grep -q "${js_stem}\\.js" "$f" && fail "case15: node runtime referenced in $f"
+done
+printf 'no node references\n' >/dev/null
 
 printf 'PASS\n'

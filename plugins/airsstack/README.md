@@ -104,8 +104,8 @@ matching their `summary`, so they remain findable.
 ## Enforcement dispatcher
 
 The `airsstack` plugin is the suite's single rule-enforcement dispatcher. A
-`PreToolUse(Edit|Write)` hook (`hooks/enforce.sh` → `enforce.py`, with
-`enforce.js` as a node fallback) reads `~/.claude/plugins/installed_plugins.json`,
+`PreToolUse(Read|Edit|Write)` hook (`hooks/enforce.sh` → `enforce.py`;
+python3 only) reads `~/.claude/plugins/installed_plugins.json`,
 keeps only airsstack-marketplace plugins (keys ending `@airsstack`), and loads
 each one's root `enforcement.json`. For the file being edited it surfaces the
 matching guideline skill — once per `stack:phase` per session — by injecting
