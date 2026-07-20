@@ -17,9 +17,11 @@ Claude Agent SDKs:
 **As of:** 2026-07-20 · Phase 4 (WS A–F) + Phase 5 WS 1–7 landed (`Options` breadth, `thinking`/`effort`,
 hook-event edges, MCP result-content kinds, `AgentDefinition` extra fields, streaming input, MCP
 elicitation), plus WS 8's session-config slice (`sessionId`/`title`/`persistSession`), on the
-parity-first, **CLI-only** tree. WS 8's session list/inspect/rename/tag/`resumeSessionAt` ops and all
-of WS 9 (live-control tail) remain open — see §7. Grounded on the live `claude` Code binary **v2.1.215**
-and the live official SDK references at `code.claude.com/docs/en/agent-sdk/{python,typescript}`.
+parity-first, **CLI-only** tree. The five session filesystem ops
+(list/inspect/messages/rename/tag), `resumeSessionAt`, and all of WS 9 (live-control tail) remain open —
+see §7. Grounded on the live `claude` Code binary **v2.1.215**, the shipped
+`@anthropic-ai/claude-agent-sdk@0.3.215` and `claude-agent-sdk` 0.2.123 (Python) **sources**, and the
+live SDK references at `code.claude.com/docs/en/agent-sdk/{python,typescript}`.
 
 > **The tree is CLI-only now.** After the parity-first pivot (vision §5) the native runtimes —
 > `ApiRuntime` (in-process `POST /v1/messages` loop), `OpenRouterRuntime`, `RoutingRuntime` — and their
@@ -31,12 +33,20 @@ and the live official SDK references at `code.claude.com/docs/en/agent-sdk/{pyth
 
 > **Read this first — clauders drives the CLI, same as the official SDKs.**
 > The official SDKs are **thin clients that drive the `claude` Code CLI binary as a subprocess**.
-> Every "runtime" they have is that one subprocess transport; they do **not** implement a native
+> Their *agent execution* is that one subprocess transport; they do **not** implement a native
 > Messages API loop, and they are **Claude-only**. `clauders` ships that same subprocess runtime
-> (`CliRuntime`) as its Agent SDK surface — and, after the pivot, *only* that. Parity is a single axis:
+> (`CliRuntime`) as its Agent SDK surface — and, after the pivot, *only* that.
+>
+> **But "drives the CLI" is not the whole surface.** The session ops in §7 bypass the subprocess
+> entirely and read/append the CLI's own `.jsonl` transcripts directly from disk. Treating the
+> subprocess as the *only* official mechanism is precisely the assumption that made WS 8 conclude these
+> ops had "no parity path" — a control-protocol grep cannot disprove a filesystem API. When assessing a
+> new op, establish which mechanism it uses before searching for it.
+>
+> Parity is therefore not a single axis:
 > on the *CLI-driving surface* clauders is now at parity on the session/config/subagent breadth it used
 > to trail on (see the scorecard), plus streaming input and MCP elicitation (both landed); live MCP
-> control, warm start, and session list/inspect/rename/tag remain the gaps (§1, §7). The Pillar-1
+> control, warm start, and the five session filesystem ops remain the gaps (§1, §7). The Pillar-1
 > bundled Messages API client (`clauders::Client` /
 > `messages::`) is a separate, non-Agent-SDK surface — not a parity axis against the official Agent SDKs.
 
@@ -252,10 +262,11 @@ element is undocumented, so clauders assumes `{ "name": …, "config": … }`; r
 | `title` (session display title) | ✅ | ✅ | ✅ `Options::title` → `initialize` handshake payload | ✅ (WS 8 slice) |
 | `persistSession` | ✅ | ✅ | ✅ `Options::session_persistence` → `--no-session-persistence` when disabled | ✅ (WS 8 slice) |
 | `listSessions`/`list_sessions`, `getSessionMessages`/`get_session_messages`, `getSessionInfo`/`get_session_info`, `tagSession`/`tag_session` | ✅ | ✅ | ❌ | ❌ real parity gap — filesystem-only, see below |
-| `renameSession`/`rename_session` | ✅ | ✅ | ❌ | ❌ real parity gap — also reachable over the control protocol, see below |
+| `renameSession`/`rename_session` (rename an **arbitrary** session by id) | ✅ | ✅ | ❌ | ❌ real parity gap — filesystem-only, same as the four above |
+| Rename the **currently running** session | ❌ | ❌ | ❌ | ❌ CLI-only capability with no official-SDK counterpart — a live `rename_session` control subtype, see below |
 | `resumeSessionAt` (resume at a specific message UUID) | ❌ no Python equivalent | ✅ `Options.resumeSessionAt` | ❌ | ❌ TS-only, undocumented CLI flag — see below |
 
-**List / inspect / tag sessions — a real parity gap, filesystem-only.** Verified directly against the
+**List / inspect / messages / tag sessions — a real parity gap, filesystem-only.** Verified directly against the
 shipped `@anthropic-ai/claude-agent-sdk@0.3.215` bundle (`package/sdk.mjs`), and independently
 corroborated from a second direction by mining the live `claude` v2.1.215 binary itself: the compiled
 CLI embeds this same JS/TS Agent SDK module (a bundler export table exposing `query`,
@@ -265,33 +276,59 @@ snake_case equivalents) as **plain local-filesystem CRUD** over the same
 `~/.claude/projects/<encoded-cwd>/*.jsonl` transcripts the CLI itself writes — `readdir`/`stat`/`open`
 via Node's `fs/promises`, appending a `tag` JSONL entry for tag. Each function's default path takes an
 optional caller-supplied `sessionStore` override (the official pluggable-backend extension point); absent
-that override — the shipped default — there is no HTTP or control-plane call, only local file I/O. None
-of these four go through the subprocess stream-json control protocol; a Rust implementation therefore
-needs no new subprocess/control-plane plumbing — only JSONL-compatible file I/O against the documented
-on-disk format — so their absence in clauders is a genuine, and comparatively cheap, parity gap (tracked
-as WS 8's session-inspection slice; see "Candidate parity gaps worth closing" below).
+that override — the shipped default — there is no HTTP or control-plane call, only local file I/O.
+(Confirmed by a discriminating search: zero `fetch`/`http`/`socket` occurrences across the entire TS
+session-implementation region or either Python module; the only out-of-process call on the local path is
+`git worktree list --porcelain`.) None of these four go through the subprocess stream-json control
+protocol; a Rust implementation therefore needs no new subprocess/control-plane plumbing — only
+JSONL-compatible file I/O against the documented on-disk format. Their absence in clauders is a genuine
+parity gap — see "On cost" below for why it is not a *cheap* one.
 
-**`renameSession`/`rename_session` — same gap, cheaper mechanism.** Unlike the four ops above,
-`rename_session` is *also* a fully-wired `control_request` subtype in the CLI binary itself: a dedicated,
-schema-validated member of the binary's master request union, live-dispatched off the same stdin
-`stream-json` control-message loop `CliRuntime` already drives (real rename logic, not a stub — the
-dispatcher writes the new title and acknowledges over the wire). That makes it reachable, and closable,
-without touching the filesystem at all — a new outbound `control_request` on the protocol `clauders`
-already speaks, no `.jsonl` I/O required — making it the cheapest of the five ops to close. (The JS/TS
-SDK's standalone `renameSession` export still defaults to the same local-file mechanism as the other four
-when called outside a running `query()` session; the control-protocol path is the one available to an
-already-running CLI subprocess.) This does not change the mark below — clauders still does not implement
-it, so it stays ❌ — only the mechanism and cost of closing it. Grounding for this finding is the live
-v2.1.215 binary only; no earlier-version artifact was available to confirm whether this reachability is
-new or long-standing, so no version-change claim is made here.
+**The two SDKs are not at parity with each other; TS is a strict superset.** Reimplementing "the
+official behavior" therefore requires choosing a target. TS-only: `includeProgrammatic`,
+`includeSystemMessages` (and a `"system"` message type), `parent_agent_id`, a `relocatedCwd` preference
+for `cwd`, a `sessionId` sort tiebreak, batched pagination with early exit, compact-boundary parent
+re-chaining, sibling-assistant re-insertion, and a >5 MiB pre-compact fast path. Python-only behaviors:
+unconditional NFC normalization (TS normalizes only on darwin) and silent rather than throwing overflow
+in the tag unicode sanitizer. Python also lacks `resumeSessionAt` entirely.
+
+**`renameSession`/`rename_session` — a filesystem op, plus a *different* CLI-only capability.** The
+official `renameSession(sessionId, title)` is the fifth filesystem op: it appends a
+`{"type":"custom-title","customTitle":…,"sessionId":…}` line to the target session's `.jsonl`, and it
+targets an **arbitrary** session by id. Closing it needs the same local file I/O as the four above.
+
+A `rename_session` `control_request` subtype does also exist on the binary's stdin `stream-json` chain
+that `CliRuntime` already drives — but **it is not a path to the official op, and it does not make that
+op cheaper to close.** The handler reads exactly one field, `title`, and renames the *currently running*
+session implicitly; it accepts no session id in any spelling. Verbatim from the live v2.1.215 binary at
+byte `236717377`:
+
+```js
+else if(qe.request.subtype==="rename_session")try{let lr=qe.request.title.trim();if(!lr)rn(qe,"title must be non-empty");else{if(eM())await toe(Tt(),lr,void 0,"remote");else ZLt(lr);Gt=!0,Qs(qe)}}catch(lr){rn(qe,ue(lr))}
+```
+
+`Tt()` is `getSessionId()` — the running session. So the two are **distinct capabilities**: an
+arbitrary-session rename (official SDK surface, filesystem) and a running-session rename (CLI surface,
+control protocol, *no* official-SDK counterpart in either language). clauders implements neither, so both
+stay ❌, but they are separate line items with separate mechanisms and separate costs.
+
+> **Correction.** A previous revision of this section claimed the control subtype made the official
+> `renameSession` gap "closable without touching the filesystem at all… the cheapest of the five ops to
+> close." **That was false** — it conflated the two capabilities above. The error came from confirming
+> that the subtype exists without reading which fields its handler consumes. Grounding for the current
+> text is a verbatim read of the live v2.1.215 handler; no earlier-version artifact was available, so no
+> version-change claim is made here.
 
 **`resumeSessionAt` — asymmetric across the official SDKs, not a sixth list/inspect op.** It is a
 TS-only `Options` field on `query()` (not a standalone function, and absent from the official Python
-SDK), lowered to a `--resume-session-at=<uuid>` CLI argument at subprocess spawn. **Caveat:**
-`--resume-session-at` does **not** appear in `claude --help` on the live v2.1.215 binary (verified
-directly) — the TypeScript SDK emits an undocumented flag. Rust parity-with-Python does not require
-this field; parity-with-TS would, but only against an unstable, undocumented CLI surface, so it is
-lower priority than the four filesystem ops and `renameSession` above.
+SDK), lowered to a `--resume-session-at=<uuid>` CLI argument at subprocess spawn. **The flag is real
+but hidden, not absent.** It is registered on the live v2.1.215 binary at byte `236775633` with
+`.hideHelp()`, which is why it does not appear in `claude --help` (verified both ways: the string is
+present in the binary, absent from the 230-line help output). It carries two preconditions the binary
+enforces itself — it requires `--resume` (`Error: --resume-session-at requires --resume`, byte
+`236634651`) and applies in print mode — and the SDK emits it in `=`-joined form. Rust
+parity-with-Python does not require this field; parity-with-TS would, against a deliberately
+undocumented CLI surface.
 
 > **Correction to the vision §5 removal rationale.** This doc previously stated that clauders' removed
 > native `SessionStore`/`list_sessions` was justified because it had "no official counterpart," and
@@ -304,11 +341,22 @@ lower priority than the four filesystem ops and `renameSession` above.
 > correction; it is recorded here, where the parity claim lives.
 
 **Verdict:** ✅ parity on continue/resume/fork via `SessionControl` → CLI flags (WS F), plus the WS 8
-session-config slice (`session_id`/`title`/`session_persistence`). ❌ remaining: `listSessions`/
-`getSessionMessages`/`getSessionInfo`/`tagSession` — a real gap, backed by plain local-filesystem I/O,
-comparatively cheap to close — plus `renameSession`, the same gap but reachable over the control
-protocol `clauders` already drives (no filesystem work needed at all, so cheaper still to close) — and
-`resumeSessionAt`, which is TS-only, maps to an undocumented CLI flag, and is lower priority.
+session-config slice (`session_id`/`title`/`session_persistence`). ❌ remaining: all five filesystem ops
+— `listSessions`/`getSessionMessages`/`getSessionInfo`/`tagSession`/`renameSession` — plus
+`resumeSessionAt` (TS-only, hidden CLI flag) and, separately, the CLI-only running-session rename.
+
+**On cost.** An earlier revision called the filesystem ops "comparatively cheap to close." Reading the
+shipped implementations does not support that. They are not thin CRUD wrappers over
+`serde_json::from_str`; the shared substrate is a fault-tolerant text-scanning engine over
+possibly-truncated JSONL: an encoded-cwd path rule (realpath → NFC → non-alphanumeric→`-` → 200-char
+truncation with a base36 int32-djb2 suffix → prefix-fallback sibling scan, because the CLI hashes with
+`Bun.hash` and the SDKs cannot reproduce it); a 64 KiB head/tail "lite" read that never parses the whole
+file; hand-rolled first/last `"key":"` scanners honoring backslash escapes; and, for
+`getSessionMessages`, a conversation-DAG reconstruction (index by uuid, find terminals, walk `parentUuid`
+with a cycle guard, prefer non-sidechain/non-meta/non-team leaves, pick highest file index, reverse).
+The mutations are append-only with deliberate `O_WRONLY|O_APPEND` and no `O_CREAT`. **The five ops are a
+workstream, not a task.** Sizing them as cheap is what the WS 8 spec did, and it is how they came to be
+skipped.
 
 ---
 
@@ -427,7 +475,7 @@ delegate all caching to the CLI and never surface a policy knob, and clauders no
 | Structured output (`output_format` + typed result) | ✅ parity (WS B; CLI passthrough best-effort) |
 | Message taxonomy incl. cache usage + cost + `Message::Other` catch-all | ✅ parity |
 | **Subagents** (`agents`/`AgentDefinition`) | ✅ parity (WS E; `--agents` passthrough) |
-| **Sessions** (continue/resume/fork + session-config slice) | ✅ parity (WS F + WS 8 session-config slice; list/inspect/tag (filesystem-only) + `renameSession` (control-protocol-reachable, cheapest to close) + `resumeSessionAt` still ❌, see §7) |
+| **Sessions** (continue/resume/fork + session-config slice) | ✅ parity (WS F + WS 8 session-config slice); ❌ the five filesystem ops (list/inspect/messages/rename/tag) + `resumeSessionAt`, see §7 |
 | System-prompt preset + append | ✅ parity (WS A) |
 | Config breadth (WS 1: fallback, strict-mcp, add-dirs, settings, budget, partial-messages, hook-events, prompt-tool override, stderr, max-buffer; WS 8 session-config slice: `session_id`/`title`/`session_persistence`) | ✅ parity on the WS 1 + WS 8-slice knobs (`Options` now 37 fields); 🟡 residual `setting_sources` |
 | **Setting sources** (filesystem config/CLAUDE.md) | ❌ behind (`settings` path/inline landed; `setting_sources` not) |
@@ -443,10 +491,10 @@ tools (incl. richer result content, WS 4), hooks (incl. `SessionStart`/`SessionE
 full permission-mode set, system prompt, messages, structured output, **subagents (incl. the WS 5 extra
 fields), sessions (incl. the WS 8 session-config slice), streaming input (WS 6), MCP elicitation (WS 7),
 and the WS 1 config breadth**. The remaining gaps are `setting_sources` + filesystem config, the
-live-control long tail (warm start, live MCP set), and the WS 8 session list/inspect/tag ops plus
-`renameSession` (§7 — a real, comparatively cheap gap, with `renameSession` cheapest of all since it is
-reachable over the control protocol with no filesystem work needed; `resumeSessionAt` is TS-only and
-lower priority). The native
+live-control long tail (warm start, live MCP set), and the five session filesystem ops —
+`listSessions`/`getSessionMessages`/`getSessionInfo`/`renameSession`/`tagSession` (§7 — a real gap, and
+a substantial one: a JSONL-scanning substrate plus conversation-DAG reconstruction, not thin CRUD;
+`resumeSessionAt` is TS-only and lower priority). The native
 multi-provider runtimes, prompt-cache policy, and middleware/evals/orchestration that used to read
 "ahead" were a superset with no official counterpart and were **removed** in the parity-first pivot
 (vision §5); clauders is a subset-completing parity client, not a superset.
@@ -464,14 +512,15 @@ Ranked by leverage for the airsstack mission, not by official-checklist complete
 3. ~~**Sessions (continue / resume / fork)**~~ — **landed (WS F)**: `SessionControl` → `--continue` /
    `--resume <id>` / `--fork-session`, plus the WS 8 session-config slice
    (`session_id`/`title`/`session_persistence`) — **also landed**. **Not landed:** session
-   **list / inspect / tag** (`listSessions`/`getSessionMessages`/`getSessionInfo`/`tagSession`) — a real
-   parity gap, not CLI-unreachable (see §7's correction); both official SDKs implement these as local
-   `.jsonl` file CRUD, closable with no new subprocess/control-plane plumbing. Also not landed:
-   `renameSession` — the same official-SDK gap, but *additionally* wired as a genuine `rename_session`
-   `control_request` subtype live-dispatched over the subprocess stream-json protocol `clauders` already
-   drives, making it closable with no filesystem work at all — the cheapest of the five to close. Also
-   not landed: `resumeSessionAt` — TS-only (absent from the official Python SDK) and maps to an
-   undocumented `--resume-session-at` CLI flag; lower priority.
+   **list / inspect / messages / rename / tag**
+   (`listSessions`/`getSessionMessages`/`getSessionInfo`/`renameSession`/`tagSession`) — a real parity
+   gap, not CLI-unreachable (see §7's correction); both official SDKs implement all five as local
+   `.jsonl` file I/O, needing no new subprocess/control-plane plumbing — but *not* cheap: they share a
+   fault-tolerant JSONL-scanning substrate and `getSessionMessages` reconstructs the conversation DAG
+   (§7, "On cost"). Size as a workstream. Also not landed: `resumeSessionAt` — TS-only (absent from the
+   official Python SDK), mapping to the real-but-`.hideHelp()`-hidden `--resume-session-at` flag, which
+   the binary requires be paired with `--resume`; lower priority. Separately not landed, and *not* an
+   official-SDK op: renaming the **running** session via the `rename_session` control subtype.
 4. ~~**System-prompt preset + append**~~ — **landed (WS A)**.
 5. ~~**`dontAsk` + `auto` permission modes + `updated_permissions` + deny-interrupt**~~ — **landed
    (WS C/D)** via the CLI `can_use_tool` seam. Native enforcement (`permission_engine`, model-judge)
@@ -513,8 +562,12 @@ little bearing on the Rust SDK's thesis.
   mining the live v2.1.215 binary's embedded JS (the compiled CLI bundles that same SDK module plus the
   binary's own `control_request` schema union) — the actual shipped source on both counts, not a docs
   summary — to resolve the local-filesystem-vs-control-plane mechanism question per op:
-  `listSessions`/`getSessionMessages`/`getSessionInfo`/`tagSession` are filesystem-only, `renameSession`
-  is additionally a live-dispatched `control_request` subtype. Grounding for the binary-mining findings is
+  all five of `listSessions`/`getSessionMessages`/`getSessionInfo`/`renameSession`/`tagSession` are
+  filesystem-only. The binary's stdin control chain was enumerated exhaustively (50 subtypes between
+  bytes `236686835` and `236723607`, terminated by an `Unsupported control request subtype` default arm);
+  four of the five op names appear **nowhere in the 247 MB executable** as byte strings, which forecloses
+  a dispatcher of any shape, and the `rename_session` subtype that does exist renames the *running*
+  session by `title` alone. Grounding for the binary-mining findings is
   v2.1.215 only; no earlier-version binary was available to confirm whether this is new or long-standing.
   The official SDKs iterate quickly; exact option keys, permission modes, and hook-event names drift
   between releases. Re-verify against the live reference before treating any single ❌ as a hard
@@ -528,11 +581,13 @@ little bearing on the Rust SDK's thesis.
 - Python SDK reference — <https://code.claude.com/docs/en/agent-sdk/python>
 - Session-storage reference — <https://code.claude.com/docs/en/agent-sdk/session-storage>
 - Official session-ops shipped source — `@anthropic-ai/claude-agent-sdk@0.3.215` npm bundle,
-  `package/sdk.mjs` (used to resolve §7's local-filesystem-vs-control-plane question)
+  `package/sdk.d.ts` (unminified declarations) + `package/sdk.mjs` (used to resolve §7's
+  local-filesystem-vs-control-plane question and to read the ops' actual implementations)
 - Live CLI binary — `claude` v2.1.215 (Mach-O arm64, embeds the same JS/TS SDK module plus the binary's
-  `control_request` schema union; used to independently corroborate §7's mechanism question and to
-  confirm `rename_session`'s control-protocol reachability)
-- Official Python SDK source — `claude-agent-sdk` (Python), read in a prior grounding session (not
-  re-read as part of this doc's own evidence set) for the control-request timeout default cited at
-  §2's "Control-request timeout" row
+  `control_request` schema union; used to independently corroborate §7's mechanism question, to
+  enumerate the stdin control chain exhaustively, and to read the `rename_session` handler verbatim)
+- Official Python SDK source — `claude-agent-sdk` 0.2.123 sdist, `_internal/sessions.py` +
+  `_internal/session_mutations.py` + `types.py` (read directly for §7's TS-vs-Python divergences).
+  Separately, the control-request timeout default cited at §2's "Control-request timeout" row comes from
+  a *prior* session's reading and was not re-verified in this pass
 - clauders roadmap — [`../agent-sdk-roadmap.md`](../agent-sdk-roadmap.md)
