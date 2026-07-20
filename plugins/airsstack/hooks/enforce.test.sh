@@ -225,4 +225,18 @@ fi
 out21e=$(run s21b "$repo/src/four.rs" "$repo")
 [ -z "$out21e" ] || fail "case21b: rearm of s21 cleared another session's sentinel: $out21e"
 
+# --- case 22: README documents the repaired dispatcher ------------------
+grep -q 'Read|Edit|Write' "$air_readme" || fail "case22: README does not document the Read trigger"
+grep -qi 'repo-relative' "$air_readme" || fail "case22: README still describes basename matching"
+grep -qi 'project binding' "$air_readme" || fail "case22: README does not document the project-binding gate"
+grep -qi 'compact' "$air_readme" || fail "case22: README does not document the compaction re-arm"
+
+# --- case 23: plugin version bumped past 0.1.0 --------------------------
+plugin_json="$SCRIPT_DIR/../.claude-plugin/plugin.json"
+python3 -c "
+import json,sys
+v=json.load(open('$plugin_json'))['version']
+sys.exit(0 if v != '0.1.0' else 1)
+" || fail "case23: airsstack plugin.json still at 0.1.0 (cache will not refresh)"
+
 printf 'PASS\n'

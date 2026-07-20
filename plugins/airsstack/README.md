@@ -105,11 +105,32 @@ matching their `summary`, so they remain findable.
 
 The `airsstack` plugin is the suite's single rule-enforcement dispatcher. A
 `PreToolUse(Read|Edit|Write)` hook (`hooks/enforce.sh` → `enforce.py`;
-python3 only) reads `~/.claude/plugins/installed_plugins.json`,
-keeps only airsstack-marketplace plugins (keys ending `@airsstack`), and loads
-each one's root `enforcement.json`. For the file being edited it surfaces the
-matching guideline skill — once per `stack:phase` per session — by injecting
-`additionalContext` with `permissionDecision:"defer"` (it never blocks an edit).
+python3 only) reads `~/.claude/plugins/installed_plugins.json`, keeps only
+airsstack-marketplace plugins (keys ending `@airsstack`), and loads each one's
+root `enforcement.json`. For the file being read or written it surfaces the
+matching guideline skill — once per `stack:phase` per session **per agent
+context** — by injecting `additionalContext` with `permissionDecision:"defer"`
+(it never blocks a tool call). Firing on `Read` puts the rule in context before
+the design decision, not at the moment of writing.
+
+Three gates must all pass:
+
+1. **Project binding.** The plugin's registry record must resolve to this
+   project's key, or be a user-scope record. A plugin installed only for repo A
+   contributes nothing in repo B.
+2. **Activation.** A `detect` marker must sit at or above the *edited file's*
+   directory — so a `.rs` file with no `Cargo.toml` above it does not fire,
+   because `cargo test` could not run there anyway. Design-phase docs anchor on
+   the working directory instead: an SDD spec lives outside the repo (under
+   `~/.airsstack`), so `cwd` is the only signal of which project it describes.
+3. **Selection.** `match` globs are tested against the file's **repo-relative**
+   path (basename, when the file is outside any repository). `**/` matches zero
+   or more leading segments, so `**/Cargo.toml` covers a workspace-root
+   manifest.
+
+A `SessionStart(compact)` hook (`hooks/rearm.sh` → `rearm.py`) clears that
+session's dedup sentinels, so the pointer re-enters context after compaction
+drops it. The session id survives compaction; the injected context does not.
 
 ### The `enforcement.json` convention
 
@@ -128,10 +149,13 @@ enforcement channel — a plugin never ships its own enforcement hook.
 ```
 
 - `stack` — identifier for the rule domain (and the dedup key component).
-- `detect` — repo-root marker files; the design-phase trigger (the stack is
-  "active" when a marker is present at the working dir or any ancestor).
+- `detect` — repo-root marker files; the activation gate for **both** phases
+  (the stack is "active" when a marker sits at the anchor directory or any
+  ancestor — the edited file's directory in the code phase, `cwd` in the design
+  phase).
 - `match` — path globs; the code-phase trigger (matched against the edited
-  file's basename via the glob's final segment).
+  file's path relative to the git toplevel, or its basename when the file is
+  outside a repository).
 - `skill` — the skill id the dispatcher tells the model to load.
 - `phase` — which surfaces fire: `code` (editing source) and/or `design`
   (editing an SDD spec/plan while a `detect` marker is present).
