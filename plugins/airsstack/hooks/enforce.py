@@ -141,7 +141,7 @@ def matches_any(candidate, globs):
     return False
 
 
-def _registry_path():
+def registry_path():
     return os.environ.get("AIRSSTACK_ENFORCE_REGISTRY") or os.path.join(
         os.path.expanduser("~"), ".claude", "plugins", "installed_plugins.json"
     )
@@ -173,27 +173,52 @@ def is_design_doc(file_path, home=None):
     return segments[1] in ("specs", "plans")
 
 
-def _read_registry():
-    """Return unique installPaths of airsstack-marketplace plugins only."""
+def read_registry(path=None):
+    """Return {plugin_key: [record, ...]} for @airsstack plugins only.
+
+    The suffix check is the scope guard: a plugin from any other marketplace
+    is never read, never routed.
+    """
+    target = path or registry_path()
     try:
-        with open(_registry_path(), "r", encoding="utf-8") as fh:
+        with open(target, "r", encoding="utf-8") as fh:
             data = json.load(fh)
         plugins = (data or {}).get("plugins") or {}
     except (OSError, ValueError):
-        return []
-    seen, paths = set(), []
+        return {}
+    kept = {}
     for key, records in plugins.items():
         if not key.endswith(MARKETPLACE_SUFFIX):
-            continue  # scope guard: external plugins never touched
-        if not isinstance(records, list):
             continue
-        for rec in records:
-            if isinstance(rec, dict) and rec.get("installPath"):
-                p = rec["installPath"]
-                if p not in seen:
-                    seen.add(p)
-                    paths.append(p)
-    return paths
+        if isinstance(records, list):
+            kept[key] = [r for r in records if isinstance(r, dict) and r.get("installPath")]
+    return kept
+
+
+def select_record(records, current_key, key_cache):
+    """Pick the registry record that governs this project (gate 1, D2).
+
+    1. A record whose `projectPath` resolves to the current project key.
+    2. Otherwise the user-scope record.
+    3. Otherwise nothing — the anti-leak property: a plugin installed only
+       for repo A contributes nothing in repo B.
+
+    `key_cache` maps projectPath -> project key; the caller owns it so the
+    git subprocess runs at most once per distinct path. `local` is treated
+    as project-bound; that reading is inferred, not documented, and a
+    mis-read can only pick a wrong installPath, never widen enforcement.
+    """
+    fallback = None
+    for record in records:
+        project_path = record.get("projectPath")
+        if project_path:
+            if project_path not in key_cache:
+                key_cache[project_path] = project_key(project_path)
+            if current_key and key_cache[project_path] == current_key:
+                return record
+        elif fallback is None:
+            fallback = record
+    return fallback
 
 
 def _load_manifests(paths):
@@ -349,7 +374,15 @@ def main():
 
         _prune_markers()
 
-        manifests = _load_manifests(_read_registry())
+        # T10 replaces this with the ordered `resolve` pipeline; until then the
+        # dict from read_registry is flattened back to unique install paths.
+        seen, paths = set(), []
+        for records in read_registry().values():
+            for record in records:
+                if record["installPath"] not in seen:
+                    seen.add(record["installPath"])
+                    paths.append(record["installPath"])
+        manifests = _load_manifests(paths)
         if not manifests:
             return
 

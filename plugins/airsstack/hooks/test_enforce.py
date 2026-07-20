@@ -168,5 +168,72 @@ class TestMarkerActive(unittest.TestCase):
             self.assertTrue(enforce.marker_active_in(repo, ["Cargo.toml"]))
 
 
+class TestRecordSelection(unittest.TestCase):
+    def test_prefers_the_record_bound_to_this_project(self):
+        records = [
+            {"scope": "user", "installPath": "/cache/user"},
+            {"scope": "project", "projectPath": "/repo/a", "installPath": "/cache/a"},
+        ]
+        self.assertEqual(
+            enforce.select_record(records, "keyA", {"/repo/a": "keyA"}),
+            records[1],
+        )
+
+    def test_falls_back_to_the_user_scope_record(self):
+        records = [
+            {"scope": "project", "projectPath": "/repo/b", "installPath": "/cache/b"},
+            {"scope": "user", "installPath": "/cache/user"},
+        ]
+        self.assertEqual(
+            enforce.select_record(records, "keyA", {"/repo/b": "keyB"}),
+            records[1],
+        )
+
+    def test_project_bound_elsewhere_selects_nothing(self):
+        """Anti-leak: installed for repo B only, so it contributes nothing in repo A."""
+        records = [
+            {"scope": "project", "projectPath": "/repo/b", "installPath": "/cache/b"},
+        ]
+        self.assertIsNone(
+            enforce.select_record(records, "keyA", {"/repo/b": "keyB"})
+        )
+
+    def test_local_scope_is_treated_as_project_bound(self):
+        records = [
+            {"scope": "local", "projectPath": "/repo/a", "installPath": "/cache/a"},
+        ]
+        self.assertEqual(
+            enforce.select_record(records, "keyA", {"/repo/a": "keyA"}),
+            records[0],
+        )
+
+    def test_scopeless_record_with_no_projectPath_acts_as_user(self):
+        records = [{"installPath": "/cache/legacy"}]
+        self.assertEqual(enforce.select_record(records, "keyA", {}), records[0])
+
+
+class TestReadRegistry(unittest.TestCase):
+    def test_keeps_only_airsstack_marketplace_keys(self):
+        import json as _json
+        import tempfile
+        payload = {
+            "plugins": {
+                "airsstack-guideline-rust@airsstack": [{"installPath": "/a"}],
+                "superpowers@claude-plugins-official": [{"installPath": "/b"}],
+            }
+        }
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as fh:
+            _json.dump(payload, fh)
+            path = fh.name
+        try:
+            got = enforce.read_registry(path)
+            self.assertEqual(list(got.keys()), ["airsstack-guideline-rust@airsstack"])
+        finally:
+            os.unlink(path)
+
+    def test_unreadable_registry_returns_empty(self):
+        self.assertEqual(enforce.read_registry("/nonexistent/registry.json"), {})
+
+
 if __name__ == "__main__":
     unittest.main()
