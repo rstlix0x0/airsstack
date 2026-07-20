@@ -156,4 +156,43 @@ for f in "$SCRIPT_DIR/enforce.sh" "$SCRIPT_DIR/hooks.json" "$SCRIPT_DIR/enforce.
 done
 printf 'no node references\n' >/dev/null
 
+# --- case 16: gate 1 — record bound to another project contributes nothing
+otherrepo="$work/other"; mkdir -p "$otherrepo"; : > "$otherrepo/Cargo.toml"
+registry16="$work/installed_plugins_16.json"
+cat > "$registry16" <<JSON
+{ "plugins": {
+  "airsstack-guideline-rust@airsstack": [
+    { "scope": "project", "projectPath": "$otherrepo", "installPath": "$rustdir" }
+  ]
+} }
+JSON
+out16=$(printf '{"session_id":"s16","cwd":"%s","tool_input":{"file_path":"%s"}}' \
+    "$repo" "$repo/src/lib.rs" \
+  | AIRSSTACK_ENFORCE_REGISTRY="$registry16" AIRSSTACK_HOME="$home" TMPDIR="$markers" \
+    sh "$LAUNCHER")
+[ -z "$out16" ] || fail "case16: project-bound record leaked into another repo: $out16"
+
+# --- case 17: gate 2 — .rs file with no Cargo.toml above it is silent ----
+bare="$work/bare"; mkdir -p "$bare/src"
+out17=$(run s17 "$bare/src/lib.rs" "$bare")
+[ -z "$out17" ] || fail "case17: .rs outside a Cargo project emitted: $out17"
+
+# --- case 18: gate 3 — root Cargo.toml matches **/Cargo.toml ------------
+out18=$(run s18 "$repo/Cargo.toml" "$repo")
+printf '%s' "$out18" | grep -q 'airsstack-guideline-rust:rust-guidelines' \
+  || fail "case18: root Cargo.toml did not match **/Cargo.toml"
+
+# --- case 19: subagent gets its own shot --------------------------------
+out19a=$(printf '{"session_id":"s19","cwd":"%s","tool_input":{"file_path":"%s"}}' \
+    "$repo" "$repo/src/lib.rs" \
+  | AIRSSTACK_ENFORCE_REGISTRY="$registry" AIRSSTACK_HOME="$home" TMPDIR="$markers" \
+    sh "$LAUNCHER")
+printf '%s' "$out19a" | grep -q 'rust-guidelines' || fail "case19: main thread got no pointer"
+out19b=$(printf '{"session_id":"s19","agent_id":"explorer-1","cwd":"%s","tool_input":{"file_path":"%s"}}' \
+    "$repo" "$repo/src/other.rs" \
+  | AIRSSTACK_ENFORCE_REGISTRY="$registry" AIRSSTACK_HOME="$home" TMPDIR="$markers" \
+    sh "$LAUNCHER")
+printf '%s' "$out19b" | grep -q 'rust-guidelines' \
+  || fail "case19: subagent shot was consumed by the main thread"
+
 printf 'PASS\n'

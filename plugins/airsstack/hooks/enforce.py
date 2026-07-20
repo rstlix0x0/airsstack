@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""airsstack rule-enforcement dispatcher — PreToolUse(Edit|Write) hook.
+"""airsstack rule-enforcement dispatcher — PreToolUse(Read|Edit|Write) hook.
 
 Reads the installed-plugins registry, keeps only airsstack-marketplace
 plugins, loads each one's enforcement.json, and — for the file being edited —
@@ -7,7 +7,6 @@ surfaces the matching guideline skill via additionalContext. Fail-open: never
 blocks, denies, or raises out of main().
 """
 
-import fnmatch
 import hashlib
 import json
 import os
@@ -222,43 +221,25 @@ def select_record(records, current_key, key_cache):
     return fallback
 
 
-def _load_manifests(paths):
-    manifests = []
-    for p in paths:
-        try:
-            with open(os.path.join(p, "enforcement.json"), "r", encoding="utf-8") as fh:
-                m = json.load(fh)
-        except (OSError, ValueError):
-            continue  # absent or malformed → skip this plugin, keep the rest
-        if not isinstance(m, dict):
-            continue
-        stack, skill = m.get("stack"), m.get("skill")
-        if not stack or not skill:
-            continue
-        manifests.append(
-            {
-                "stack": stack,
-                "skill": skill,
-                "detect": m.get("detect") or [],
-                "match": m.get("match") or [],
-                "phase": m.get("phase") or ["code", "design"],
-            }
-        )
-    return manifests
-
-
-def _basename_match(file_path, globs):
-    """Match the file's basename against each glob's final segment.
-
-    Manifest globs are `**/`-prefixed (e.g. `**/*.rs`, `**/Cargo.toml`), so the
-    final segment carries the meaning; this matches both root and nested files.
-    """
-    base = os.path.basename(file_path)
-    for g in globs:
-        seg = str(g).rsplit("/", 1)[-1]
-        if fnmatch.fnmatch(base, seg):
-            return True
-    return False
+def load_manifest(install_path):
+    """Read and validate one plugin's enforcement.json, or None."""
+    try:
+        with open(os.path.join(install_path, "enforcement.json"), "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return None  # absent or malformed: skip this plugin, keep the rest
+    if not isinstance(data, dict):
+        return None
+    stack, skill = data.get("stack"), data.get("skill")
+    if not stack or not skill:
+        return None
+    return {
+        "stack": stack,
+        "skill": skill,
+        "detect": data.get("detect") or [],
+        "match": data.get("match") or [],
+        "phase": data.get("phase") or ["code", "design"],
+    }
 
 
 def marker_active_in(directory, markers):
@@ -292,28 +273,10 @@ def marker_active(file_path, markers, cwd=None):
     return marker_active_in(start, markers)
 
 
-def _matches(file_path, cwd, manifests):
-    """Return list of (stack, phase, skill) for this event.
-
-    A file under the SDD specs/plans tree is a design-phase doc → trigger on
-    detect markers. Any other file is code-phase → trigger on match globs.
-    """
-    hits = []
-    design = is_design_doc(file_path)
-    for m in manifests:
-        if design:
-            if "design" in m["phase"] and marker_active_in(cwd, m["detect"]):
-                hits.append((m["stack"], "design", m["skill"]))
-        else:
-            if "code" in m["phase"] and _basename_match(file_path, m["match"]):
-                hits.append((m["stack"], "code", m["skill"]))
-    return hits
-
-
-def _pointer(stack, skill):
+def pointer(stack, skill):
     return (
         stack + " work is in play. The " + skill + " skill is MANDATORY for "
-        "this work — load it now via Skill before proceeding, and apply its "
+        "this work \u2014 load it now via Skill before proceeding, and apply its "
         "rules (Definition of Done + architecture)."
     )
 
@@ -398,6 +361,92 @@ def clear_session(session_id):
     return removed
 
 
+def resolve(file_path, cwd, session_id, agent, registry=None, home=None, trace=None):
+    """The ordered pipeline of spec §7.1. Returns the list of pointers to emit.
+
+    `trace`, when a list is passed, collects one line per stage so the doctor
+    can explain any of the six silent-exit paths without reimplementing this.
+    """
+    def note(line):
+        if trace is not None:
+            trace.append(line)
+
+    plugins = read_registry(registry)
+    note("registry: %d @airsstack plugin(s)" % len(plugins))
+    if not plugins:
+        note("STOP: no @airsstack plugins in the registry")
+        return []
+
+    # Manifests are plugin content, identical across a plugin's install
+    # paths, so any readable record answers "which stack:phase might fire".
+    candidates = []
+    for key, records in sorted(plugins.items()):
+        manifest = None
+        for record in records:
+            manifest = load_manifest(record["installPath"])
+            if manifest:
+                break
+        if not manifest:
+            note("%s: no usable enforcement.json" % key)
+            continue
+        candidates.append((key, records, manifest))
+    note("manifests: %d loaded" % len(candidates))
+    if not candidates:
+        note("STOP: zero manifests loaded (delivery failure — run the parity check)")
+        return []
+
+    phase = "design" if is_design_doc(file_path, home) else "code"
+    note("phase: %s" % phase)
+
+    # CHEAP GATE (§7.1 step 6): if every key this event could produce is
+    # already claimed, stop before paying for any git subprocess.
+    wanted = [c for c in candidates if phase in c[2]["phase"]]
+    if not wanted:
+        note("STOP: no manifest declares phase %s" % phase)
+        return []
+    unclaimed = [
+        c for c in wanted
+        if not sentinel_claimed(sentinel_path(session_id, agent, c[2]["stack"], phase))
+    ]
+    if not unclaimed:
+        note("STOP: every candidate stack:phase already claimed this context")
+        return []
+
+    current_key = project_key(cwd)
+    note("project key: %s" % current_key)
+    key_cache = {}
+    candidate_path = path_for_matching(file_path, cwd) if phase == "code" else None
+    if candidate_path:
+        note("match path: %s" % candidate_path)
+
+    pointers = []
+    for key, records, manifest in unclaimed:
+        record = select_record(records, current_key, key_cache)
+        if record is None:
+            note("%s: GATE 1 no record bound to this project" % key)
+            continue
+        bound = load_manifest(record["installPath"]) or manifest
+        # A design doc lives under AIRSSTACK_HOME, outside every repo, so it
+        # has no directory of its own to anchor the marker search on; `cwd`
+        # is the only signal of which project it describes.
+        if phase == "code":
+            active = marker_active(file_path, bound["detect"], cwd)
+        else:
+            active = marker_active_in(cwd, bound["detect"])
+        if not active:
+            note("%s: GATE 2 no detect marker" % key)
+            continue
+        if phase == "code" and not matches_any(candidate_path, bound["match"]):
+            note("%s: GATE 3 no match glob hit" % key)
+            continue
+        if not claim(sentinel_path(session_id, agent, bound["stack"], phase)):
+            note("%s: sentinel claimed concurrently" % key)
+            continue
+        note("%s: EMIT %s" % (key, bound["skill"]))
+        pointers.append(pointer(bound["stack"], bound["skill"]))
+    return pointers
+
+
 def main():
     try:
         data = json.loads(sys.stdin.read() or "{}")
@@ -407,32 +456,11 @@ def main():
             return
         cwd = data.get("cwd") or os.getcwd()
         session_id = data.get("session_id") or ""
-
         agent = data.get("agent_id") or "main"
 
         prune_sentinels()
 
-        # T10 replaces this with the ordered `resolve` pipeline; until then the
-        # dict from read_registry is flattened back to unique install paths.
-        seen, paths = set(), []
-        for records in read_registry().values():
-            for record in records:
-                if record["installPath"] not in seen:
-                    seen.add(record["installPath"])
-                    paths.append(record["installPath"])
-        manifests = _load_manifests(paths)
-        if not manifests:
-            return
-
-        hits = _matches(file_path, cwd, manifests)
-        if not hits:
-            return
-
-        pointers = []
-        for stack, phase, skill in hits:
-            if claim(sentinel_path(session_id, agent, stack, phase)):
-                pointers.append(_pointer(stack, skill))
-
+        pointers = resolve(file_path, cwd, session_id, agent)
         if not pointers:
             return
 
