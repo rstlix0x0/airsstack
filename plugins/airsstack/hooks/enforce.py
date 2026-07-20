@@ -110,6 +110,37 @@ def project_key(cwd):
     return _sanitize(base) + "-" + digest
 
 
+def path_for_matching(file_path, cwd):
+    """Path that `match` globs are tested against.
+
+    Inside a repository: the path relative to the git toplevel, which is what
+    `match` is documented to mean. Outside any repository: the basename,
+    preserving the pre-repair behavior there rather than silently dropping
+    coverage.
+    """
+    target = os.path.realpath(os.path.abspath(file_path))
+    top = _git(cwd, ["rev-parse", "--show-toplevel"])
+    if top:
+        try:
+            top = os.path.realpath(top)
+        except OSError:
+            top = None
+    if top and (target == top or target.startswith(top + os.sep)):
+        return os.path.relpath(target, top)
+    return os.path.basename(target)
+
+
+def matches_any(candidate, globs):
+    """True when `candidate` matches at least one glob."""
+    for pattern in globs or []:
+        try:
+            if glob_to_regex(str(pattern)).match(candidate):
+                return True
+        except re.error:
+            continue  # a malformed glob disables itself, never the manifest
+    return False
+
+
 def _registry_path():
     return os.environ.get("AIRSSTACK_ENFORCE_REGISTRY") or os.path.join(
         os.path.expanduser("~"), ".claude", "plugins", "installed_plugins.json"

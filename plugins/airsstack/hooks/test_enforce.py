@@ -76,5 +76,27 @@ class TestProjectKey(unittest.TestCase):
             self.assertRegex(key, r"^[A-Za-z0-9._-]+-[0-9a-f]{8}$")
 
 
+class TestPathForMatching(unittest.TestCase):
+    def test_inside_repo_returns_repo_relative(self):
+        here = os.path.dirname(os.path.abspath(__file__))
+        target = os.path.join(here, "enforce.py")
+        self.assertEqual(
+            enforce.path_for_matching(target, here),
+            "plugins/airsstack/hooks/enforce.py",
+        )
+
+    def test_outside_repo_falls_back_to_basename(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "sub", "lib.rs")
+            self.assertEqual(enforce.path_for_matching(target, tmp), "lib.rs")
+
+    def test_matches_any_glob(self):
+        self.assertTrue(
+            enforce.matches_any("crates/clauders/src/lib.rs", ["**/Cargo.toml", "**/*.rs"])
+        )
+        self.assertFalse(enforce.matches_any("README.md", ["**/*.rs"]))
+
+
 if __name__ == "__main__":
     unittest.main()
