@@ -261,3 +261,64 @@ def format_report(active, results):
     if stale:
         lines.append(PUSH_NOTE)
     return lines
+
+
+def run(top, registry, write, containment_root=None):
+    """Per-plugin backfill and drift results. `write=False` reports only.
+
+    `containment_root` is threaded down to `sync_tree` rather than left to its
+    default so that tests re-point the boundary instead of switching it off.
+    """
+    results = []
+    for plugin in source_plugins(top):
+        targets = cache_dirs(registry, plugin)
+        if not targets:
+            continue  # not installed from this marketplace: nothing to mirror
+        src_dir = os.path.join(top, "plugins", plugin)
+        copied, extras = [], []
+        for cache_dir in targets:
+            if write:
+                outcome = sync_tree(src_dir, cache_dir, containment_root)
+                copied.extend(outcome["copied"])
+                extras.extend(outcome["extras"])
+            else:
+                known = set(_relative_files(src_dir))
+                extras.extend(
+                    rel for rel in _relative_files(cache_dir) if rel not in known
+                )
+        results.append({
+            "plugin": plugin,
+            "copied": sorted(set(copied)),
+            "extras": sorted(set(extras)),
+            "drift": version_drift(top, plugin),
+            "uncommitted": has_uncommitted(top, plugin),
+        })
+    return results
+
+
+def main():
+    try:
+        try:
+            payload = json.loads(sys.stdin.read() or "{}")
+        except ValueError:
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        cwd = payload.get("cwd") or os.getcwd()
+
+        top = _git(cwd, ["rev-parse", "--show-toplevel"])
+        if not top or not is_airsstack_marketplace(top):
+            return 0  # not the plugin source repo: nothing to guard
+
+        active = is_main_worktree(cwd)
+        registry = cache_sync._load_installed() or {}
+        lines = format_report(active, run(top, registry, write=active))
+        if lines:
+            sys.stdout.write("\n".join(lines) + "\n")
+    except Exception:
+        pass  # fail-open: a guard failure must never disturb the session
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

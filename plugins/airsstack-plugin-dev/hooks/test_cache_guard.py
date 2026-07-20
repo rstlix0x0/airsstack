@@ -365,5 +365,157 @@ class TestReport(unittest.TestCase):
         self.assertIn("2 of 4", stale_lines[0])
 
 
+class TestRun(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.repo = make_repo(os.path.join(self.tmp, "repo"))
+        with open(os.path.join(self.repo, "plugins", "demo", "enforcement.json"), "w") as fh:
+            fh.write('{"stack":"rust"}')
+        git(self.repo, "add", "-A")
+        git(self.repo, "commit", "-qm", "add manifest")
+        self.cache = os.path.join(self.tmp, "cache", "demo", "0.1.0")
+        os.makedirs(self.cache)
+        self.registry = {"plugins": {"demo@airsstack": [{"installPath": self.cache}]}}
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _run(self, write, registry=None):
+        """Containment guard LIVE, re-pointed at this test's tmpdir — never off."""
+        return cache_guard.run(
+            self.repo, self.registry if registry is None else registry,
+            write=write, containment_root=self.tmp,
+        )
+
+    def _demo(self, results):
+        return [r for r in results if r["plugin"] == "demo"][0]
+
+    def test_backfills_the_missing_manifest(self):
+        results = self._run(write=True)
+        self.assertTrue(os.path.exists(os.path.join(self.cache, "enforcement.json")))
+        self.assertIn("enforcement.json", self._demo(results)["copied"])
+
+    def test_write_false_reports_without_copying(self):
+        results = self._run(write=False)
+        self.assertFalse(os.path.exists(os.path.join(self.cache, "enforcement.json")))
+        self.assertEqual(self._demo(results)["copied"], [])
+
+    def test_write_false_still_reports_cache_only_extras(self):
+        """A linked worktree writes nothing but must still diagnose the cache."""
+        with open(os.path.join(self.cache, "leftover.js"), "w") as fh:
+            fh.write("// removed upstream\n")
+        results = self._run(write=False)
+        self.assertIn("leftover.js", self._demo(results)["extras"])
+        self.assertTrue(os.path.exists(os.path.join(self.cache, "leftover.js")))
+
+    def test_unregistered_plugin_is_skipped_without_error(self):
+        self.assertEqual(self._run(write=True, registry={"plugins": {}}), [])
+
+    def test_containment_root_reaches_sync_tree(self):
+        """run() must thread the boundary down, not let sync_tree fall back to
+        the real cache root: without this the backfill above would silently
+        copy nothing and the write path would be untested."""
+        results = cache_guard.run(self.repo, self.registry, write=True)
+        self.assertEqual(self._demo(results)["copied"], [])
+        self.assertFalse(os.path.exists(os.path.join(self.cache, "enforcement.json")))
+
+    def test_results_carry_drift_and_uncommitted(self):
+        with open(os.path.join(self.repo, "plugins", "demo", "dirty.txt"), "w") as fh:
+            fh.write("z\n")
+        demo = self._demo(self._run(write=False))
+        self.assertEqual(demo["drift"], "stale")
+        self.assertTrue(demo["uncommitted"])
+
+
+class TestMainEntryPoint(unittest.TestCase):
+    """main() is the production path; the plan left it uncovered.
+
+    Run as a real subprocess under a throwaway HOME. cache_sync derives both
+    CACHE_ROOT and the registry path from `~`, so a fake HOME relocates the
+    whole install cache into the tmpdir — which exercises main() end to end,
+    containment guard included and pointing at its true default, without a
+    single test-only switch and without any risk to the real cache.
+    """
+
+    SCRIPT = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)), "cache_guard.py"
+    )
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.home = os.path.join(self.tmp, "home")
+        self.cache = os.path.join(
+            self.home, ".claude", "plugins", "cache", "airsstack", "demo", "0.1.0"
+        )
+        os.makedirs(self.cache)
+        registry = os.path.join(self.home, ".claude", "plugins", "installed_plugins.json")
+        with open(registry, "w") as fh:
+            json.dump({"plugins": {"demo@airsstack": [{"installPath": self.cache}]}}, fh)
+        self.repo = self._repo("repo", "airsstack")
+        self.env = dict(os.environ, HOME=self.home)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _repo(self, name, marketplace):
+        root = make_repo(os.path.join(self.tmp, name), marketplace_name=marketplace)
+        with open(os.path.join(root, "plugins", "demo", "enforcement.json"), "w") as fh:
+            fh.write('{"stack":"rust"}')
+        git(root, "add", "-A")
+        git(root, "commit", "-qm", "add manifest")
+        return root
+
+    def _main(self, stdin_text, cwd=None):
+        return subprocess.run(
+            [sys.executable, self.SCRIPT], input=stdin_text, env=self.env,
+            cwd=cwd or self.tmp, capture_output=True, text=True,
+        )
+
+    def _mirrored(self):
+        return os.path.exists(os.path.join(self.cache, "enforcement.json"))
+
+    def test_main_worktree_backfills_and_reports(self):
+        done = self._main(json.dumps({"cwd": self.repo}))
+        self.assertEqual(done.returncode, 0)
+        self.assertTrue(self._mirrored())
+        self.assertIn("enforcement.json", done.stdout)
+        self.assertIn("restart", done.stdout.lower())
+
+    def test_linked_worktree_reports_without_writing(self):
+        linked = os.path.join(self.tmp, "linked")
+        git(self.repo, "worktree", "add", "-q", "-b", "wt", linked)
+        done = self._main(json.dumps({"cwd": linked}))
+        self.assertEqual(done.returncode, 0)
+        self.assertFalse(self._mirrored())
+        self.assertIn("linked worktree", done.stdout.lower())
+
+    def test_non_airsstack_marketplace_is_refused(self):
+        """Same plugin name, same registry entry — only the marketplace differs."""
+        other = self._repo("other", "somebody-else")
+        done = self._main(json.dumps({"cwd": other}))
+        self.assertEqual(done.returncode, 0)
+        self.assertEqual(done.stdout, "")
+        self.assertFalse(self._mirrored())
+
+    def test_silent_outside_a_git_repo(self):
+        done = self._main(json.dumps({"cwd": self.tmp}))
+        self.assertEqual(done.returncode, 0)
+        self.assertEqual(done.stdout, "")
+
+    def test_garbage_stdin_exits_zero(self):
+        self.assertEqual(self._main("}{ not json").returncode, 0)
+
+    def test_empty_stdin_exits_zero(self):
+        self.assertEqual(self._main("").returncode, 0)
+
+    def test_an_unexpected_error_is_swallowed(self):
+        """Fail-open is the whole contract: a guard crash must not reach the
+        session. A non-string cwd raises inside subprocess, past every
+        exception type the git helper names."""
+        done = self._main(json.dumps({"cwd": 12345}))
+        self.assertEqual(done.returncode, 0)
+        self.assertEqual(done.stderr, "")
+
+
 if __name__ == "__main__":
     unittest.main()
