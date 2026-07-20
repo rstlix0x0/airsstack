@@ -195,4 +195,34 @@ out19b=$(printf '{"session_id":"s19","agent_id":"explorer-1","cwd":"%s","tool_in
 printf '%s' "$out19b" | grep -q 'rust-guidelines' \
   || fail "case19: subagent shot was consumed by the main thread"
 
+# --- case 20: hooks.json trigger surface --------------------------------
+grep -q '"Read|Edit|Write"' "$hooks_json" || fail "case20: PreToolUse matcher is not Read|Edit|Write"
+grep -q '"compact"' "$hooks_json" || fail "case20: SessionStart compact matcher missing"
+grep -q 'rearm.sh' "$hooks_json" || fail "case20: rearm.sh not wired"
+
+# --- case 21: rearm clears this session's sentinels and re-arms ----------
+out21a=$(run s21 "$repo/src/lib.rs" "$repo")
+printf '%s' "$out21a" | grep -q 'rust-guidelines' || fail "case21: first pointer missing"
+out21b=$(run s21 "$repo/src/two.rs" "$repo")
+[ -z "$out21b" ] || fail "case21: dedup failed before rearm"
+
+# rearm.sh must see the same TMPDIR the dispatcher wrote its sentinels into.
+if ! printf '{"session_id":"s21"}' \
+   | TMPDIR="$markers" sh "$SCRIPT_DIR/rearm.sh" >/dev/null 2>&1; then
+  fail "case21: rearm.sh exited non-zero"
+fi
+
+out21c=$(run s21 "$repo/src/three.rs" "$repo")
+printf '%s' "$out21c" | grep -q 'rust-guidelines' || fail "case21: pointer did not re-arm after compact"
+
+# --- case 21b: rearm is scoped to one session ---------------------------
+out21d=$(run s21b "$repo/src/lib.rs" "$repo")
+printf '%s' "$out21d" | grep -q 'rust-guidelines' || fail "case21b: first pointer missing"
+if ! printf '{"session_id":"s21"}' \
+   | TMPDIR="$markers" sh "$SCRIPT_DIR/rearm.sh" >/dev/null 2>&1; then
+  fail "case21b: rearm.sh exited non-zero"
+fi
+out21e=$(run s21b "$repo/src/four.rs" "$repo")
+[ -z "$out21e" ] || fail "case21b: rearm of s21 cleared another session's sentinel: $out21e"
+
 printf 'PASS\n'
