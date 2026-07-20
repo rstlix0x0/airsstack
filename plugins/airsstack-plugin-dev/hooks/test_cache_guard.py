@@ -304,5 +304,66 @@ class TestVersionDrift(unittest.TestCase):
         self.assertFalse(cache_guard.has_uncommitted(self.repo, "demo"))
 
 
+def result(plugin, copied=(), extras=(), drift="ok", uncommitted=False):
+    return {"plugin": plugin, "copied": list(copied), "extras": list(extras),
+            "drift": drift, "uncommitted": uncommitted}
+
+
+class TestReport(unittest.TestCase):
+    def test_silent_when_everything_is_clean(self):
+        self.assertEqual(cache_guard.format_report(True, [result("demo")]), [])
+
+    def test_backfill_is_reported_with_the_restart_caveat(self):
+        joined = "\n".join(
+            cache_guard.format_report(True, [result("demo", copied=["enforcement.json"])])
+        )
+        self.assertIn("enforcement.json", joined)
+        self.assertIn("restart", joined.lower())
+
+    def test_extras_are_reported_as_not_deleted(self):
+        joined = "\n".join(
+            cache_guard.format_report(True, [result("demo", extras=["hooks/enforce.js"])])
+        )
+        self.assertIn("hooks/enforce.js", joined)
+        self.assertIn("not deleted", joined.lower())
+
+    def test_stale_version_carries_the_push_caveat(self):
+        joined = "\n".join(cache_guard.format_report(True, [result("demo", drift="stale")]))
+        self.assertIn("stale", joined)
+        self.assertIn("push", joined.lower())
+
+    def test_uncommitted_is_reported_distinctly_from_stale(self):
+        joined = "\n".join(
+            cache_guard.format_report(True, [result("demo", uncommitted=True)])
+        )
+        self.assertIn("uncommitted", joined.lower())
+        self.assertIn("demo", joined)
+        self.assertNotIn("stale", joined)
+
+    def test_inactive_reports_drift_but_says_it_did_not_write(self):
+        joined = "\n".join(
+            cache_guard.format_report(False, [result("demo", drift="stale")])
+        ).lower()
+        self.assertIn("stale", joined)
+        self.assertIn("linked worktree", joined)
+
+    def test_stale_is_one_aggregate_line_regardless_of_how_many_are_stale(self):
+        """Stale is a PUBLICATION reminder, and 'content newer than the last
+        bump' is the normal state of a plugin under development — 5 of 7 here,
+        6 of 7 on main. Per-plugin lines would be a wall on every session start,
+        so the count is said once."""
+        results = [result("p%d" % i, drift="stale") for i in range(6)]
+        lines = cache_guard.format_report(True, results)
+        stale_lines = [ln for ln in lines if "stale" in ln]
+        self.assertEqual(len(stale_lines), 1)
+
+    def test_the_aggregate_counts_stale_against_the_total(self):
+        results = [result("a", drift="stale"), result("b", drift="stale"),
+                   result("c"), result("d", drift="unknown")]
+        lines = cache_guard.format_report(True, results)
+        stale_lines = [ln for ln in lines if "stale" in ln]
+        self.assertIn("2 of 4", stale_lines[0])
+
+
 if __name__ == "__main__":
     unittest.main()

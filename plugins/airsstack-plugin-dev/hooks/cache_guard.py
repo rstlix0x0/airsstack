@@ -196,3 +196,68 @@ def has_uncommitted(top, plugin):
     """True when the working tree has changes under plugins/<plugin>/."""
     status = _git(top, ["status", "--porcelain", "--", os.path.join("plugins", plugin)])
     return bool(status)
+
+
+RESTART_NOTE = (
+    "NOTE: enforcement.json is read at hook-fire time and takes effect now, but "
+    "hooks.json and commands/ are read at plugin-load time — restart the session "
+    "to pick up anything backfilled just now."
+)
+PUSH_NOTE = (
+    "NOTE: user-scope installs pull the marketplace from GitHub, so a version bump "
+    "reaches them only after the commit is pushed to main. Neither the backfill nor "
+    "this check substitutes for that."
+)
+
+
+def _listing(names, limit=5):
+    """`a, b, c` with a `(+N more)` tail once the list runs past `limit`."""
+    shown = ", ".join(names[:limit])
+    if len(names) <= limit:
+        return shown
+    return "%s (+%d more)" % (shown, len(names) - limit)
+
+
+def format_report(active, results):
+    """Report lines for SessionStart stdout; empty list when nothing to say.
+
+    Backfills, extras and uncommitted edits are per-plugin: each names one thing
+    to look at. Staleness is not — it is a PUBLICATION reminder, and "content
+    committed after the last version bump" is the normal state of a plugin under
+    active development (5 of 7 in this repo, 6 of 7 on main). Locally the
+    backfill has already corrected the content; the only consumer of the stale
+    signal is another machine pulling the marketplace from GitHub, and that
+    message needs saying once. So the count is aggregated into a single line
+    rather than one line per plugin, which would print a wall on every start and
+    train you to skim past the whole report.
+    """
+    body, copied_any, stale = [], False, 0
+    for item in results:
+        plugin = item["plugin"]
+        if item["copied"]:
+            copied_any = True
+            body.append("  %s: backfilled %d file(s): %s"
+                        % (plugin, len(item["copied"]), _listing(item["copied"])))
+        if item["extras"]:
+            body.append("  %s: %d cache-only file(s), not deleted: %s"
+                        % (plugin, len(item["extras"]), _listing(item["extras"])))
+        if item["drift"] == "stale":
+            stale += 1
+        if item["uncommitted"]:
+            body.append("  %s: uncommitted edits in the working tree" % plugin)
+
+    if stale:
+        body.append("  %d of %d %s stale — content committed after the last version bump"
+                    % (stale, len(results), "plugin" if len(results) == 1 else "plugins"))
+
+    if not body:
+        return []
+
+    header = ("airsstack cache guard:" if active else
+              "airsstack cache guard (linked worktree — reporting only, nothing written):")
+    lines = [header] + body
+    if copied_any:
+        lines.append(RESTART_NOTE)
+    if stale:
+        lines.append(PUSH_NOTE)
+    return lines
