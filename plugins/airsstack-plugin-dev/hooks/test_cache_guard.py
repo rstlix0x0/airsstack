@@ -581,5 +581,41 @@ class TestWiring(unittest.TestCase):
             shutil.rmtree(work, ignore_errors=True)
 
 
+class TestDocsAndVersions(unittest.TestCase):
+    REPO = os.path.normpath(
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..")
+    )
+
+    def _version(self, plugin):
+        path = os.path.join(self.REPO, "plugins", plugin, ".claude-plugin", "plugin.json")
+        with open(path) as fh:
+            return json.load(fh)["version"]
+
+    def _readme(self):
+        path = os.path.join(self.REPO, "plugins", "airsstack-plugin-dev", "README.md")
+        with open(path) as fh:
+            return fh.read().lower()
+
+    def test_plugin_dev_version_bumped(self):
+        """0.1.0 is what every install cache already holds; a plugin whose
+        version never moves can only ever be delivered by the backfill."""
+        self.assertNotEqual(self._version("airsstack-plugin-dev"), "0.1.0")
+
+    def test_guideline_rust_version_bumped(self):
+        """The manifest reaches other projects only via a clean cache dir."""
+        self.assertNotEqual(self._version("airsstack-guideline-rust"), "0.1.0")
+
+    def test_readme_documents_the_guard(self):
+        text = self._readme()
+        self.assertIn("cache-guard", text)
+        self.assertIn("main worktree", text)
+        self.assertIn("never delete", text)
+
+    def test_readme_does_not_advertise_a_retired_matcher(self):
+        """The README named the PostToolUse matcher literally, so the T7 change
+        silently falsified it — docs that name a matcher must move with it."""
+        self.assertNotIn("multiedit", self._readme())
+
+
 if __name__ == "__main__":
     unittest.main()
