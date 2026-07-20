@@ -15,7 +15,8 @@ use crate::agent::permissions::{PermissionMode, PermissionPolicy};
 use crate::agent::subagents::AgentDefinition;
 use crate::agent::system_prompt::SystemPromptConfig;
 use crate::agent::types::{
-    BudgetUsd, EffortLevel, McpServerConfig, SessionControl, SettingsSource,
+    BudgetUsd, EffortLevel, McpServerConfig, SessionControl, SessionId, SessionPersistence,
+    SettingsSource,
 };
 use crate::messages::structured_outputs::OutputConfig;
 use crate::types::{MaxTokens, ModelId};
@@ -92,6 +93,15 @@ pub struct Options {
     pub agents: HashMap<String, AgentDefinition>,
     /// Session continuation intent for this session.
     pub session: SessionControl,
+    /// Force a specific session id (official `sessionId`).
+    ///
+    /// Lowers to `--session-id <id>` for a new session; the binary requires
+    /// a valid UUID and rejects any other value.
+    pub session_id: Option<SessionId>,
+    /// Display title for the session, sent in the initialize handshake.
+    pub title: Option<String>,
+    /// Whether the binary persists this session.
+    pub session_persistence: SessionPersistence,
     /// Model to fall back to if the primary model is overloaded.
     pub fallback_model: Option<ModelId>,
     /// Use only `--mcp-config` servers; ignore project/user/plugin MCP config.
@@ -159,6 +169,9 @@ impl fmt::Debug for Options {
                 &format_args!("<{} registered>", self.agents.len()),
             )
             .field("session", &self.session)
+            .field("session_id", &self.session_id)
+            .field("title", &self.title)
+            .field("session_persistence", &self.session_persistence)
             .field("fallback_model", &self.fallback_model)
             .field("strict_mcp_config", &self.strict_mcp_config)
             .field("add_dirs", &self.add_dirs)
@@ -221,6 +234,9 @@ pub struct OptionsBuilder {
     output_format: Option<OutputConfig>,
     agents: HashMap<String, AgentDefinition>,
     session: SessionControl,
+    session_id: Option<SessionId>,
+    title: Option<String>,
+    session_persistence: SessionPersistence,
     fallback_model: Option<ModelId>,
     strict_mcp_config: bool,
     add_dirs: Vec<PathBuf>,
@@ -430,6 +446,29 @@ impl OptionsBuilder {
         self
     }
 
+    /// Force a specific session id for a new session.
+    ///
+    /// The binary requires a valid UUID and rejects any other value.
+    #[must_use]
+    pub fn session_id(mut self, id: SessionId) -> Self {
+        self.session_id = Some(id);
+        self
+    }
+
+    /// Set the session's display title.
+    #[must_use]
+    pub fn title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
+    }
+
+    /// Set whether the binary persists this session.
+    #[must_use]
+    pub const fn session_persistence(mut self, persistence: SessionPersistence) -> Self {
+        self.session_persistence = persistence;
+        self
+    }
+
     /// Set the fallback model.
     #[must_use]
     pub fn fallback_model(mut self, model: ModelId) -> Self {
@@ -560,6 +599,9 @@ impl OptionsBuilder {
             output_format: self.output_format,
             agents: self.agents,
             session: self.session,
+            session_id: self.session_id,
+            title: self.title,
+            session_persistence: self.session_persistence,
             fallback_model: self.fallback_model,
             strict_mcp_config: self.strict_mcp_config,
             add_dirs: self.add_dirs,
@@ -912,6 +954,28 @@ mod tests {
 
         let opts = Options::builder().effort(EffortLevel::High).build();
         assert_eq!(opts.effort, Some(EffortLevel::High));
+    }
+
+    #[test]
+    fn session_config_knobs_default_and_round_trip() {
+        use crate::agent::types::{SessionId, SessionPersistence};
+
+        let defaults = Options::default();
+        assert!(defaults.session_id.is_none());
+        assert!(defaults.title.is_none());
+        assert_eq!(defaults.session_persistence, SessionPersistence::Enabled);
+
+        let opts = Options::builder()
+            .session_id(SessionId::new("sess_7"))
+            .title("Nightly triage")
+            .session_persistence(SessionPersistence::Disabled)
+            .build();
+        assert_eq!(
+            opts.session_id.as_ref().map(SessionId::as_str),
+            Some("sess_7")
+        );
+        assert_eq!(opts.title.as_deref(), Some("Nightly triage"));
+        assert_eq!(opts.session_persistence, SessionPersistence::Disabled);
     }
 
     #[test]
