@@ -4,6 +4,9 @@
 > were a **superset** with no official counterpart. Per [`../vision-and-strategy.md`](../vision-and-strategy.md)
 > §5 they have been **removed** from the crate. They remain in this table (re-legended as "Removed")
 > so the parity picture is honest: clauders is now a *subset-completing* client, not a superset.
+> (This holds for the 🟣 rows themselves; §7 separately records that the removed native
+> `SessionStore`'s original "no official counterpart" justification was itself wrong — see §7's
+> correction.)
 
 Compares the `clauders` Rust Agent SDK (module `clauders::agent`) against the two **official**
 Claude Agent SDKs:
@@ -11,9 +14,12 @@ Claude Agent SDKs:
 - **Python** — `claude-agent-sdk` (formerly `claude-code-sdk`)
 - **TypeScript** — `@anthropic-ai/claude-agent-sdk`
 
-**As of:** 2026-07-17 · Phase 4 (WS A–F) + Phase 5 WS 1 (Options breadth) landed on the parity-first,
-**CLI-only** tree. Grounded on the live `claude` Code binary **v2.1.209** and the live official SDK
-references at `code.claude.com/docs/en/agent-sdk/{python,typescript}`.
+**As of:** 2026-07-20 · Phase 4 (WS A–F) + Phase 5 WS 1–7 landed (`Options` breadth, `thinking`/`effort`,
+hook-event edges, MCP result-content kinds, `AgentDefinition` extra fields, streaming input, MCP
+elicitation), plus WS 8's session-config slice (`sessionId`/`title`/`persistSession`), on the
+parity-first, **CLI-only** tree. WS 8's session list/inspect/rename/tag/`resumeSessionAt` ops and all
+of WS 9 (live-control tail) remain open — see §7. Grounded on the live `claude` Code binary **v2.1.215**
+and the live official SDK references at `code.claude.com/docs/en/agent-sdk/{python,typescript}`.
 
 > **The tree is CLI-only now.** After the parity-first pivot (vision §5) the native runtimes —
 > `ApiRuntime` (in-process `POST /v1/messages` loop), `OpenRouterRuntime`, `RoutingRuntime` — and their
@@ -29,8 +35,9 @@ references at `code.claude.com/docs/en/agent-sdk/{python,typescript}`.
 > Messages API loop, and they are **Claude-only**. `clauders` ships that same subprocess runtime
 > (`CliRuntime`) as its Agent SDK surface — and, after the pivot, *only* that. Parity is a single axis:
 > on the *CLI-driving surface* clauders is now at parity on the session/config/subagent breadth it used
-> to trail on (see the scorecard), with streaming input, live MCP control, warm start, and MCP
-> elicitation the remaining gaps. The Pillar-1 bundled Messages API client (`clauders::Client` /
+> to trail on (see the scorecard), plus streaming input and MCP elicitation (both landed); live MCP
+> control, warm start, and session list/inspect/rename/tag remain the gaps (§1, §7). The Pillar-1
+> bundled Messages API client (`clauders::Client` /
 > `messages::`) is a separate, non-Agent-SDK surface — not a parity axis against the official Agent SDKs.
 
 ---
@@ -53,27 +60,29 @@ references at `code.claude.com/docs/en/agent-sdk/{python,typescript}`.
 |---|---|---|---|---|
 | One-shot `query()` | ✅ | ✅ | ✅ `agent::query(prompt, Options)` | clauders returns a `MessageStream` that owns the session |
 | Stateful client | ✅ `ClaudeSDKClient` | ✅ `query()` returns `Query` | ✅ `agent::Client<R>` | clauders client is generic over the `Runtime` |
-| Streaming **input** (prompt as async stream) | ✅ `AsyncIterable` | ✅ `AsyncIterable<SDKUserMessage>` | ❌ | clauders `Prompt` is a single value per turn (WS G, next) |
+| Streaming **input** (prompt as async stream) | ✅ `AsyncIterable` | ✅ `AsyncIterable<SDKUserMessage>` | ✅ `Prompt::Stream` | landed (WS 6); `Prompt` is `Single(String)` or `Stream(Pin<Box<dyn Stream<Item=String>>>)`, fed to the binary's stdin as items arrive |
 | Message stream out | ✅ `AsyncIterator[Message]` | ✅ `AsyncGenerator<SDKMessage>` | ✅ `MessageStream` (`Stream<Item=Result<Message>>`) | |
 | Interrupt / cancel | ✅ `interrupt()` | ✅ `interrupt()` / `AbortController` | ✅ `interrupt()` | |
 | Switch model mid-session | ✅ `set_model()` | ✅ `setModel()` | ✅ `set_model()` | |
 | Switch permission mode mid-session | ✅ `set_permission_mode()` | ✅ `setPermissionMode()` | ✅ `set_permission_mode()` | |
 | MCP server status | ✅ `get_mcp_status()` | ✅ `mcpServerStatus()` | ✅ `mcp_status()` | |
 | Reconnect / toggle / set MCP servers live | ✅ | ✅ | ❌ | |
-| `supportedCommands / Models / Agents`, `accountInfo`, `rewindFiles`, `stopTask`, `setMaxThinkingTokens` | ✅/partial | ✅ | ❌ | official CLI-control extras |
+| `supportedCommands / Models / Agents`, `accountInfo`, `rewindFiles`, `stopTask`, `setMaxThinkingTokens` | ✅/partial | ✅ | ❌ | official CLI-control extras (`setMaxThinkingTokens`: see the reachability note on the `thinking`/`max_thinking_tokens` row, §2) |
 | Warm startup (pre-warmed subprocess) | ✅ (`startup()` / `WarmQuery`) | ✅ `startup()` | ❌ | official spawn-latency optimization |
 | Live reconfigure (`reinitialize`, `applyFlagSettings`) | partial | ✅ | ❌ | |
 
-**Verdict:** ✅ core session loop at parity; 🟡 missing streaming-input (WS G) and the long tail of
-live-control ops (warm start, reinitialize, live MCP set).
+**Verdict:** ✅ core session loop at parity, now including streaming input (`Prompt::Stream`, WS 6); 🟡
+the long tail of live-control ops (warm start, reinitialize, live MCP set) remains ❌.
 
 ---
 
 ## 2. Configuration surface (`Options` / `ClaudeAgentOptions`)
 
-clauders `Options` (≈31 fields) vs the official surface (~40+ fields). The core plus the WS 1 breadth
-knobs and `effort` (WS 2) are covered; the residual gap is `setting_sources`, the CLI-feature knobs
-(skills, plugins, sandbox), `thinking` (CLI-limited — no binary flag), and the live-control long tail.
+clauders `Options` (37 fields) vs the official surface (~40+ fields). The core plus the WS 1 breadth
+knobs, `effort` (WS 2), and the WS 8 session-config slice (`session_id`/`title`/`session_persistence`)
+are covered; the residual gap is `setting_sources`, the CLI-feature knobs (skills, plugins, sandbox),
+`thinking` (CLI-limited — no binary flag), the live-control long tail, and the WS 8 session
+list/inspect/rename/tag ops (see §7).
 
 | Option (official name) | Python | TS | clauders field | Status |
 |---|---|---|---|---|
@@ -98,6 +107,11 @@ knobs and `effort` (WS 2) are covered; the residual gap is `setting_sources`, th
 | `continue_conversation` / `continue` | ✅ | ✅ | `session: SessionControl::Continue` (→ `--continue`) | ✅ (WS F; see §7) |
 | `resume` (session id) | ✅ | ✅ | `session: SessionControl::Resume { id }` (→ `--resume <id>`) | ✅ (WS F) |
 | `fork_session` | ✅ | ✅ | `session: SessionControl::Resume { fork: true }` (→ `--fork-session`) | ✅ (WS F) |
+| `sessionId` (force a new session's id) | ✅ | ✅ | `session_id: Option<SessionId>` (→ `--session-id <id>`, new sessions only) | ✅ (WS 8 slice) |
+| `title` (session display title) | ✅ | ✅ | `title: Option<String>` (carried in the `initialize` handshake payload) | ✅ (WS 8 slice) |
+| `persistSession` | ✅ | ✅ | `session_persistence: SessionPersistence` (→ `--no-session-persistence` when `Disabled`) | ✅ (WS 8 slice) |
+| MCP elicitation policy (`onElicitation`) | ✅ | ✅ | `elicitation_policy: Option<Arc<dyn ElicitationPolicy>>` | ✅ (WS 7; see §3) |
+| Control-request timeout | — | — | `control_request_timeout: Duration` (bounds `interrupt`/`set_model`/elicitation waits; default 60s, chosen to mirror the official Python SDK's control-request timeout default — grounded in a prior session's reading of the Python SDK source, not re-verified against source in this pass; the TypeScript SDK's equivalent default was never read from source and is not claimed here) | 🟣 clauders-only reliability knob — **kept** (active), no official `Options` field |
 | `setting_sources` (user/project/local) | ✅ | ✅ | ❌ | ❌ (see §9) |
 | `settings` (inline / path) | ✅ | ✅ | `settings: Option<SettingsSource>` (→ `--settings <path\|json>`) | ✅ (WS 1) |
 | `extra_args` | ✅ | ✅ | `executable_args: Vec<String>` (prepend) | 🟡 |
@@ -109,9 +123,9 @@ knobs and `effort` (WS 2) are covered; the residual gap is `setting_sources`, th
 | `user` | ✅ | ✅ | `user: Option<String>` (inert — API-shape parity; no CLI flag lowered) | 🟡 |
 | `output_format` / structured output (agent layer) | ✅ | ✅ | `output_format` + `ResultMessage::structured_output` (CLI best-effort passthrough) | ✅ (WS B) |
 | `effort` | ✅ | ✅ | `effort: Option<EffortLevel>` (→ `--effort <level>`) | ✅ (WS 2) |
-| `thinking` / `max_thinking_tokens` | ✅ | ✅ | ❌ | ❌ CLI-limited — binary `v2.1.209` exposes no thinking flag; adaptive via `--effort`; raw config via `settings`. `max_thinking_tokens` deprecated upstream |
+| `thinking` / `max_thinking_tokens` | ✅ | ✅ | ❌ | ❌ CLI-limited — binary `v2.1.215` exposes no thinking flag; adaptive via `--effort`; raw config via `settings`. `max_thinking_tokens` deprecated upstream. Separately — `set_max_thinking_tokens` sits on the same reachability footing as `rename_session` (§7): it is a fully-wired `control_request` subtype, live-dispatched off the same stdin `stream-json` if/else chain `CliRuntime` already drives (real validation logic, not a stub), and it is *also* dispatched on the SSE-bridge path (`function NWu`, wired to Anthropic's cloud-relay "Remote Control" feature, not the subprocess pipe) — the same both-dispatchers shape as `rename_session`. This does not change the mark below — clauders does not implement it either way, so it stays ❌ (§1 cross-reference: `:70`) |
 | `max_budget_usd` | ✅ | ✅ | `max_budget_usd: Option<BudgetUsd>` (→ `--max-budget-usd`) | ✅ (WS 1) |
-| `skills`, `plugins`, `sandbox`, `betas` | ✅ | ✅ | ❌ | ❌ (CLI-feature knobs) |
+| `skills`, `plugins`, `sandbox`, `betas` | ✅ | ✅ | ❌ | ❌ (CLI-feature knobs; `skills` now exists as an `AgentDefinition`-scoped field, §6, but not on top-level `Options`) |
 | `session_store` / `enable_file_checkpointing` | ✅ | ✅ | ❌ | ❌ (native `SessionStore` removed, vision §5) |
 | Per-request `max_tokens` | — (CLI-managed) | — | `max_tokens: MaxTokens` (default 4096) | 🟡 field present but **inert** — its native `ApiRuntime` consumer was removed (vision §5) |
 | Min-version gate / shutdown grace | — | — | `require_min_version`, `shutdown_grace` | 🟣 clauders-only process-hygiene on `CliRuntime` — **kept** (active), no official counterpart |
@@ -119,8 +133,11 @@ knobs and `effort` (WS 2) are covered; the residual gap is `setting_sources`, th
 
 **Verdict:** ✅ on the tool/permission/mcp/hook/cwd/env core **and** the WS 1 breadth (fallback,
 strict-mcp, add-dirs, settings, budget, partial-messages, hook-events, prompt-tool override, stderr,
-max-buffer) **and** `effort` (WS 2) **and** sessions + subagents; ❌ on `setting_sources` and the
-CLI-feature knobs (skills, plugins, sandbox); `thinking` is CLI-limited (no binary flag — see §2 table).
+max-buffer) **and** `effort` (WS 2) **and** sessions + subagents **and** the WS 8 session-config slice
+(`session_id`/`title`/`session_persistence`) **and** the MCP elicitation policy seam (WS 7); ❌ on
+`setting_sources`, the CLI-feature knobs (skills, plugins, sandbox — `skills` now exists per-subagent on
+`AgentDefinition`, §6, but not on top-level `Options`), and the WS 8 session list/inspect/rename/tag ops
+(see §7); `thinking` is CLI-limited (no binary flag — see §2 table).
 
 ---
 
@@ -131,14 +148,15 @@ CLI-feature knobs (skills, plugins, sandbox); `thinking` is CLI-limited (no bina
 | Define a tool | ✅ `@tool(name, desc, schema)` | ✅ `tool(name, desc, zodShape, handler)` | ✅ `tool(name, desc, json_schema, closure)` + `impl Tool` | ✅ |
 | Create in-process server | ✅ `create_sdk_mcp_server(name, version, tools)` | ✅ `createSdkMcpServer({name, version, tools})` | ✅ `SdkMcpServer::builder(name).version().tool().build()` | ✅ |
 | Registry of servers | implicit | implicit | ✅ `SdkMcpRegistry` | ✅ |
-| Tool result content blocks | ✅ | ✅ | ✅ `ToolResult` / `ToolContent` (`text` today; `image`/`resource` `#[non_exhaustive]`) | 🟡 text-only content |
+| Tool result content blocks | ✅ | ✅ | ✅ `ToolResult` / `ToolContent` (`Text`, `Image`, `Audio`, `ResourceLink`, `Resource`; `#[non_exhaustive]` for forward-compat) | ✅ (WS 4) |
 | Tool annotations (readOnly/destructive/…) | ✅ | ✅ `ToolAnnotations` | ✅ `ToolAnnotations` | ✅ |
 | JSON-RPC dispatch (`tools/list`, `tools/call`) | ✅ | ✅ | ✅ `mcp::router` | ✅ |
 | Input schema | JSON / type | **Zod shape** (typed inference) | raw `serde_json::Value` schema | 🟡 no compile-time arg typing |
-| MCP **elicitation** (server asks user for input mid-call) | ✅ | ✅ `onElicitation` + `mcp_elicitation` hook | ❌ | ❌ no elicitation path |
+| MCP **elicitation** (server asks user for input mid-call) | ✅ | ✅ `onElicitation` + `mcp_elicitation` hook | ✅ `ElicitationPolicy::elicit` + `Elicitation`/`ElicitationResult` `HookEvent`s | ✅ (WS 7) |
 
-**Verdict:** ✅ strong parity on in-process tools; gaps are richer result-content kinds, the
-TS Zod-style typed argument inference, and MCP elicitation.
+**Verdict:** ✅ strong parity on in-process tools, including the richer result-content kinds (WS 4) and
+MCP elicitation (WS 7); the remaining gap is the TS Zod-style typed argument inference — clauders tools
+take a raw JSON-schema `Value`, with no compile-time arg typing.
 
 ---
 
@@ -149,20 +167,30 @@ clauders models a broad hook-event set and the full control-response payload.
 | Aspect | Python | TS | clauders |
 |---|---|---|---|
 | Registration with matcher | ✅ `HookMatcher` | ✅ `HookCallbackMatcher` | ✅ `Options::hook(event, matcher, Arc<dyn Hook>)` |
-| Capability-gated to binary support | — | — | 🟣 `Capabilities::supports_hook` skips unsupported events — removed (vision §5) |
+| Capability-gated to binary support | — | — | ✅ `Capabilities::supports_hook` warns on unsupported events |
 | Return: block / continue / suppressOutput / systemMessage / reason | ✅ | ✅ | ✅ `HookOutput { continue_, suppress_output, decision: Block, system_message, reason }` |
 | Hook-lifecycle observability frames | ✅ (`includeHookEvents`) | ✅ | ✅ `Options::include_hook_events` → `--include-hook-events`; frames surface as `Message::Other` (WS 1) |
 
 **clauders `HookEvent`s:** `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `UserPromptSubmit`,
-`Stop`, `SubagentStart`, `SubagentStop`, `PreCompact`, `Notification`, `PermissionRequest`.
+`Stop`, `SubagentStart`, `SubagentStop`, `PreCompact`, `Notification`, `PermissionRequest`,
+`SessionStart`, `SessionEnd`, `Setup`, `Elicitation`, `ElicitationResult` (15 variants total; the last
+five landed in WS 3 and WS 7).
 
 The official SDKs forward whatever the CLI supports (at least PreToolUse, PostToolUse,
 UserPromptSubmit, Stop, SubagentStop, PreCompact, SessionStart/End, Notification, and newer granular
-tool hooks). clauders does **not** yet model `SessionStart`/`SessionEnd` or the newer
-`mcp_elicitation` event; it adds `PostToolUseFailure` and `PermissionRequest`.
+tool hooks). clauders now models `SessionStart`/`SessionEnd`/`Setup` and the elicitation pair
+(`Elicitation`/`ElicitationResult`, WS 3 + WS 7); it still adds `PostToolUseFailure` and
+`PermissionRequest`, which remain clauders-only extras with no listed official counterpart.
 
-**Verdict:** ✅ parity on the hook mechanism and payload; 🟡 event-name set differs at the edges
-(clauders missing `SessionStart`/`SessionEnd`/`mcp_elicitation`).
+**Verdict:** ✅ parity on the hook mechanism and payload **and** the event-name set, now including
+`SessionStart`/`SessionEnd`/`Setup`/`Elicitation`/`ElicitationResult` (WS 3, WS 7); clauders' own
+`PostToolUseFailure`/`PermissionRequest` extras remain the only edge divergence.
+
+> **Deferred:** the `Elicitation`/`ElicitationResult` hook events are registered and capability-gated,
+> but their answer-substituting semantics — a hook returning `{action, content}` to pre-empt or override
+> an elicitation before the registered `ElicitationPolicy` runs — require `HookOutput` fields that do
+> not exist yet (`HookOutput` today carries `continue_`/`suppress_output`/`decision`/`system_message`/
+> `reason` only). Tracked as a follow-up, not a gap in the hook *event* surface itself.
 
 ---
 
@@ -198,13 +226,17 @@ CLI binary's responsibility (settings-scope/disk persistence).
 
 | Capability | Python | TS | clauders | Status |
 |---|---|---|---|---|
-| Programmatic `agents` / `AgentDefinition` (description, prompt, tools, model) | ✅ | ✅ | ✅ `Options::agents: HashMap<String, AgentDefinition>` → `--agents` JSON (WS E) | ✅ |
+| Programmatic `agents` / `AgentDefinition` (description, prompt, tools, disallowedTools, model, maxTurns, permissionMode, skills, memory, mcpServers, initialPrompt, background, effort) | ✅ | ✅ | ✅ `Options::agents: HashMap<String, AgentDefinition>` → `--agents` JSON (WS E; six extra fields landed WS 5) | ✅ |
 | Awareness of subagent lifecycle | via hooks | via hooks | ✅ `HookEvent::SubagentStart/Stop` | ✅ |
 
 **Verdict:** ✅ clauders has programmatic subagent definitions, lowered to the binary's `--agents` JSON
-passthrough (WS E). The native nested-subagent loop that WS E also landed on `ApiRuntime` was removed
-with that runtime (vision §5), so subagents are a CLI-passthrough capability now — which is exactly what
-the official SDKs are.
+passthrough (WS E), now covering all 13 official `AgentDefinition` fields — `skills`, `memory`,
+`mcpServers`, `initialPrompt`, `background`, and `effort` landed in WS 5. The native nested-subagent loop
+that WS E also landed on `ApiRuntime` was removed with that runtime (vision §5), so subagents are a
+CLI-passthrough capability now — which is exactly what the official SDKs are. One caveat: the
+`mcpServers` wire shape is unconfirmed (`subagents/definition.rs`) — the official `AgentMcpServerSpec`
+element is undocumented, so clauders assumes `{ "name": …, "config": … }`; re-verify against a live
+`--agents` round-trip before treating it as at parity.
 
 ---
 
@@ -215,13 +247,68 @@ the official SDKs are.
 | `continue` most recent | ✅ | ✅ | ✅ `SessionControl::Continue` → `--continue` (WS F) | ✅ |
 | `resume` by session id | ✅ | ✅ | ✅ `SessionControl::Resume { id }` → `--resume <id>` (WS F) | ✅ |
 | `fork_session` | ✅ | ✅ | ✅ `SessionControl::Resume { fork: true }` → `--fork-session` (WS F) | ✅ |
-| List / inspect / rename / tag sessions | ✅ | ✅ | ❌ (native filesystem `SessionStore`/`list_sessions` removed, vision §5) | ❌ |
 | Session id type | ✅ | ✅ | ✅ `SessionId` on frames + `SessionControl` resume/fork wiring | ✅ |
+| `sessionId` (force a new session's id) | ✅ | ✅ | ✅ `Options::session_id` → `--session-id <id>` (new sessions only) | ✅ (WS 8 slice) |
+| `title` (session display title) | ✅ | ✅ | ✅ `Options::title` → `initialize` handshake payload | ✅ (WS 8 slice) |
+| `persistSession` | ✅ | ✅ | ✅ `Options::session_persistence` → `--no-session-persistence` when disabled | ✅ (WS 8 slice) |
+| `listSessions`/`list_sessions`, `getSessionMessages`/`get_session_messages`, `getSessionInfo`/`get_session_info`, `tagSession`/`tag_session` | ✅ | ✅ | ❌ | ❌ real parity gap — filesystem-only, see below |
+| `renameSession`/`rename_session` | ✅ | ✅ | ❌ | ❌ real parity gap — also reachable over the control protocol, see below |
+| `resumeSessionAt` (resume at a specific message UUID) | ❌ no Python equivalent | ✅ `Options.resumeSessionAt` | ❌ | ❌ TS-only, undocumented CLI flag — see below |
 
-**Verdict:** ✅ parity on continue/resume/fork via `SessionControl` → CLI flags (WS F). The native
-filesystem history store (`SessionStore`, `list_sessions`) that WS F also landed on `ApiRuntime` was
-removed with that runtime (vision §5); session listing/inspection is now the CLI binary's job, and the
-official SDKs don't expose it either. Remaining ❌: programmatic list/rename/tag.
+**List / inspect / tag sessions — a real parity gap, filesystem-only.** Verified directly against the
+shipped `@anthropic-ai/claude-agent-sdk@0.3.215` bundle (`package/sdk.mjs`), and independently
+corroborated from a second direction by mining the live `claude` v2.1.215 binary itself: the compiled
+CLI embeds this same JS/TS Agent SDK module (a bundler export table exposing `query`,
+`listSessions`, `getSessionMessages`, `getSessionInfo`, `renameSession`, `tagSession`). Both official
+SDKs implement `listSessions`/`getSessionMessages`/`getSessionInfo`/`tagSession` (and their Python
+snake_case equivalents) as **plain local-filesystem CRUD** over the same
+`~/.claude/projects/<encoded-cwd>/*.jsonl` transcripts the CLI itself writes — `readdir`/`stat`/`open`
+via Node's `fs/promises`, appending a `tag` JSONL entry for tag. Each function's default path takes an
+optional caller-supplied `sessionStore` override (the official pluggable-backend extension point); absent
+that override — the shipped default — there is no HTTP or control-plane call, only local file I/O. None
+of these four go through the subprocess stream-json control protocol; a Rust implementation therefore
+needs no new subprocess/control-plane plumbing — only JSONL-compatible file I/O against the documented
+on-disk format — so their absence in clauders is a genuine, and comparatively cheap, parity gap (tracked
+as WS 8's session-inspection slice; see "Candidate parity gaps worth closing" below).
+
+**`renameSession`/`rename_session` — same gap, cheaper mechanism.** Unlike the four ops above,
+`rename_session` is *also* a fully-wired `control_request` subtype in the CLI binary itself: a dedicated,
+schema-validated member of the binary's master request union, live-dispatched off the same stdin
+`stream-json` control-message loop `CliRuntime` already drives (real rename logic, not a stub — the
+dispatcher writes the new title and acknowledges over the wire). That makes it reachable, and closable,
+without touching the filesystem at all — a new outbound `control_request` on the protocol `clauders`
+already speaks, no `.jsonl` I/O required — making it the cheapest of the five ops to close. (The JS/TS
+SDK's standalone `renameSession` export still defaults to the same local-file mechanism as the other four
+when called outside a running `query()` session; the control-protocol path is the one available to an
+already-running CLI subprocess.) This does not change the mark below — clauders still does not implement
+it, so it stays ❌ — only the mechanism and cost of closing it. Grounding for this finding is the live
+v2.1.215 binary only; no earlier-version artifact was available to confirm whether this reachability is
+new or long-standing, so no version-change claim is made here.
+
+**`resumeSessionAt` — asymmetric across the official SDKs, not a sixth list/inspect op.** It is a
+TS-only `Options` field on `query()` (not a standalone function, and absent from the official Python
+SDK), lowered to a `--resume-session-at=<uuid>` CLI argument at subprocess spawn. **Caveat:**
+`--resume-session-at` does **not** appear in `claude --help` on the live v2.1.215 binary (verified
+directly) — the TypeScript SDK emits an undocumented flag. Rust parity-with-Python does not require
+this field; parity-with-TS would, but only against an unstable, undocumented CLI surface, so it is
+lower priority than the four filesystem ops and `renameSession` above.
+
+> **Correction to the vision §5 removal rationale.** This doc previously stated that clauders' removed
+> native `SessionStore`/`list_sessions` was justified because it had "no official counterpart," and
+> that "the official SDKs don't expose it either." **That premise is false** — both official SDKs ship
+> `list_sessions`/`listSessions` and the four sibling ops above as public, documented, local-filesystem
+> functions (verified against shipped SDK source, not just docs). This does **not** reverse the removal
+> itself (vision §5) — the native store was `ApiRuntime`-only plumbing removed for reasons unrelated to
+> this claim — but the *justification* that no official counterpart exists was wrong, and the
+> official-parity gap it leaves behind is real. `vision-and-strategy.md` itself is not edited by this
+> correction; it is recorded here, where the parity claim lives.
+
+**Verdict:** ✅ parity on continue/resume/fork via `SessionControl` → CLI flags (WS F), plus the WS 8
+session-config slice (`session_id`/`title`/`session_persistence`). ❌ remaining: `listSessions`/
+`getSessionMessages`/`getSessionInfo`/`tagSession` — a real gap, backed by plain local-filesystem I/O,
+comparatively cheap to close — plus `renameSession`, the same gap but reachable over the control
+protocol `clauders` already drives (no filesystem work needed at all, so cheaper still to close) — and
+`resumeSessionAt`, which is TS-only, maps to an undocumented CLI flag, and is lower priority.
 
 ---
 
@@ -334,27 +421,33 @@ delegate all caching to the CLI and never surface a policy knob, and clauders no
 | Area | clauders vs official |
 |---|---|
 | One-shot + stateful entry points | ✅ parity |
-| In-process MCP tools | ✅ parity (minus Zod typing / rich content) |
+| In-process MCP tools | ✅ parity (minus Zod typing) |
 | Hooks | ✅ parity (event set differs at edges) |
 | Permissions — full mode set (`default`/`acceptEdits`/`plan`/`bypass`/`dontAsk`/`auto`) + allow/deny/rewrite/context + deny-interrupt + `updated_permissions` | ✅ parity (WS C/D via CLI `can_use_tool` seam; native enforcement removed, vision §5) |
 | Structured output (`output_format` + typed result) | ✅ parity (WS B; CLI passthrough best-effort) |
 | Message taxonomy incl. cache usage + cost + `Message::Other` catch-all | ✅ parity |
 | **Subagents** (`agents`/`AgentDefinition`) | ✅ parity (WS E; `--agents` passthrough) |
-| **Sessions** (continue/resume/fork) | ✅ parity (WS F; list/inspect still ❌) |
+| **Sessions** (continue/resume/fork + session-config slice) | ✅ parity (WS F + WS 8 session-config slice; list/inspect/tag (filesystem-only) + `renameSession` (control-protocol-reachable, cheapest to close) + `resumeSessionAt` still ❌, see §7) |
 | System-prompt preset + append | ✅ parity (WS A) |
-| Config breadth (WS 1: fallback, strict-mcp, add-dirs, settings, budget, partial-messages, hook-events, prompt-tool override, stderr, max-buffer) | ✅ parity on the WS 1 knobs; 🟡 residual `setting_sources` + newer model knobs |
+| Config breadth (WS 1: fallback, strict-mcp, add-dirs, settings, budget, partial-messages, hook-events, prompt-tool override, stderr, max-buffer; WS 8 session-config slice: `session_id`/`title`/`session_persistence`) | ✅ parity on the WS 1 + WS 8-slice knobs (`Options` now 37 fields); 🟡 residual `setting_sources` |
 | **Setting sources** (filesystem config/CLAUDE.md) | ❌ behind (`settings` path/inline landed; `setting_sources` not) |
-| Streaming input, live MCP control, warm start, MCP elicitation | ❌ behind (streaming input = WS G, next) |
+| Streaming input (WS 6) + MCP elicitation (WS 7) | ✅ parity — both landed |
+| Live MCP control, warm start (WS 9 live-control tail) | ❌ behind |
 | **Native multi-provider runtimes** (Api/OpenRouter/Routing) | 🟣 removed (vision §5) |
 | **Prompt-cache policy + token efficiency** | 🟣 removed (vision §5) |
 | **Middleware / evals / orchestration pool** | 🟣 removed (vision §5) |
 | **Bundled raw Messages API client** | 🟣 kept, not removed (vision §5) — reclassified as Pillar 1, not a superset |
 
 **One-line summary:** on the *CLI-driving agent core* clauders is now at parity across query/client,
-tools, hooks, the full permission-mode set, system prompt, messages, structured output, **subagents,
-sessions, and the WS 1 config breadth**. The remaining gaps are streaming input (WS G), `setting_sources`
-+ filesystem config, and the live-control long tail (warm start, live MCP set, MCP elicitation). The
-native multi-provider runtimes, prompt-cache policy, and middleware/evals/orchestration that used to read
+tools (incl. richer result content, WS 4), hooks (incl. `SessionStart`/`SessionEnd`/`Setup`, WS 3), the
+full permission-mode set, system prompt, messages, structured output, **subagents (incl. the WS 5 extra
+fields), sessions (incl. the WS 8 session-config slice), streaming input (WS 6), MCP elicitation (WS 7),
+and the WS 1 config breadth**. The remaining gaps are `setting_sources` + filesystem config, the
+live-control long tail (warm start, live MCP set), and the WS 8 session list/inspect/tag ops plus
+`renameSession` (§7 — a real, comparatively cheap gap, with `renameSession` cheapest of all since it is
+reachable over the control protocol with no filesystem work needed; `resumeSessionAt` is TS-only and
+lower priority). The native
+multi-provider runtimes, prompt-cache policy, and middleware/evals/orchestration that used to read
 "ahead" were a superset with no official counterpart and were **removed** in the parity-first pivot
 (vision §5); clauders is a subset-completing parity client, not a superset.
 
@@ -364,36 +457,68 @@ native multi-provider runtimes, prompt-cache policy, and middleware/evals/orches
 
 Ranked by leverage for the airsstack mission, not by official-checklist completeness:
 
-1. **Streaming input** (`Prompt::Stream`) — the highest-value remaining primitive; enables interactive
-   multi-turn feeds into a live session (WS G, in design).
-2. ~~**Subagents (`AgentDefinition`)**~~ — **landed (WS E)**: `Options::agents` → `--agents` JSON
-   passthrough.
+1. ~~**Streaming input** (`Prompt::Stream`)~~ — **landed (WS 6)**: fed to the binary's stdin as NDJSON
+   user messages as they arrive.
+2. ~~**Subagents (`AgentDefinition`)**~~ — **landed (WS E; six extra fields WS 5)**: `Options::agents` →
+   `--agents` JSON passthrough, now the full 13-field official shape.
 3. ~~**Sessions (continue / resume / fork)**~~ — **landed (WS F)**: `SessionControl` → `--continue` /
-   `--resume <id>` / `--fork-session`. Programmatic list/inspect remains ❌ (native store removed).
+   `--resume <id>` / `--fork-session`, plus the WS 8 session-config slice
+   (`session_id`/`title`/`session_persistence`) — **also landed**. **Not landed:** session
+   **list / inspect / tag** (`listSessions`/`getSessionMessages`/`getSessionInfo`/`tagSession`) — a real
+   parity gap, not CLI-unreachable (see §7's correction); both official SDKs implement these as local
+   `.jsonl` file CRUD, closable with no new subprocess/control-plane plumbing. Also not landed:
+   `renameSession` — the same official-SDK gap, but *additionally* wired as a genuine `rename_session`
+   `control_request` subtype live-dispatched over the subprocess stream-json protocol `clauders` already
+   drives, making it closable with no filesystem work at all — the cheapest of the five to close. Also
+   not landed: `resumeSessionAt` — TS-only (absent from the official Python SDK) and maps to an
+   undocumented `--resume-session-at` CLI flag; lower priority.
 4. ~~**System-prompt preset + append**~~ — **landed (WS A)**.
 5. ~~**`dontAsk` + `auto` permission modes + `updated_permissions` + deny-interrupt**~~ — **landed
    (WS C/D)** via the CLI `can_use_tool` seam. Native enforcement (`permission_engine`, model-judge)
    removed with `ApiRuntime` (vision §5); modes are forwarded verbatim to the binary.
-6. **Setting sources** — evaluate deliberately: loading `CLAUDE.md`/settings fights token hygiene; may
+6. ~~**MCP result content kinds**~~ — **landed (WS 4)**: `ToolContent` now has `Text`, `Image`, `Audio`,
+   `ResourceLink`, and `Resource`.
+7. ~~**Hook-event edges** (`SessionStart`/`SessionEnd`)~~ — **landed (WS 3)**, plus `Setup`.
+8. ~~**MCP elicitation**~~ — **landed (WS 7)**: `ElicitationPolicy` + `Elicitation`/`ElicitationResult`
+   hook events. The answer-substituting hook semantics (a hook pre-empting or overriding an elicitation
+   before the policy runs) remain deferred — `HookOutput` has no fields for it yet.
+9. **Setting sources** — evaluate deliberately: loading `CLAUDE.md`/settings fights token hygiene; may
    stay intentionally out of scope. (Inline/path `settings` already landed in WS 1.)
-7. **Live-control long tail** — warm start, `reinitialize`, live MCP set/toggle, MCP elicitation.
+10. **Live-control long tail** — warm start, `reinitialize`, live MCP set/toggle (WS 9).
 
-Explicitly *not* gaps to chase: `skills`, `plugins`, `sandbox`, `betas`, session-store mirroring —
-CLI-feature passthroughs with little bearing on the Rust SDK's thesis.
+Deferred CLI-only flags with no official Agent-SDK option counterpart: `--from-pr` (resume a session
+linked to a PR) and `-n`/`--name` (a display-name convenience superseded by the `title` handshake
+field).
+
+Explicitly *not* gaps to chase: `skills`, `plugins`, `sandbox`, `betas`, and re-introducing a *native*
+in-crate `SessionStore` that mirrors/duplicates the CLI's own on-disk session store (the superset
+removed per vision §5) — distinct from the read-only session list/inspect/tag ops in item 3 above,
+which *are* tracked as a real gap. These are CLI-feature passthroughs and superset re-additions with
+little bearing on the Rust SDK's thesis.
 
 ---
 
 ## Methodology & caveats
 
 - **clauders side** — read directly from source on the parity-first, CLI-only tree
-  (`crates/clauders/src/agent/`: `options.rs`, `permissions/`, `subagents/`, `types/session_control.rs`,
-  `runtime/cli/{argv,runtime}.rs`, `process/{pipes,spawn,handle}.rs`, `message.rs`, `content.rs`,
-  `hooks.rs`, `mcp/`, and the `agent/mod.rs` re-export set). Authoritative.
+  (`crates/clauders/src/agent/`: `options.rs`, `permissions/`, `subagents/`, `elicitation/`,
+  `types/{session_control,session_persistence,prompt}.rs`,
+  `runtime/cli/{argv,runtime,handshake,dispatch}.rs`, `process/{pipes,spawn,handle}.rs`, `message.rs`,
+  `content.rs`, `hooks.rs`, `capabilities.rs`, `mcp/`, and the `agent/mod.rs` re-export set).
+  Authoritative.
 - **Official side** — the two official SDK references at
   `code.claude.com/docs/en/agent-sdk/{python,typescript}`, cross-checked against the live `claude` Code
-  binary **v2.1.209** for the flag surface. The official SDKs iterate quickly; exact option keys,
-  permission modes, and hook-event names drift between releases. Re-verify against the live reference
-  before treating any single ❌ as a hard commitment.
+  binary **v2.1.215** for the flag surface. Sessions (§7) are additionally cross-checked against the
+  shipped `@anthropic-ai/claude-agent-sdk@0.3.215` npm bundle (`package/sdk.mjs`) and, independently, by
+  mining the live v2.1.215 binary's embedded JS (the compiled CLI bundles that same SDK module plus the
+  binary's own `control_request` schema union) — the actual shipped source on both counts, not a docs
+  summary — to resolve the local-filesystem-vs-control-plane mechanism question per op:
+  `listSessions`/`getSessionMessages`/`getSessionInfo`/`tagSession` are filesystem-only, `renameSession`
+  is additionally a live-dispatched `control_request` subtype. Grounding for the binary-mining findings is
+  v2.1.215 only; no earlier-version binary was available to confirm whether this is new or long-standing.
+  The official SDKs iterate quickly; exact option keys, permission modes, and hook-event names drift
+  between releases. Re-verify against the live reference before treating any single ❌ as a hard
+  commitment.
 - Parity marks judge *capability*, not wire/name identity. clauders is idiomatic Rust (builders,
   trait objects, exhaustive enums), so equivalent features carry Rust-shaped names.
 
@@ -401,4 +526,13 @@ CLI-feature passthroughs with little bearing on the Rust SDK's thesis.
 
 - TypeScript SDK reference — <https://code.claude.com/docs/en/agent-sdk/typescript>
 - Python SDK reference — <https://code.claude.com/docs/en/agent-sdk/python>
+- Session-storage reference — <https://code.claude.com/docs/en/agent-sdk/session-storage>
+- Official session-ops shipped source — `@anthropic-ai/claude-agent-sdk@0.3.215` npm bundle,
+  `package/sdk.mjs` (used to resolve §7's local-filesystem-vs-control-plane question)
+- Live CLI binary — `claude` v2.1.215 (Mach-O arm64, embeds the same JS/TS SDK module plus the binary's
+  `control_request` schema union; used to independently corroborate §7's mechanism question and to
+  confirm `rename_session`'s control-protocol reachability)
+- Official Python SDK source — `claude-agent-sdk` (Python), read in a prior grounding session (not
+  re-read as part of this doc's own evidence set) for the control-request timeout default cited at
+  §2's "Control-request timeout" row
 - clauders roadmap — [`../agent-sdk-roadmap.md`](../agent-sdk-roadmap.md)
