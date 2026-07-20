@@ -27,6 +27,14 @@ pub(super) fn initialize_request(options: &Options, request_id: &str) -> serde_j
             obj.insert("output_format".to_string(), value);
         }
     }
+    if let Some(title) = &options.title {
+        if let Some(obj) = request.as_object_mut() {
+            obj.insert(
+                "title".to_string(),
+                serde_json::Value::String(title.clone()),
+            );
+        }
+    }
     serde_json::json!({
         "type": "control_request",
         "request_id": request_id,
@@ -150,5 +158,19 @@ mod tests {
         let opts = Options::builder().build();
         let value = initialize_request(&opts, "req_0");
         assert!(value["request"].get("output_format").is_none());
+    }
+
+    #[test]
+    fn initialize_request_carries_title_when_set() {
+        let opts = Options::builder().title("Nightly triage").build();
+        let value = initialize_request(&opts, "req_0");
+        assert_eq!(value["request"]["title"], "Nightly triage");
+    }
+
+    #[test]
+    fn initialize_request_omits_title_when_unset() {
+        let opts = Options::builder().build();
+        let value = initialize_request(&opts, "req_0");
+        assert!(value["request"].get("title").is_none());
     }
 }

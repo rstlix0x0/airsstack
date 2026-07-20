@@ -3,7 +3,7 @@
 use crate::agent::options::Options;
 use crate::agent::permissions::PermissionMode;
 use crate::agent::system_prompt::SystemPromptConfig;
-use crate::agent::types::SessionControl;
+use crate::agent::types::{SessionControl, SessionPersistence, SettingsSource};
 
 /// Build the full argument vector for spawning the backend.
 ///
@@ -22,9 +22,12 @@ pub(super) fn build_argv(options: &Options) -> Vec<String> {
     argv.push("--permission-mode".to_string());
     argv.push(permission_mode_wire(options.permission_mode).to_string());
 
-    // A registered policy routes tool-permission prompts over the control
-    // protocol; the `stdio` sentinel selects that path.
-    if options.permission_policy.is_some() {
+    // A caller-named prompt tool takes precedence; otherwise a registered
+    // policy routes prompts over the control protocol via the `stdio` sentinel.
+    if let Some(name) = &options.permission_prompt_tool_name {
+        argv.push("--permission-prompt-tool".to_string());
+        argv.push(name.clone());
+    } else if options.permission_policy.is_some() {
         argv.push("--permission-prompt-tool".to_string());
         argv.push("stdio".to_string());
     }
@@ -84,7 +87,42 @@ pub(super) fn build_argv(options: &Options) -> Vec<String> {
         let config = serde_json::json!(options.agents);
         argv.push(config.to_string());
     }
-    argv.extend(session_args(&options.session));
+    if let Some(model) = &options.fallback_model {
+        argv.push("--fallback-model".to_string());
+        argv.push(model.as_str().to_string());
+    }
+    if options.strict_mcp_config {
+        argv.push("--strict-mcp-config".to_string());
+    }
+    if !options.add_dirs.is_empty() {
+        // Variadic form: one flag, each directory as a following value.
+        argv.push("--add-dir".to_string());
+        for dir in &options.add_dirs {
+            argv.push(dir.to_string_lossy().into_owned());
+        }
+    }
+    if let Some(settings) = &options.settings {
+        argv.push("--settings".to_string());
+        argv.push(match settings {
+            SettingsSource::Path(path) => path.to_string_lossy().into_owned(),
+            SettingsSource::Inline(value) => value.to_string(),
+        });
+    }
+    if let Some(budget) = options.max_budget_usd {
+        argv.push("--max-budget-usd".to_string());
+        argv.push(budget.get().to_string());
+    }
+    if options.include_partial_messages {
+        argv.push("--include-partial-messages".to_string());
+    }
+    if options.include_hook_events {
+        argv.push("--include-hook-events".to_string());
+    }
+    if let Some(effort) = options.effort {
+        argv.push("--effort".to_string());
+        argv.push(effort.as_str().to_string());
+    }
+    argv.extend(session_args(options));
     argv
 }
 
@@ -100,28 +138,43 @@ pub(super) const fn permission_mode_wire(mode: PermissionMode) -> &'static str {
     }
 }
 
-/// Map the session intent to the backend's session flags.
+/// Map session identity, continuation, and persistence options to argv.
 ///
-/// `--fork-session` combines with either `--continue` or `--resume <id>`.
-/// `New` emits nothing; the binary starts a fresh session by default.
-fn session_args(control: &SessionControl) -> Vec<String> {
-    match control {
-        SessionControl::New => Vec::new(),
-        SessionControl::Continue { fork } => {
-            let mut args = vec!["--continue".to_string()];
-            if *fork {
-                args.push("--fork-session".to_string());
-            }
-            args
-        }
-        SessionControl::Resume { id, fork } => {
-            let mut args = vec!["--resume".to_string(), id.as_str().to_string()];
-            if *fork {
-                args.push("--fork-session".to_string());
-            }
-            args
+/// `--session-id` forces the id of a NEW session; it contradicts
+/// `--continue`/`--resume`, which select an existing one, so it is emitted
+/// only for a new session (with a warning logged on the contradictory
+/// combination). `--fork-session` combines with either `--continue` or
+/// `--resume <id>`; a new session with no forced id emits neither.
+fn session_args(options: &Options) -> Vec<String> {
+    let mut args = Vec::new();
+    if let Some(id) = &options.session_id {
+        if matches!(options.session, SessionControl::New) {
+            args.push("--session-id".to_string());
+            args.push(id.as_str().to_string());
+        } else {
+            tracing::warn!("session_id is ignored when continuing or resuming a session");
         }
     }
+    if options.session_persistence == SessionPersistence::Disabled {
+        args.push("--no-session-persistence".to_string());
+    }
+    match &options.session {
+        SessionControl::New => {}
+        SessionControl::Continue { fork } => {
+            args.push("--continue".to_string());
+            if *fork {
+                args.push("--fork-session".to_string());
+            }
+        }
+        SessionControl::Resume { id, fork } => {
+            args.push("--resume".to_string());
+            args.push(id.as_str().to_string());
+            if *fork {
+                args.push("--fork-session".to_string());
+            }
+        }
+    }
+    args
 }
 
 #[cfg(test)]
@@ -357,5 +410,258 @@ mod tests {
             .expect("--resume present");
         assert_eq!(argv.get(idx + 1).map(String::as_str), Some("sess_99"));
         assert!(argv.iter().any(|a| a == "--fork-session"));
+    }
+
+    #[test]
+    fn lowers_fallback_model() {
+        use crate::types::ModelId;
+        let opts = Options::builder()
+            .fallback_model(ModelId::custom("claude-haiku-4-5").expect("model"))
+            .build();
+        let joined = build_argv(&opts).join(" ");
+        assert!(
+            joined.contains("--fallback-model claude-haiku-4-5"),
+            "got: {joined}"
+        );
+    }
+
+    #[test]
+    fn strict_mcp_config_emits_presence_flag_only_when_true() {
+        assert!(
+            !build_argv(&Options::default())
+                .iter()
+                .any(|a| a == "--strict-mcp-config")
+        );
+        let opts = Options::builder().strict_mcp_config(true).build();
+        assert!(build_argv(&opts).iter().any(|a| a == "--strict-mcp-config"));
+    }
+
+    #[test]
+    fn add_dirs_emit_one_flag_with_each_directory_as_a_value() {
+        let opts = Options::builder().add_dir("/a").add_dir("/b").build();
+        let argv = build_argv(&opts);
+        let idx = argv
+            .iter()
+            .position(|a| a == "--add-dir")
+            .expect("--add-dir present");
+        assert_eq!(argv.get(idx + 1).map(String::as_str), Some("/a"));
+        assert_eq!(argv.get(idx + 2).map(String::as_str), Some("/b"));
+        // Exactly one --add-dir flag (variadic form), not one per directory.
+        assert_eq!(argv.iter().filter(|a| *a == "--add-dir").count(), 1);
+    }
+
+    #[test]
+    fn settings_path_and_inline_lower_to_the_flag_argument() {
+        let p = Options::builder().settings_path("/etc/s.json").build();
+        let pa = build_argv(&p);
+        let pi = pa
+            .iter()
+            .position(|a| a == "--settings")
+            .expect("--settings");
+        assert_eq!(pa.get(pi + 1).map(String::as_str), Some("/etc/s.json"));
+
+        let i = Options::builder()
+            .settings_inline(serde_json::json!({ "k": 1 }))
+            .build();
+        let ia = build_argv(&i);
+        let ii = ia
+            .iter()
+            .position(|a| a == "--settings")
+            .expect("--settings");
+        assert_eq!(ia.get(ii + 1).map(String::as_str), Some("{\"k\":1}"));
+    }
+
+    #[test]
+    fn max_budget_usd_lowers_to_amount() {
+        use crate::agent::types::BudgetUsd;
+        let opts = Options::builder()
+            .max_budget_usd(BudgetUsd::new(5.0).expect("positive"))
+            .build();
+        let argv = build_argv(&opts);
+        let idx = argv
+            .iter()
+            .position(|a| a == "--max-budget-usd")
+            .expect("flag");
+        assert_eq!(argv.get(idx + 1).map(String::as_str), Some("5"));
+    }
+
+    #[test]
+    fn include_partial_messages_emits_presence_flag() {
+        assert!(
+            !build_argv(&Options::default())
+                .iter()
+                .any(|a| a == "--include-partial-messages")
+        );
+        let opts = Options::builder().include_partial_messages(true).build();
+        assert!(
+            build_argv(&opts)
+                .iter()
+                .any(|a| a == "--include-partial-messages")
+        );
+    }
+
+    #[test]
+    fn permission_prompt_tool_name_overrides_stdio_sentinel() {
+        let opts = Options::builder()
+            .permission_prompt_tool_name("mcp__gate__approve")
+            .build();
+        let argv = build_argv(&opts);
+        let idx = argv
+            .iter()
+            .position(|a| a == "--permission-prompt-tool")
+            .expect("flag present");
+        assert_eq!(
+            argv.get(idx + 1).map(String::as_str),
+            Some("mcp__gate__approve")
+        );
+    }
+
+    #[test]
+    fn permission_prompt_tool_name_wins_over_active_policy() {
+        use crate::agent::error::AgentError;
+        use crate::agent::permissions::{PermissionContext, PermissionDecision, PermissionPolicy};
+        use std::sync::Arc;
+
+        struct P;
+        #[async_trait::async_trait]
+        impl PermissionPolicy for P {
+            async fn can_use_tool(
+                &self,
+                _t: &str,
+                _i: &serde_json::Value,
+                _c: PermissionContext,
+            ) -> Result<PermissionDecision, AgentError> {
+                Ok(PermissionDecision::allow())
+            }
+        }
+
+        let opts = Options::builder()
+            .permission_policy(Arc::new(P))
+            .permission_prompt_tool_name("mcp__gate__approve")
+            .build();
+        let argv = build_argv(&opts);
+        let joined = argv.join(" ");
+        assert!(
+            joined.contains("--permission-prompt-tool mcp__gate__approve"),
+            "got: {joined}"
+        );
+        assert!(
+            !joined.contains("--permission-prompt-tool stdio"),
+            "got: {joined}"
+        );
+    }
+
+    #[test]
+    fn custom_prompt_tool_emits_even_without_a_policy() {
+        // A caller-owned prompt tool is emitted regardless of permission_policy.
+        let opts = Options::builder()
+            .permission_prompt_tool_name("mcp__gate__approve")
+            .build();
+        assert!(
+            build_argv(&opts)
+                .iter()
+                .any(|a| a == "--permission-prompt-tool")
+        );
+    }
+
+    #[test]
+    fn include_hook_events_emits_presence_flag() {
+        assert!(
+            !build_argv(&Options::default())
+                .iter()
+                .any(|a| a == "--include-hook-events")
+        );
+        let opts = Options::builder().include_hook_events(true).build();
+        assert!(
+            build_argv(&opts)
+                .iter()
+                .any(|a| a == "--include-hook-events")
+        );
+    }
+
+    #[test]
+    fn session_id_emits_flag_for_a_new_session() {
+        use crate::agent::types::SessionId;
+        let opts = Options::builder()
+            .session_id(SessionId::new("sess_7"))
+            .build();
+        let argv = build_argv(&opts);
+        let idx = argv
+            .iter()
+            .position(|a| a == "--session-id")
+            .expect("--session-id present");
+        assert_eq!(argv.get(idx + 1).map(String::as_str), Some("sess_7"));
+    }
+
+    #[test]
+    fn session_id_is_omitted_when_resuming_or_continuing() {
+        use crate::agent::types::{SessionControl, SessionId};
+
+        let resuming = Options::builder()
+            .session_id(SessionId::new("sess_7"))
+            .session(SessionControl::Resume {
+                id: SessionId::new("sess_1"),
+                fork: false,
+            })
+            .build();
+        let resuming_argv = build_argv(&resuming);
+        assert!(!resuming_argv.iter().any(|a| a == "--session-id"));
+        let idx = resuming_argv
+            .iter()
+            .position(|a| a == "--resume")
+            .expect("--resume present");
+        assert_eq!(
+            resuming_argv.get(idx + 1).map(String::as_str),
+            Some("sess_1")
+        );
+
+        let continuing = Options::builder()
+            .session_id(SessionId::new("sess_7"))
+            .session(SessionControl::Continue { fork: false })
+            .build();
+        let continuing_argv = build_argv(&continuing);
+        assert!(!continuing_argv.iter().any(|a| a == "--session-id"));
+        assert!(continuing_argv.iter().any(|a| a == "--continue"));
+    }
+
+    #[test]
+    fn omits_session_id_flag_when_unset() {
+        assert!(
+            !build_argv(&Options::default())
+                .iter()
+                .any(|a| a == "--session-id")
+        );
+    }
+
+    #[test]
+    fn session_persistence_emits_flag_only_when_disabled() {
+        use crate::agent::types::SessionPersistence;
+
+        // Default (Enabled) emits nothing.
+        assert!(
+            !build_argv(&Options::default())
+                .iter()
+                .any(|a| a == "--no-session-persistence")
+        );
+
+        let opts = Options::builder()
+            .session_persistence(SessionPersistence::Disabled)
+            .build();
+        assert!(
+            build_argv(&opts)
+                .iter()
+                .any(|a| a == "--no-session-persistence")
+        );
+    }
+
+    #[test]
+    fn lowers_effort_when_set_and_omits_when_none() {
+        use crate::agent::types::EffortLevel;
+
+        let with = build_argv(&Options::builder().effort(EffortLevel::High).build());
+        assert!(with.join(" ").contains("--effort high"));
+
+        let without = build_argv(&Options::default());
+        assert!(!without.join(" ").contains("--effort"));
     }
 }

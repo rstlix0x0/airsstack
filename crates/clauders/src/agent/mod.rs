@@ -10,6 +10,7 @@
 pub mod capabilities;
 pub mod client;
 pub mod content;
+pub mod elicitation;
 pub mod error;
 pub mod hooks;
 pub mod mcp;
@@ -27,11 +28,14 @@ pub mod types;
 pub use capabilities::{Capabilities, HookEvent};
 pub use client::{AgentClientBuilder, Client, query};
 pub use content::ContentBlock;
+pub use elicitation::{
+    ElicitationMode, ElicitationPolicy, ElicitationRequest, ElicitationResponse,
+};
 pub use error::AgentError;
 pub use hooks::{Hook, HookDecision, HookInput, HookOutput, HookRegistry};
 pub use mcp::{
-    FnTool, SdkMcpRegistry, SdkMcpServer, SdkMcpServerBuilder, Tool, ToolAnnotations, ToolContent,
-    ToolResult, tool,
+    FnTool, ResourceContents, SdkMcpRegistry, SdkMcpServer, SdkMcpServerBuilder, Tool,
+    ToolAnnotations, ToolContent, ToolResult, tool,
 };
 pub use message::{
     AssistantMessage, Message, ResultMessage, StreamEvent, SystemMessage, Usage, UserMessage,
@@ -44,6 +48,6 @@ pub use permissions::{
 pub use runtime::Runtime;
 pub use runtime::cli::CliRuntime;
 pub use stream::MessageStream;
-pub use subagents::{AgentDefinition, AgentDefinitionError};
+pub use subagents::{AgentDefinition, AgentDefinitionError, MemorySource};
 pub use system_prompt::SystemPromptConfig;
-pub use types::SessionControl;
+pub use types::{EffortLevel, SessionControl};

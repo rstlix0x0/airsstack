@@ -37,6 +37,7 @@ pub enum ControlCall {
 pub struct MockRuntime {
     scripts: Mutex<VecDeque<Vec<Message>>>,
     calls: Mutex<Vec<ControlCall>>,
+    prompts: Mutex<Vec<Vec<String>>>,
     capabilities: Capabilities,
     mcp_status: McpStatus,
 }
@@ -48,6 +49,7 @@ impl MockRuntime {
         Self {
             scripts: Mutex::new(scripts.into()),
             calls: Mutex::new(Vec::new()),
+            prompts: Mutex::new(Vec::new()),
             capabilities: Capabilities::default(),
             mcp_status: McpStatus::default(),
         }
@@ -57,6 +59,17 @@ impl MockRuntime {
     #[must_use]
     pub fn calls(&self) -> Vec<ControlCall> {
         self.calls
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// The prompt inputs recorded so far, one inner `Vec` per `run` call: a
+    /// single-turn prompt records one element; a streamed prompt records its
+    /// drained items in order.
+    #[must_use]
+    pub fn prompts(&self) -> Vec<Vec<String>> {
+        self.prompts
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
@@ -75,11 +88,31 @@ impl MockRuntime {
             .unwrap_or_else(PoisonError::into_inner)
             .push(call);
     }
+
+    async fn record_prompt(&self, prompt: Prompt) {
+        use futures_util::StreamExt;
+
+        let recorded = match prompt {
+            Prompt::Single(text) => vec![text],
+            Prompt::Stream(mut stream) => {
+                let mut items = Vec::new();
+                while let Some(text) = stream.next().await {
+                    items.push(text);
+                }
+                items
+            }
+        };
+        self.prompts
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push(recorded);
+    }
 }
 
 #[async_trait]
 impl Runtime for MockRuntime {
-    async fn run(&self, _prompt: Prompt) -> Result<MessageStream, AgentError> {
+    async fn run(&self, prompt: Prompt) -> Result<MessageStream, AgentError> {
+        self.record_prompt(prompt).await;
         let turn = self
             .scripts
             .lock()
@@ -193,6 +226,25 @@ mod tests {
         assert_eq!(
             mock.calls().last().cloned(),
             Some(ControlCall::SetPermissionMode(PermissionMode::DontAsk))
+        );
+    }
+
+    #[tokio::test]
+    async fn records_single_prompt_as_one_element() {
+        let mock = MockRuntime::new(vec![]);
+        let _ = mock.run(Prompt::new("solo")).await.expect("run");
+        assert_eq!(mock.prompts(), vec![vec!["solo".to_string()]]);
+    }
+
+    #[tokio::test]
+    async fn records_streamed_prompt_items_in_order() {
+        let mock = MockRuntime::new(vec![]);
+        let stream =
+            futures_util::stream::iter(vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+        let _ = mock.run(Prompt::stream(stream)).await.expect("run");
+        assert_eq!(
+            mock.prompts(),
+            vec![vec!["a".to_string(), "b".to_string(), "c".to_string()]]
         );
     }
 }

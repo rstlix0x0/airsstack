@@ -2,6 +2,61 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Never assert what you have not checked
+
+Every factual claim about the official SDKs, the `claude` binary, or this codebase must come from
+**something you opened in the current task**. Not memory, not inference, not plausibility.
+
+- **Cite it or drop it.** A claim about behaviour carries a `file:line` or byte offset you actually
+  read. If you cannot cite it, either go read it or write "not verified" — never state it flatly.
+- **A subagent's recommendation is not a fact.** Research agents mix findings with advice. Promoting
+  "you should gate on X" into "the SDK gates on X" is fabrication even though a report said it.
+  Verify the underlying claim yourself before it enters a spec, a doc, or code.
+- **Absence needs a search that could have found it.** "X does not exist" requires naming the exact
+  command run and why it would have hit. Wrong identifier spelling, wrong file, wrong transport, or a
+  summary instead of the artifact all prove nothing. Check the method works by confirming it finds a
+  sibling you know is present.
+- **A passing test proves nothing until you have seen it fail.** Before claiming a test covers a bug,
+  break the fix and watch it go red.
+- **Prefer the shipped artifact over documentation**, and documentation over recollection. Read
+  `sdk.d.ts`/`sdk.mjs`, the Python sdist, or the binary — not what the docs say about them.
+
+This has produced real defects repeatedly: wrong claims reached committed docs, and a workstream was
+scoped out entirely on an unverified negative. When in doubt, go and look.
+
+## How to talk to the author
+
+**No jargon. Plain language. Short answers.**
+
+- Explain things the way you would to a competent engineer who has not been staring at this
+  problem for the last hour. Assume knowledge of Rust and software engineering; assume **no**
+  memory of this repo's internal shorthand.
+- **Never use an internal label without saying what it means**, every time: `WS 9`, `P1`, `S2`,
+  `pillar`, `parity line`, `the epic`, `the tail`. These mean nothing on their own. Say what the
+  work *is*, then the label if it is still useful.
+- Ban filler vocabulary that adds no information: "surface", "substrate", "seam", "axis",
+  "cohesion", "discriminating", "load-bearing", "grounded". Say the plain thing instead.
+- **Answer the question that was asked, then stop.** Do not append findings, caveats, or
+  next-step menus the author did not ask for.
+- Default to a few sentences. Reach for a table only when comparing three or more things on the
+  same axes — not to decorate a list.
+- Technical precision still wins over brevity for: exact error text, shell commands, code, wire
+  formats, security warnings, and irreversible actions. Never blur those to sound simpler.
+
+**Do not let a discovery hijack the request.** Finding a real bug mid-task is useful; turning the
+reply into a report about it is not. State it in one or two sentences, ask whether to act on it,
+and return to what was actually asked. Do not investigate it first — ask, then investigate if told
+to.
+
+**One topic per reply.** Never stack findings. If two things turn up, raise the one that blocks the
+current request and hold the other until asked. A reply that opens three threads at once forces the
+author to triage work they did not ask for, and it reads as the project falling apart when it is
+not.
+
+**Never dump a full backlog unprompted.** Lists of every known gap, bug, and risk are for when the
+author asks "what is left". Volunteering them mid-task buries the answer and destroys the sense of
+where the project actually stands.
+
 ## Repository status
 
 The Cargo workspace exists (root `Cargo.toml`, `resolver = "3"`, Edition 2024). It has **three members**: `crates/clauders` (a Claude SDK crate), `crates/openrouter-rs` (an OpenRouter SDK crate), and `crates/airs-transport` (a generic async transport substrate with an HTTP/reqwest layer, shared by the two SDK crates). Add new members under `crates/` only when there is concrete work for them; do not pre-create speculative crates.

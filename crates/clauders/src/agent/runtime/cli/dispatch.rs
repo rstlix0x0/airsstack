@@ -1,15 +1,17 @@
 //! Dispatch of inbound control requests to registered handlers.
 //!
 //! The reader task intercepts each inbound `control_request` and hands it to a
-//! [`Dispatcher`], which consults the registered [`PermissionPolicy`] or
-//! [`Hook`], encodes the correlated control response, and enqueues it on the
-//! outbound line channel drained by the writer task. A handler error becomes
-//! an error control response so the binary is never left waiting.
+//! [`Dispatcher`], which consults the registered [`PermissionPolicy`],
+//! [`Hook`], MCP server, or elicitation policy, encodes the correlated control
+//! response, and enqueues it on the outbound line channel drained by the
+//! writer task. A handler error becomes an error control response so the
+//! binary is never left waiting.
 
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
 
+use crate::agent::elicitation::{ElicitationPolicy, ElicitationRequest, ElicitationResponse};
 use crate::agent::hooks::{HookInput, HookRegistry};
 use crate::agent::mcp::{SdkMcpRegistry, router};
 use crate::agent::permissions::{PermissionContext, PermissionDecision, PermissionPolicy};
@@ -22,6 +24,7 @@ use crate::agent::protocol::{
 pub(super) struct Dispatcher {
     hooks: Arc<HookRegistry>,
     policy: Option<Arc<dyn PermissionPolicy>>,
+    elicitation: Option<Arc<dyn ElicitationPolicy>>,
     mcp: Arc<SdkMcpRegistry>,
     out_tx: mpsc::UnboundedSender<String>,
 }
@@ -31,12 +34,14 @@ impl Dispatcher {
     pub(super) fn new(
         hooks: Arc<HookRegistry>,
         policy: Option<Arc<dyn PermissionPolicy>>,
+        elicitation: Option<Arc<dyn ElicitationPolicy>>,
         mcp: Arc<SdkMcpRegistry>,
         out_tx: mpsc::UnboundedSender<String>,
     ) -> Self {
         Self {
             hooks,
             policy,
+            elicitation,
             mcp,
             out_tx,
         }
@@ -77,6 +82,40 @@ impl Dispatcher {
                 server_name,
                 message,
             } => self.mcp_outcome(&server_name, message).await,
+            InboundRequestBody::Elicitation {
+                elicitation_id,
+                message,
+                mode,
+                requested_schema,
+                url,
+                mcp_server_name,
+                title,
+                display_name,
+                description,
+            } => {
+                let request = ElicitationRequest {
+                    elicitation_id,
+                    message,
+                    mode,
+                    requested_schema,
+                    url,
+                    mcp_server_name,
+                    title,
+                    display_name,
+                    description,
+                };
+                self.elicitation_outcome(request).await
+            }
+            // A recognized-but-malformed control request body: report which
+            // subtype failed to deserialize rather than failing the whole
+            // turn.
+            InboundRequestBody::Malformed { subtype } => Err(format!(
+                "malformed control request (subtype: {})",
+                subtype.as_deref().unwrap_or("absent")
+            )),
+            // An unmodeled control-request subtype degrades to an error
+            // response rather than failing the whole turn.
+            InboundRequestBody::Other => Err("unsupported control request subtype".to_string()),
         };
         self.write_response(request_id, outcome);
     }
@@ -95,6 +134,21 @@ impl Dispatcher {
             },
             // No policy registered: allow, echoing the original input.
             None => Ok(PermissionDecision::allow().into_response_value(&input)),
+        }
+    }
+
+    /// Resolve an `elicitation` request to its response payload.
+    async fn elicitation_outcome(
+        &self,
+        request: ElicitationRequest,
+    ) -> Result<serde_json::Value, String> {
+        match &self.elicitation {
+            Some(policy) => match policy.elicit(request).await {
+                Ok(response) => Ok(response.into_response_value()),
+                Err(err) => Err(err.to_string()),
+            },
+            // No policy registered: decline, matching the official SDK.
+            None => Ok(ElicitationResponse::Decline.into_response_value()),
         }
     }
 
@@ -173,6 +227,7 @@ mod tests {
     use tokio::sync::mpsc;
 
     use super::Dispatcher;
+    use crate::agent::elicitation::{ElicitationPolicy, ElicitationRequest, ElicitationResponse};
     use crate::agent::error::AgentError;
     use crate::agent::hooks::HookRegistry;
     use crate::agent::mcp::SdkMcpRegistry;
@@ -224,6 +279,7 @@ mod tests {
         let dispatcher = Dispatcher::new(
             Arc::new(HookRegistry::default()),
             Some(Arc::new(AllowPolicy)),
+            None,
             Arc::new(SdkMcpRegistry::default()),
             tx,
         );
@@ -243,6 +299,7 @@ mod tests {
         let dispatcher = Dispatcher::new(
             Arc::new(HookRegistry::default()),
             Some(Arc::new(DenyPolicy)),
+            None,
             Arc::new(SdkMcpRegistry::default()),
             tx,
         );
@@ -259,6 +316,7 @@ mod tests {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let dispatcher = Dispatcher::new(
             Arc::new(HookRegistry::default()),
+            None,
             None,
             Arc::new(SdkMcpRegistry::default()),
             tx,
@@ -312,8 +370,13 @@ mod tests {
         let mut reg = HookRegistry::default();
         reg.register(HookEvent::PreToolUse, None, Arc::new(BlockingHook));
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let dispatcher =
-            Dispatcher::new(Arc::new(reg), None, Arc::new(SdkMcpRegistry::default()), tx);
+        let dispatcher = Dispatcher::new(
+            Arc::new(reg),
+            None,
+            None,
+            Arc::new(SdkMcpRegistry::default()),
+            tx,
+        );
         dispatcher.handle(hook_request("hook_0")).await;
         let line = rx.recv().await.expect("a response line");
         let value: serde_json::Value = serde_json::from_str(&line).expect("json");
@@ -327,6 +390,7 @@ mod tests {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let dispatcher = Dispatcher::new(
             Arc::new(HookRegistry::default()),
+            None,
             None,
             Arc::new(SdkMcpRegistry::default()),
             tx,
@@ -363,8 +427,13 @@ mod tests {
         let mut reg = SdkMcpRegistry::default();
         reg.register(SdkMcpServer::builder("calc").tool(echo).build());
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let dispatcher =
-            Dispatcher::new(Arc::new(HookRegistry::default()), None, Arc::new(reg), tx);
+        let dispatcher = Dispatcher::new(
+            Arc::new(HookRegistry::default()),
+            None,
+            None,
+            Arc::new(reg),
+            tx,
+        );
         dispatcher.handle(mcp_message_request("calc", "echo")).await;
         let line = rx.recv().await.expect("a response line");
         let value: serde_json::Value = serde_json::from_str(&line).expect("json");
@@ -381,6 +450,7 @@ mod tests {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let dispatcher = Dispatcher::new(
             Arc::new(HookRegistry::default()),
+            None,
             None,
             Arc::new(SdkMcpRegistry::default()),
             tx,
@@ -404,8 +474,13 @@ mod tests {
         let mut reg = HookRegistry::default();
         reg.register(HookEvent::Stop, None, Arc::new(FailingHook));
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let dispatcher =
-            Dispatcher::new(Arc::new(reg), None, Arc::new(SdkMcpRegistry::default()), tx);
+        let dispatcher = Dispatcher::new(
+            Arc::new(reg),
+            None,
+            None,
+            Arc::new(SdkMcpRegistry::default()),
+            tx,
+        );
         dispatcher.handle(hook_request("hook_0")).await;
         let line = rx.recv().await.expect("a response line");
         let value: serde_json::Value = serde_json::from_str(&line).expect("json");
@@ -416,6 +491,164 @@ mod tests {
                 .expect("error string")
                 .contains("boom"),
             "error detail should carry the handler message"
+        );
+    }
+
+    struct AcceptElicitation;
+
+    #[async_trait::async_trait]
+    impl ElicitationPolicy for AcceptElicitation {
+        async fn elicit(&self, _r: ElicitationRequest) -> Result<ElicitationResponse, AgentError> {
+            Ok(ElicitationResponse::Accept(
+                serde_json::json!({ "branch": "main" }),
+            ))
+        }
+    }
+
+    struct FailingElicitation;
+
+    #[async_trait::async_trait]
+    impl ElicitationPolicy for FailingElicitation {
+        async fn elicit(&self, _r: ElicitationRequest) -> Result<ElicitationResponse, AgentError> {
+            Err(AgentError::Protocol {
+                detail: "elicit boom".to_string(),
+            })
+        }
+    }
+
+    fn elicitation_request() -> crate::agent::protocol::InboundControlRequest {
+        let line = r#"{"type":"control_request","request_id":"srv_20","request":{"subtype":"elicitation","elicitation_id":"elic_1","message":"Pick","mode":"form","requested_schema":{"type":"object"}}}"#;
+        match decode_inbound(line).expect("decode") {
+            crate::agent::protocol::InboundFrame::ControlRequest(req) => req,
+            _ => unreachable!("decoded a control request"),
+        }
+    }
+
+    fn dispatcher_with_elicitation(
+        policy: Option<Arc<dyn ElicitationPolicy>>,
+        tx: mpsc::UnboundedSender<String>,
+    ) -> Dispatcher {
+        Dispatcher::new(
+            Arc::new(HookRegistry::default()),
+            None,
+            policy,
+            Arc::new(SdkMcpRegistry::default()),
+            tx,
+        )
+    }
+
+    #[tokio::test]
+    async fn accept_handler_writes_action_and_content() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let dispatcher = dispatcher_with_elicitation(Some(Arc::new(AcceptElicitation)), tx);
+        dispatcher.handle(elicitation_request()).await;
+        let line = rx.recv().await.expect("a response line");
+        let value: serde_json::Value = serde_json::from_str(&line).expect("json");
+        assert_eq!(value["response"]["subtype"], "success");
+        assert_eq!(value["response"]["request_id"], "srv_20");
+        assert_eq!(value["response"]["response"]["action"], "accept");
+        assert_eq!(value["response"]["response"]["content"]["branch"], "main");
+    }
+
+    #[tokio::test]
+    async fn no_elicitation_policy_declines() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let dispatcher = dispatcher_with_elicitation(None, tx);
+        dispatcher.handle(elicitation_request()).await;
+        let line = rx.recv().await.expect("a response line");
+        let value: serde_json::Value = serde_json::from_str(&line).expect("json");
+        assert_eq!(value["response"]["subtype"], "success");
+        assert_eq!(value["response"]["response"]["action"], "decline");
+    }
+
+    #[tokio::test]
+    async fn elicitation_policy_error_becomes_error_response() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let dispatcher = dispatcher_with_elicitation(Some(Arc::new(FailingElicitation)), tx);
+        dispatcher.handle(elicitation_request()).await;
+        let line = rx.recv().await.expect("a response line");
+        let value: serde_json::Value = serde_json::from_str(&line).expect("json");
+        assert_eq!(value["response"]["subtype"], "error");
+        assert!(
+            value["response"]["error"]
+                .as_str()
+                .expect("error string")
+                .contains("elicit boom")
+        );
+    }
+
+    #[tokio::test]
+    async fn malformed_control_request_becomes_error_response_naming_subtype() {
+        // Missing the required `elicitation_id` field: recognized subtype,
+        // malformed body.
+        let line = r#"{"type":"control_request","request_id":"srv_22","request":{"subtype":"elicitation","message":"Pick","mode":"form"}}"#;
+        let crate::agent::protocol::InboundFrame::ControlRequest(req) =
+            decode_inbound(line).expect("decode")
+        else {
+            unreachable!("decoded a control request")
+        };
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let dispatcher = dispatcher_with_elicitation(None, tx);
+        dispatcher.handle(req).await;
+        let line = rx.recv().await.expect("a response line");
+        let value: serde_json::Value = serde_json::from_str(&line).expect("json");
+        assert_eq!(value["response"]["subtype"], "error");
+        assert_eq!(value["response"]["request_id"], "srv_22");
+        assert!(
+            value["response"]["error"]
+                .as_str()
+                .expect("error string")
+                .contains("elicitation"),
+            "error detail should name the malformed subtype"
+        );
+    }
+
+    #[tokio::test]
+    async fn malformed_control_request_with_no_subtype_names_it_absent() {
+        // A `request` body with no `subtype` at all: the `Malformed { subtype:
+        // None }` half of the arm, not exercised by the `Some(subtype)` case
+        // covered above.
+        let line = r#"{"type":"control_request","request_id":"srv_23","request":{}}"#;
+        let crate::agent::protocol::InboundFrame::ControlRequest(req) =
+            decode_inbound(line).expect("decode")
+        else {
+            unreachable!("decoded a control request")
+        };
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let dispatcher = dispatcher_with_elicitation(None, tx);
+        dispatcher.handle(req).await;
+        let line = rx.recv().await.expect("a response line");
+        let value: serde_json::Value = serde_json::from_str(&line).expect("json");
+        assert_eq!(value["response"]["subtype"], "error");
+        assert_eq!(value["response"]["request_id"], "srv_23");
+        assert!(
+            value["response"]["error"]
+                .as_str()
+                .expect("error string")
+                .contains("absent"),
+            "error detail should report the missing subtype as absent"
+        );
+    }
+
+    #[tokio::test]
+    async fn unsupported_subtype_becomes_error_response() {
+        let line = r#"{"type":"control_request","request_id":"srv_21","request":{"subtype":"some_future_subtype"}}"#;
+        let crate::agent::protocol::InboundFrame::ControlRequest(req) =
+            decode_inbound(line).expect("decode")
+        else {
+            unreachable!("decoded a control request")
+        };
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let dispatcher = dispatcher_with_elicitation(None, tx);
+        dispatcher.handle(req).await;
+        let line = rx.recv().await.expect("a response line");
+        let value: serde_json::Value = serde_json::from_str(&line).expect("json");
+        assert_eq!(value["response"]["subtype"], "error");
+        assert!(
+            value["response"]["error"]
+                .as_str()
+                .expect("error string")
+                .contains("unsupported control request")
         );
     }
 }

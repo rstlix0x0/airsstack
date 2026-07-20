@@ -33,5 +33,5 @@ mod supervisor;
 pub use error::ProcessError;
 pub use handle::ManagedProcess;
 pub use io::ProcessIo;
-pub use pipes::{StderrBuffer, StdoutLines};
+pub use pipes::{LineError, StderrBuffer, StdoutLines};
 pub use spawn::ProcessConfig;

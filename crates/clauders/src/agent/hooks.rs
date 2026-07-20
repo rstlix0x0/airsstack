@@ -266,4 +266,14 @@ mod tests {
         let value = reg.initialize_payload(&Capabilities::default());
         assert_eq!(value, serde_json::json!({}));
     }
+
+    #[test]
+    fn initialize_payload_groups_session_start() {
+        let mut reg = HookRegistry::default();
+        reg.register(HookEvent::SessionStart, None, Arc::new(NoopHook));
+        let value = reg.initialize_payload(&Capabilities::default());
+        let entries = value["SessionStart"].as_array().expect("array");
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0]["hookCallbackIds"][0], "hook_0");
+    }
 }

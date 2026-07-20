@@ -9,7 +9,10 @@ use serde::Serialize;
 use thiserror::Error;
 
 use crate::agent::permissions::PermissionMode;
+use crate::agent::types::{EffortLevel, McpServerConfig};
 use crate::types::ModelId;
+
+use super::MemorySource;
 
 /// Reasons [`AgentDefinition::new`] can reject input.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -31,7 +34,7 @@ pub enum AgentDefinitionError {
 /// subtracts from it, `model` is the per-subtask model override (`None`
 /// inherits the parent model), `max_turns` and `permission_mode` likewise
 /// inherit when unset.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentDefinition {
     description: String,
@@ -46,6 +49,23 @@ pub struct AgentDefinition {
     max_turns: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     permission_mode: Option<PermissionMode>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    skills: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    memory: Option<MemorySource>,
+    /// External MCP servers scoped to this agent. **Unconfirmed wire shape:**
+    /// the official `AgentMcpServerSpec` element is undocumented, so each server
+    /// serializes as the assumed `{ "name": …, "config": … }` — the official
+    /// element likely inlines transport fields instead. Re-verify against a live
+    /// `--agents` round-trip before treating `mcpServers` as at parity.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    mcp_servers: Vec<McpServerConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    initial_prompt: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    background: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    effort: Option<EffortLevel>,
 }
 
 impl AgentDefinition {
@@ -76,6 +96,12 @@ impl AgentDefinition {
             model: None,
             max_turns: None,
             permission_mode: None,
+            skills: Vec::new(),
+            memory: None,
+            mcp_servers: Vec::new(),
+            initial_prompt: None,
+            background: None,
+            effort: None,
         })
     }
 
@@ -111,6 +137,48 @@ impl AgentDefinition {
     #[must_use]
     pub const fn with_permission_mode(mut self, mode: PermissionMode) -> Self {
         self.permission_mode = Some(mode);
+        self
+    }
+
+    /// Preload these skill names into the agent's context.
+    #[must_use]
+    pub fn with_skills(mut self, skills: Vec<String>) -> Self {
+        self.skills = skills;
+        self
+    }
+
+    /// Set the memory scope this agent reads from.
+    #[must_use]
+    pub const fn with_memory(mut self, memory: MemorySource) -> Self {
+        self.memory = Some(memory);
+        self
+    }
+
+    /// Attach external MCP servers scoped to this agent.
+    #[must_use]
+    pub fn with_mcp_servers(mut self, servers: Vec<McpServerConfig>) -> Self {
+        self.mcp_servers = servers;
+        self
+    }
+
+    /// Auto-submit this text as the first user turn when run as main thread.
+    #[must_use]
+    pub fn with_initial_prompt(mut self, prompt: impl Into<String>) -> Self {
+        self.initial_prompt = Some(prompt.into());
+        self
+    }
+
+    /// Run this agent as a non-blocking background task when invoked.
+    #[must_use]
+    pub const fn with_background(mut self, background: bool) -> Self {
+        self.background = Some(background);
+        self
+    }
+
+    /// Override the reasoning-effort level for this agent.
+    #[must_use]
+    pub const fn with_effort(mut self, effort: EffortLevel) -> Self {
+        self.effort = Some(effort);
         self
     }
 
@@ -154,6 +222,42 @@ impl AgentDefinition {
     #[must_use]
     pub const fn permission_mode(&self) -> Option<PermissionMode> {
         self.permission_mode
+    }
+
+    /// Skill names preloaded into the agent's context; empty inherits none.
+    #[must_use]
+    pub fn skills(&self) -> &[String] {
+        &self.skills
+    }
+
+    /// The memory scope; `None` inherits the parent's.
+    #[must_use]
+    pub const fn memory(&self) -> Option<MemorySource> {
+        self.memory
+    }
+
+    /// External MCP servers scoped to this agent; empty inherits the parent's.
+    #[must_use]
+    pub fn mcp_servers(&self) -> &[McpServerConfig] {
+        &self.mcp_servers
+    }
+
+    /// The auto-submitted first user turn when run as main thread; `None` if unset.
+    #[must_use]
+    pub fn initial_prompt(&self) -> Option<&str> {
+        self.initial_prompt.as_deref()
+    }
+
+    /// Whether the agent runs as a non-blocking background task; `None` inherits.
+    #[must_use]
+    pub const fn background(&self) -> Option<bool> {
+        self.background
+    }
+
+    /// The reasoning-effort override; `None` inherits the parent's.
+    #[must_use]
+    pub const fn effort(&self) -> Option<EffortLevel> {
+        self.effort
     }
 }
 
@@ -238,5 +342,87 @@ mod tests {
         assert!(!obj.contains_key("model"));
         assert!(!obj.contains_key("maxTurns"));
         assert!(!obj.contains_key("permissionMode"));
+    }
+
+    #[test]
+    fn new_defaults_new_optional_fields_to_inherit() {
+        let def = AgentDefinition::new("reviewer", "be careful").expect("valid");
+        assert!(def.skills().is_empty());
+        assert_eq!(def.memory(), None);
+        assert!(def.mcp_servers().is_empty());
+        assert_eq!(def.initial_prompt(), None);
+        assert_eq!(def.background(), None);
+        assert_eq!(def.effort(), None);
+    }
+
+    #[test]
+    fn serialize_omits_unset_new_optional_fields() {
+        let def = AgentDefinition::new("reviewer", "be careful").expect("valid");
+        let json = serde_json::to_value(&def).expect("serialize");
+        let obj = json.as_object().expect("object");
+        assert!(!obj.contains_key("skills"));
+        assert!(!obj.contains_key("memory"));
+        assert!(!obj.contains_key("mcpServers"));
+        assert!(!obj.contains_key("initialPrompt"));
+        assert!(!obj.contains_key("background"));
+        assert!(!obj.contains_key("effort"));
+    }
+
+    #[test]
+    fn with_setters_populate_new_optional_fields() {
+        use crate::agent::subagents::MemorySource;
+        use crate::agent::types::EffortLevel;
+
+        let def = AgentDefinition::new("reviewer", "be careful")
+            .expect("valid")
+            .with_skills(vec!["research".to_string()])
+            .with_memory(MemorySource::Project)
+            .with_initial_prompt("start here")
+            .with_background(true)
+            .with_effort(EffortLevel::High);
+        assert_eq!(def.skills(), ["research".to_string()].as_slice());
+        assert_eq!(def.memory(), Some(MemorySource::Project));
+        assert_eq!(def.initial_prompt(), Some("start here"));
+        assert_eq!(def.background(), Some(true));
+        assert_eq!(def.effort(), Some(EffortLevel::High));
+    }
+
+    #[test]
+    fn serializes_new_fields_to_camelcase_wire() {
+        use crate::agent::subagents::MemorySource;
+        use crate::agent::types::EffortLevel;
+
+        let def = AgentDefinition::new("reviewer", "be careful")
+            .expect("valid")
+            .with_skills(vec!["research".to_string()])
+            .with_memory(MemorySource::Project)
+            .with_initial_prompt("start here")
+            .with_background(true)
+            .with_effort(EffortLevel::High);
+        let json = serde_json::to_value(&def).expect("serialize");
+        assert_eq!(json["skills"], serde_json::json!(["research"]));
+        assert_eq!(json["memory"], "project");
+        assert_eq!(json["initialPrompt"], "start here");
+        assert_eq!(json["background"], true);
+        assert_eq!(json["effort"], "high");
+    }
+
+    // `AgentMcpServerSpec` is undocumented upstream; this pins the ASSUMED
+    // `[{name, config}]` element shape (reused `McpServerConfig`), not verified
+    // parity. A future upstream correction should update this test, not be read
+    // as a regression.
+    #[test]
+    fn serializes_mcp_servers_to_assumed_shape() {
+        use crate::agent::types::McpServerConfig;
+
+        let cfg = McpServerConfig::new("fs", serde_json::json!({"command": "node"}));
+        let def = AgentDefinition::new("reviewer", "be careful")
+            .expect("valid")
+            .with_mcp_servers(vec![cfg]);
+        let json = serde_json::to_value(&def).expect("serialize");
+        assert_eq!(
+            json["mcpServers"],
+            serde_json::json!([{"name": "fs", "config": {"command": "node"}}])
+        );
     }
 }

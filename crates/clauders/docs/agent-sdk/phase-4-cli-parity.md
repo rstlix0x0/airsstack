@@ -1,5 +1,10 @@
 # clauders Agent SDK — Phase 4: Official CLI-Surface Parity (Epic)
 
+> **CLOSED — superseded by [`phase-5-parity-completion.md`](./phase-5-parity-completion.md) (2026-07-14).**
+> WS A/B/C/E1/F1 landed (#30); WS D/E2/F2 were removed in the parity-first pivot (vision §5); only
+> WS G + WS H were never built and carry into Phase 5 (as WS 6 + WS 7). The live Pillar-2 backlog now
+> lives in the Phase 5 epic — treat this doc as history.
+
 > **Parity-first update (2026-07-13):** This epic is now scoped strictly to **Pillar 2 — the Agent
 > SDK CLI runtime** ([`../vision-and-strategy.md`](../vision-and-strategy.md)). The "CLI-surface
 > parity" workstreams (WS A–F) that survive are the CLI-passthrough halves and remain valid parity

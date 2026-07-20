@@ -2,25 +2,37 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
 use crate::agent::capabilities::HookEvent;
+use crate::agent::elicitation::ElicitationPolicy;
 use crate::agent::hooks::{Hook, HookRegistry};
 use crate::agent::mcp::{SdkMcpRegistry, SdkMcpServer};
 use crate::agent::permissions::{PermissionMode, PermissionPolicy};
 use crate::agent::subagents::AgentDefinition;
 use crate::agent::system_prompt::SystemPromptConfig;
-use crate::agent::types::{McpServerConfig, SessionControl};
+use crate::agent::types::{
+    BudgetUsd, EffortLevel, McpServerConfig, SessionControl, SessionId, SessionPersistence,
+    SettingsSource,
+};
 use crate::messages::structured_outputs::OutputConfig;
 use crate::types::{MaxTokens, ModelId};
 
 /// Default graceful-shutdown window before the supervisor forces a kill.
 const DEFAULT_SHUTDOWN_GRACE: Duration = Duration::from_secs(5);
 
+/// Default bound on how long a control request waits for its correlated
+/// response, mirroring the official Python Agent SDK's default.
+const DEFAULT_CONTROL_REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
+
 /// Default per-request output-token ceiling when the caller sets none.
 const DEFAULT_MAX_TOKENS: u32 = 4096;
+
+/// Per-chunk stderr callback: invoked with one valid UTF-8 chunk at a time.
+type StderrCallback = Arc<dyn Fn(&str) + Send + Sync>;
 
 /// Configuration for a `Client` / `query` session.
 ///
@@ -28,6 +40,10 @@ const DEFAULT_MAX_TOKENS: u32 = 4096;
 /// discover, spawn, and configure the binary. In-loop handler fields
 /// (`hooks`, `permission_policy`) carry `Arc`-wrapped handlers consulted by
 /// the runtime's reader.
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each bool is an independent CLI toggle flag mirrored 1:1 from the binary's own flag surface, not a combined state machine"
+)]
 #[derive(Clone)]
 pub struct Options {
     /// System-prompt configuration forwarded to the runtime.
@@ -58,10 +74,16 @@ pub struct Options {
     pub require_min_version: bool,
     /// Graceful-exit window before a forced kill.
     pub shutdown_grace: Duration,
+    /// Bound on how long a control request (e.g. `interrupt`, `set_model`)
+    /// waits for its correlated response before failing with
+    /// [`AgentError::ControlRequestTimedOut`](crate::agent::error::AgentError::ControlRequestTimedOut).
+    pub control_request_timeout: Duration,
     /// Registered in-loop hooks.
     pub hooks: HookRegistry,
     /// Optional tool-permission policy.
     pub permission_policy: Option<Arc<dyn PermissionPolicy>>,
+    /// Optional MCP elicitation policy.
+    pub elicitation_policy: Option<Arc<dyn ElicitationPolicy>>,
     /// Registered in-process MCP servers, held by the SDK.
     pub sdk_mcp_servers: SdkMcpRegistry,
     /// Schema-constrained structured output forwarded to the runtime.
@@ -71,9 +93,43 @@ pub struct Options {
     pub agents: HashMap<String, AgentDefinition>,
     /// Session continuation intent for this session.
     pub session: SessionControl,
-    /// Native session-store root (API runtime only; ignored by the CLI
-    /// runtime). `None` selects the runtime's default store location.
-    pub session_dir: Option<PathBuf>,
+    /// Force a specific session id (official `sessionId`).
+    ///
+    /// Lowers to `--session-id <id>` for a new session; the binary requires
+    /// a valid UUID and rejects any other value.
+    pub session_id: Option<SessionId>,
+    /// Display title for the session, sent in the initialize handshake.
+    pub title: Option<String>,
+    /// Whether the binary persists this session.
+    pub session_persistence: SessionPersistence,
+    /// Model to fall back to if the primary model is overloaded.
+    pub fallback_model: Option<ModelId>,
+    /// Use only `--mcp-config` servers; ignore project/user/plugin MCP config.
+    pub strict_mcp_config: bool,
+    /// Extra directories the binary's tools may access.
+    pub add_dirs: Vec<PathBuf>,
+    /// Session settings source (file path or inline JSON).
+    pub settings: Option<SettingsSource>,
+    /// Client-side spend ceiling for the session.
+    pub max_budget_usd: Option<BudgetUsd>,
+    /// Emit partial-message stream frames as the turn streams.
+    pub include_partial_messages: bool,
+    /// Name of the MCP tool that answers permission prompts, overriding the
+    /// SDK's default `stdio` bridge when set.
+    pub permission_prompt_tool_name: Option<String>,
+    /// Opaque caller identifier. Reserved for API-shape parity; has no effect
+    /// on the CLI runtime (the binary exposes no matching flag).
+    pub user: Option<String>,
+    /// Emit hook-lifecycle observability frames on the message stream.
+    pub include_hook_events: bool,
+    /// Per-chunk callback for the child's stderr (augments capture; does not
+    /// suppress it).
+    pub stderr: Option<StderrCallback>,
+    /// Cap on bytes buffered per stdout line before erroring (`None` =
+    /// unbounded).
+    pub max_buffer_size: Option<NonZeroUsize>,
+    /// Reasoning-effort level for the session (→ `--effort <level>`).
+    pub effort: Option<EffortLevel>,
 }
 
 impl fmt::Debug for Options {
@@ -93,11 +149,13 @@ impl fmt::Debug for Options {
             .field("executable_args", &self.executable_args)
             .field("require_min_version", &self.require_min_version)
             .field("shutdown_grace", &self.shutdown_grace)
+            .field("control_request_timeout", &self.control_request_timeout)
             .field(
                 "hooks",
                 &format_args!("<{} registered>", i32::from(!self.hooks.is_empty())),
             )
             .field("permission_policy", &self.permission_policy.is_some())
+            .field("elicitation_policy", &self.elicitation_policy.is_some())
             .field(
                 "sdk_mcp_servers",
                 &format_args!(
@@ -111,7 +169,24 @@ impl fmt::Debug for Options {
                 &format_args!("<{} registered>", self.agents.len()),
             )
             .field("session", &self.session)
-            .field("session_dir", &self.session_dir)
+            .field("session_id", &self.session_id)
+            .field("title", &self.title)
+            .field("session_persistence", &self.session_persistence)
+            .field("fallback_model", &self.fallback_model)
+            .field("strict_mcp_config", &self.strict_mcp_config)
+            .field("add_dirs", &self.add_dirs)
+            .field("settings", &self.settings)
+            .field("max_budget_usd", &self.max_budget_usd)
+            .field("include_partial_messages", &self.include_partial_messages)
+            .field(
+                "permission_prompt_tool_name",
+                &self.permission_prompt_tool_name,
+            )
+            .field("user", &self.user)
+            .field("include_hook_events", &self.include_hook_events)
+            .field("stderr", &self.stderr.is_some())
+            .field("max_buffer_size", &self.max_buffer_size)
+            .field("effort", &self.effort)
             .finish()
     }
 }
@@ -131,6 +206,10 @@ impl Default for Options {
 }
 
 /// Builder for [`Options`].
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "mirrors Options: each bool is an independent CLI toggle flag, not a combined state machine"
+)]
 #[derive(Clone, Default)]
 pub struct OptionsBuilder {
     system_prompt: SystemPromptConfig,
@@ -147,13 +226,29 @@ pub struct OptionsBuilder {
     executable_args: Vec<String>,
     require_min_version: bool,
     shutdown_grace: Option<Duration>,
+    control_request_timeout: Option<Duration>,
     hooks: HookRegistry,
     permission_policy: Option<Arc<dyn PermissionPolicy>>,
+    elicitation_policy: Option<Arc<dyn ElicitationPolicy>>,
     sdk_mcp_servers: SdkMcpRegistry,
     output_format: Option<OutputConfig>,
     agents: HashMap<String, AgentDefinition>,
     session: SessionControl,
-    session_dir: Option<PathBuf>,
+    session_id: Option<SessionId>,
+    title: Option<String>,
+    session_persistence: SessionPersistence,
+    fallback_model: Option<ModelId>,
+    strict_mcp_config: bool,
+    add_dirs: Vec<PathBuf>,
+    settings: Option<SettingsSource>,
+    max_budget_usd: Option<BudgetUsd>,
+    include_partial_messages: bool,
+    permission_prompt_tool_name: Option<String>,
+    user: Option<String>,
+    include_hook_events: bool,
+    stderr: Option<StderrCallback>,
+    max_buffer_size: Option<NonZeroUsize>,
+    effort: Option<EffortLevel>,
 }
 
 impl fmt::Debug for OptionsBuilder {
@@ -284,6 +379,13 @@ impl OptionsBuilder {
         self
     }
 
+    /// Override the control-request response timeout.
+    #[must_use]
+    pub const fn control_request_timeout(mut self, timeout: Duration) -> Self {
+        self.control_request_timeout = Some(timeout);
+        self
+    }
+
     /// Register a hook for `event`, optionally narrowed by a `matcher`.
     #[must_use]
     pub fn hook(mut self, event: HookEvent, matcher: Option<String>, hook: Arc<dyn Hook>) -> Self {
@@ -295,6 +397,13 @@ impl OptionsBuilder {
     #[must_use]
     pub fn permission_policy(mut self, policy: Arc<dyn PermissionPolicy>) -> Self {
         self.permission_policy = Some(policy);
+        self
+    }
+
+    /// Set the MCP elicitation policy.
+    #[must_use]
+    pub fn elicitation_policy(mut self, policy: Arc<dyn ElicitationPolicy>) -> Self {
+        self.elicitation_policy = Some(policy);
         self
     }
 
@@ -337,10 +446,117 @@ impl OptionsBuilder {
         self
     }
 
-    /// Set the native session-store root (API runtime only).
+    /// Force a specific session id for a new session.
+    ///
+    /// The binary requires a valid UUID and rejects any other value.
     #[must_use]
-    pub fn session_dir(mut self, dir: impl Into<PathBuf>) -> Self {
-        self.session_dir = Some(dir.into());
+    pub fn session_id(mut self, id: SessionId) -> Self {
+        self.session_id = Some(id);
+        self
+    }
+
+    /// Set the session's display title.
+    #[must_use]
+    pub fn title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
+        self
+    }
+
+    /// Set whether the binary persists this session.
+    #[must_use]
+    pub const fn session_persistence(mut self, persistence: SessionPersistence) -> Self {
+        self.session_persistence = persistence;
+        self
+    }
+
+    /// Set the fallback model.
+    #[must_use]
+    pub fn fallback_model(mut self, model: ModelId) -> Self {
+        self.fallback_model = Some(model);
+        self
+    }
+
+    /// Restrict MCP servers to those from `--mcp-config` only.
+    #[must_use]
+    pub const fn strict_mcp_config(mut self, strict: bool) -> Self {
+        self.strict_mcp_config = strict;
+        self
+    }
+
+    /// Append a directory the binary's tools may access.
+    #[must_use]
+    pub fn add_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.add_dirs.push(dir.into());
+        self
+    }
+
+    /// Set the session settings source to a settings JSON file path.
+    #[must_use]
+    pub fn settings_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.settings = Some(SettingsSource::Path(path.into()));
+        self
+    }
+
+    /// Set the session settings source to inline settings JSON.
+    #[must_use]
+    pub fn settings_inline(mut self, value: serde_json::Value) -> Self {
+        self.settings = Some(SettingsSource::Inline(value));
+        self
+    }
+
+    /// Set the client-side spend ceiling.
+    #[must_use]
+    pub const fn max_budget_usd(mut self, budget: BudgetUsd) -> Self {
+        self.max_budget_usd = Some(budget);
+        self
+    }
+
+    /// Set the reasoning-effort level for the session.
+    #[must_use]
+    pub const fn effort(mut self, effort: EffortLevel) -> Self {
+        self.effort = Some(effort);
+        self
+    }
+
+    /// Enable partial-message stream frames.
+    #[must_use]
+    pub const fn include_partial_messages(mut self, include: bool) -> Self {
+        self.include_partial_messages = include;
+        self
+    }
+
+    /// Override the permission-prompt MCP tool name.
+    #[must_use]
+    pub fn permission_prompt_tool_name(mut self, name: impl Into<String>) -> Self {
+        self.permission_prompt_tool_name = Some(name.into());
+        self
+    }
+
+    /// Set the opaque caller identifier (reserved; no CLI effect).
+    #[must_use]
+    pub fn user(mut self, user: impl Into<String>) -> Self {
+        self.user = Some(user.into());
+        self
+    }
+
+    /// Emit hook-lifecycle observability frames on the message stream.
+    #[must_use]
+    pub const fn include_hook_events(mut self, include: bool) -> Self {
+        self.include_hook_events = include;
+        self
+    }
+
+    /// Set a per-chunk stderr callback (augments capture; does not suppress).
+    #[must_use]
+    pub fn stderr(mut self, callback: impl Fn(&str) + Send + Sync + 'static) -> Self {
+        self.stderr = Some(Arc::new(callback));
+        self
+    }
+
+    /// Cap bytes buffered per stdout line before erroring.
+    #[must_use]
+    pub const fn max_buffer_size(mut self, cap: NonZeroUsize) -> Self {
+        self.max_buffer_size = Some(cap);
         self
     }
 
@@ -373,13 +589,31 @@ impl OptionsBuilder {
             executable_args: self.executable_args,
             require_min_version: self.require_min_version,
             shutdown_grace: self.shutdown_grace.unwrap_or(DEFAULT_SHUTDOWN_GRACE),
+            control_request_timeout: self
+                .control_request_timeout
+                .unwrap_or(DEFAULT_CONTROL_REQUEST_TIMEOUT),
             hooks: self.hooks,
             permission_policy: self.permission_policy,
+            elicitation_policy: self.elicitation_policy,
             sdk_mcp_servers: self.sdk_mcp_servers,
             output_format: self.output_format,
             agents: self.agents,
             session: self.session,
-            session_dir: self.session_dir,
+            session_id: self.session_id,
+            title: self.title,
+            session_persistence: self.session_persistence,
+            fallback_model: self.fallback_model,
+            strict_mcp_config: self.strict_mcp_config,
+            add_dirs: self.add_dirs,
+            settings: self.settings,
+            max_budget_usd: self.max_budget_usd,
+            include_partial_messages: self.include_partial_messages,
+            permission_prompt_tool_name: self.permission_prompt_tool_name,
+            user: self.user,
+            include_hook_events: self.include_hook_events,
+            stderr: self.stderr,
+            max_buffer_size: self.max_buffer_size,
+            effort: self.effort,
         }
     }
 }
@@ -430,9 +664,18 @@ mod tests {
         let opts = Options::builder().build();
         assert_eq!(opts.permission_mode, PermissionMode::Default);
         assert_eq!(opts.shutdown_grace, Duration::from_secs(5));
+        assert_eq!(opts.control_request_timeout, Duration::from_secs(60));
         assert!(!opts.require_min_version);
         assert!(opts.model.is_none());
         assert!(opts.allowed_tools.is_empty());
+    }
+
+    #[test]
+    fn builder_overrides_control_request_timeout() {
+        let opts = Options::builder()
+            .control_request_timeout(Duration::from_secs(10))
+            .build();
+        assert_eq!(opts.control_request_timeout, Duration::from_secs(10));
     }
 
     #[test]
@@ -559,22 +802,19 @@ mod tests {
     }
 
     #[test]
-    fn default_session_is_new_and_dir_is_none() {
+    fn default_session_is_new() {
         use crate::agent::types::SessionControl;
-        let opts = Options::default();
-        assert_eq!(opts.session, SessionControl::New);
-        assert!(opts.session_dir.is_none());
+        assert_eq!(Options::default().session, SessionControl::New);
     }
 
     #[test]
-    fn builder_sets_session_and_dir() {
+    fn builder_sets_session() {
         use crate::agent::types::{SessionControl, SessionId};
         let opts = Options::builder()
             .session(SessionControl::Resume {
                 id: SessionId::new("sess_x"),
                 fork: true,
             })
-            .session_dir("/tmp/clauders-sessions")
             .build();
         assert_eq!(
             opts.session,
@@ -582,10 +822,6 @@ mod tests {
                 id: SessionId::new("sess_x"),
                 fork: true,
             }
-        );
-        assert_eq!(
-            opts.session_dir.as_deref(),
-            Some(std::path::Path::new("/tmp/clauders-sessions"))
         );
     }
 
@@ -603,5 +839,166 @@ mod tests {
             opts.agents.get("reviewer").expect("present").prompt(),
             "be careful"
         );
+    }
+
+    #[test]
+    fn new_flag_surface_defaults_are_empty() {
+        let opts = Options::default();
+        assert!(opts.fallback_model.is_none());
+        assert!(!opts.strict_mcp_config);
+        assert!(opts.add_dirs.is_empty());
+        assert!(opts.settings.is_none());
+        assert!(opts.max_budget_usd.is_none());
+        assert!(!opts.include_partial_messages);
+        assert!(opts.permission_prompt_tool_name.is_none());
+        assert!(opts.user.is_none());
+    }
+
+    #[test]
+    fn builder_sets_new_flag_surface() {
+        use crate::agent::types::{BudgetUsd, SettingsSource};
+        use crate::types::ModelId;
+
+        let opts = Options::builder()
+            .fallback_model(ModelId::custom("claude-haiku-4-5").expect("model"))
+            .strict_mcp_config(true)
+            .add_dir("/repo/a")
+            .add_dir("/repo/b")
+            .settings_path("/etc/s.json")
+            .max_budget_usd(BudgetUsd::new(5.0).expect("positive"))
+            .include_partial_messages(true)
+            .permission_prompt_tool_name("mcp__gate__approve")
+            .user("user-123")
+            .build();
+
+        assert_eq!(
+            opts.fallback_model.as_ref().map(ModelId::as_str),
+            Some("claude-haiku-4-5")
+        );
+        assert!(opts.strict_mcp_config);
+        assert_eq!(
+            opts.add_dirs,
+            vec![
+                std::path::PathBuf::from("/repo/a"),
+                std::path::PathBuf::from("/repo/b")
+            ]
+        );
+        assert_eq!(
+            opts.settings,
+            Some(SettingsSource::Path("/etc/s.json".into()))
+        );
+        assert_eq!(opts.max_budget_usd.map(BudgetUsd::get), Some(5.0));
+        assert!(opts.include_partial_messages);
+        assert_eq!(
+            opts.permission_prompt_tool_name.as_deref(),
+            Some("mcp__gate__approve")
+        );
+        assert_eq!(opts.user.as_deref(), Some("user-123"));
+    }
+
+    #[test]
+    fn settings_inline_variant_is_accepted() {
+        use crate::agent::types::SettingsSource;
+        let opts = Options::builder()
+            .settings_inline(serde_json::json!({ "k": 1 }))
+            .build();
+        assert!(matches!(opts.settings, Some(SettingsSource::Inline(_))));
+    }
+
+    #[test]
+    fn runtime_behavior_knob_defaults() {
+        let opts = Options::default();
+        assert!(!opts.include_hook_events);
+        assert!(opts.stderr.is_none());
+        assert!(opts.max_buffer_size.is_none());
+    }
+
+    #[test]
+    fn builder_sets_runtime_behavior_knobs() {
+        use std::num::NonZeroUsize;
+        use std::sync::Arc;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let hits = Arc::new(AtomicUsize::new(0));
+        let hits2 = Arc::clone(&hits);
+        let opts = Options::builder()
+            .include_hook_events(true)
+            .stderr(move |_line: &str| {
+                hits2.fetch_add(1, Ordering::Relaxed);
+            })
+            .max_buffer_size(NonZeroUsize::new(4096).expect("nonzero"))
+            .build();
+
+        assert!(opts.include_hook_events);
+        assert!(opts.stderr.is_some());
+        assert_eq!(opts.max_buffer_size.map(NonZeroUsize::get), Some(4096));
+        // The stored callback is invocable. `Arc<dyn Fn>` is not itself callable,
+        // so deref to `&dyn Fn` (which does implement `Fn`) before calling.
+        let cb = opts.stderr.as_deref().expect("set");
+        cb("boom");
+        assert_eq!(hits.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn debug_shows_stderr_as_bool_without_leaking_the_closure() {
+        let opts = Options::builder().stderr(|_l: &str| {}).build();
+        let shown = format!("{opts:?}");
+        assert!(shown.contains("stderr: true"), "got: {shown}");
+    }
+
+    #[test]
+    fn effort_defaults_to_none_and_builder_sets_it() {
+        use crate::agent::types::EffortLevel;
+
+        assert!(Options::default().effort.is_none());
+
+        let opts = Options::builder().effort(EffortLevel::High).build();
+        assert_eq!(opts.effort, Some(EffortLevel::High));
+    }
+
+    #[test]
+    fn session_config_knobs_default_and_round_trip() {
+        use crate::agent::types::{SessionId, SessionPersistence};
+
+        let defaults = Options::default();
+        assert!(defaults.session_id.is_none());
+        assert!(defaults.title.is_none());
+        assert_eq!(defaults.session_persistence, SessionPersistence::Enabled);
+
+        let opts = Options::builder()
+            .session_id(SessionId::new("sess_7"))
+            .title("Nightly triage")
+            .session_persistence(SessionPersistence::Disabled)
+            .build();
+        assert_eq!(
+            opts.session_id.as_ref().map(SessionId::as_str),
+            Some("sess_7")
+        );
+        assert_eq!(opts.title.as_deref(), Some("Nightly triage"));
+        assert_eq!(opts.session_persistence, SessionPersistence::Disabled);
+    }
+
+    #[test]
+    fn elicitation_policy_is_registered_and_defaults_to_none() {
+        use crate::agent::elicitation::{
+            ElicitationPolicy, ElicitationRequest, ElicitationResponse,
+        };
+        use crate::agent::error::AgentError;
+        use std::sync::Arc;
+
+        struct H;
+        #[async_trait::async_trait]
+        impl ElicitationPolicy for H {
+            async fn elicit(
+                &self,
+                _r: ElicitationRequest,
+            ) -> Result<ElicitationResponse, AgentError> {
+                Ok(ElicitationResponse::Decline)
+            }
+        }
+
+        assert!(Options::default().elicitation_policy.is_none());
+        let opts = Options::builder().elicitation_policy(Arc::new(H)).build();
+        assert!(opts.elicitation_policy.is_some());
     }
 }
