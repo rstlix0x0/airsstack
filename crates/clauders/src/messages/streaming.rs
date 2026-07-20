@@ -49,8 +49,35 @@ use super::response::StopReason;
 /// let ev: StreamEvent = serde_json::from_str(json).unwrap();
 /// assert!(matches!(ev, StreamEvent::MessageStop));
 /// ```
+///
+/// # Non-exhaustive matching
+///
+/// `StreamEvent` is `#[non_exhaustive]`, so a future SDK release can add
+/// event types without breaking downstream builds. The consequence for
+/// callers: even a `match` that already covers every variant that exists
+/// today must still carry a wildcard arm outside this crate, or it fails
+/// to compile with `E0004`.
+///
+/// ```compile_fail
+/// use clauders::messages::StreamEvent;
+/// let ev: StreamEvent = serde_json::from_str(r#"{"type":"message_stop"}"#).unwrap();
+/// let _ = match ev {
+///     StreamEvent::MessageStart { .. } => "message_start",
+///     StreamEvent::ContentBlockStart { .. } => "content_block_start",
+///     StreamEvent::ContentBlockDelta { .. } => "content_block_delta",
+///     StreamEvent::ContentBlockStop { .. } => "content_block_stop",
+///     StreamEvent::MessageDelta { .. } => "message_delta",
+///     StreamEvent::MessageStop => "message_stop",
+///     StreamEvent::Ping => "ping",
+///     StreamEvent::Error { .. } => "error",
+///     StreamEvent::Unknown(_) => "unknown",
+///     // No `_` arm: every variant above is covered, but `StreamEvent` is
+///     // `#[non_exhaustive]`, so this still fails to compile with E0004.
+/// };
+/// ```
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum StreamEvent {
     /// The response message has started; carries an initial [`Message`]
     /// shell with empty content and token counters.
@@ -94,6 +121,13 @@ pub enum StreamEvent {
         /// The error payload from the API.
         error: ApiErrorBody,
     },
+    /// An event type this SDK release does not recognize.
+    ///
+    /// The Anthropic streaming API may add event types at any time, and
+    /// documents that clients should handle unrecognized ones gracefully.
+    /// The raw JSON object is retained here and the stream continues.
+    #[serde(untagged)]
+    Unknown(serde_json::Value),
 }
 
 /// Incremental delta for a content block.
@@ -108,6 +142,7 @@ pub enum StreamEvent {
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum ContentDelta {
     /// An incremental text fragment.
     TextDelta {
@@ -130,6 +165,14 @@ pub enum ContentDelta {
         /// The partial JSON string to append to the tool input buffer.
         partial_json: String,
     },
+    /// A delta kind this SDK release does not recognize.
+    ///
+    /// The Anthropic API may add delta kinds at any time. Rather than
+    /// failing the surrounding event, the raw JSON object is retained here
+    /// so it can be inspected or logged. Callers that only handle the
+    /// modelled kinds may ignore this variant.
+    #[serde(untagged)]
+    Unknown(serde_json::Value),
 }
 
 /// Stop-reason and stop-sequence fields carried by [`StreamEvent::MessageDelta`].
@@ -262,7 +305,8 @@ impl MessageStream {
                 }
                 StreamEvent::MessageStop
                 | StreamEvent::ContentBlockStop { .. }
-                | StreamEvent::Ping => {}
+                | StreamEvent::Ping
+                | StreamEvent::Unknown(_) => {}
             }
         }
 
@@ -306,11 +350,68 @@ impl Stream for MessageStream {
     }
 }
 
+/// Event-type tags this SDK models as first-class [`StreamEvent`] variants.
+///
+/// `StreamEvent`'s untagged `Unknown` fallback exists so a genuinely
+/// unrecognized event type degrades gracefully. But the same fallback also
+/// absorbs a *known* event type whose payload fails to satisfy its variant
+/// (e.g. an `error` event missing `message`), which would otherwise decode
+/// silently as `Unknown` instead of raising a decode error. This list lets
+/// [`parse_sse_event`] tell the two cases apart after the fact.
+///
+/// Kept in sync with `StreamEvent`'s variants by the `event_tag` exhaustive
+/// match in this module's test suite: adding a `StreamEvent` variant
+/// without a matching arm there fails to compile, and `--all-targets` is
+/// part of this crate's Definition of Done.
+const KNOWN_EVENT_TAGS: &[&str] = &[
+    "message_start",
+    "content_block_start",
+    "content_block_delta",
+    "content_block_stop",
+    "message_delta",
+    "message_stop",
+    "ping",
+    "error",
+];
+
 fn parse_sse_event(ev: &Event) -> Result<StreamEvent, Error> {
-    serde_json::from_str::<StreamEvent>(&ev.data).map_err(|e| Error::Serde {
+    let parsed = serde_json::from_str::<StreamEvent>(&ev.data).map_err(|e| Error::Serde {
         context: "StreamEvent",
         source: e,
-    })
+    })?;
+
+    if let StreamEvent::Unknown(ref value) = parsed {
+        // A payload that is not a JSON object, or an object with no string
+        // `type` field, is a malformed SSE frame rather than a future event
+        // — the Anthropic API always tags events by a string `type`, so
+        // there is no "genuinely unknown event" reading of these shapes.
+        let Some(object) = value.as_object() else {
+            return Err(Error::Serde {
+                context: "StreamEvent",
+                source: <serde_json::Error as serde::de::Error>::custom(
+                    "event payload is not a JSON object",
+                ),
+            });
+        };
+        let Some(tag) = object.get("type").and_then(serde_json::Value::as_str) else {
+            return Err(Error::Serde {
+                context: "StreamEvent",
+                source: <serde_json::Error as serde::de::Error>::custom(
+                    "event payload has no string \"type\" field",
+                ),
+            });
+        };
+        if KNOWN_EVENT_TAGS.contains(&tag) {
+            return Err(Error::Serde {
+                context: "StreamEvent",
+                source: <serde_json::Error as serde::de::Error>::custom(format!(
+                    "event type \"{tag}\" is modelled but its payload did not satisfy the shape of that variant"
+                )),
+            });
+        }
+    }
+
+    Ok(parsed)
 }
 
 #[cfg(test)]
@@ -364,6 +465,29 @@ mod tests {
         )])))
     }
 
+    /// Wire `"type"` tag for a modelled [`StreamEvent`] variant, or `None`
+    /// for [`StreamEvent::Unknown`].
+    ///
+    /// The match is exhaustive with no wildcard arm: adding a new
+    /// `StreamEvent` variant fails to compile here until its tag is
+    /// supplied. That failure is what
+    /// `known_event_tags_cover_every_modelled_variant` below relies on to
+    /// keep [`KNOWN_EVENT_TAGS`] from silently drifting out of sync with
+    /// the enum as future event types are modelled.
+    fn event_tag(event: &StreamEvent) -> Option<&'static str> {
+        match event {
+            StreamEvent::MessageStart { .. } => Some("message_start"),
+            StreamEvent::ContentBlockStart { .. } => Some("content_block_start"),
+            StreamEvent::ContentBlockDelta { .. } => Some("content_block_delta"),
+            StreamEvent::ContentBlockStop { .. } => Some("content_block_stop"),
+            StreamEvent::MessageDelta { .. } => Some("message_delta"),
+            StreamEvent::MessageStop => Some("message_stop"),
+            StreamEvent::Ping => Some("ping"),
+            StreamEvent::Error { .. } => Some("error"),
+            StreamEvent::Unknown(_) => None,
+        }
+    }
+
     // ── parse_sse_event ────────────────────────────────────────────────────────
 
     #[test]
@@ -408,15 +532,175 @@ mod tests {
     }
 
     #[test]
-    fn parse_unknown_type_returns_serde_error() {
+    fn parse_unknown_type_yields_unknown_event_with_payload() {
         let ev = make_event(r#"{"type":"unknown_future_event","data":"x"}"#);
-        assert!(parse_sse_event(&ev).is_err());
+        let parsed = parse_sse_event(&ev).unwrap();
+        match parsed {
+            StreamEvent::Unknown(v) => {
+                assert_eq!(v["type"], "unknown_future_event");
+                assert_eq!(v["data"], "x");
+            }
+            other => panic!("wrong variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn known_event_types_still_parse_with_unknown_arm_present() {
+        let ev = make_event(r#"{"type":"message_stop"}"#);
+        assert!(matches!(
+            parse_sse_event(&ev).unwrap(),
+            StreamEvent::MessageStop
+        ));
     }
 
     #[test]
     fn parse_malformed_json_returns_serde_error() {
         let ev = make_event("not json at all");
         assert!(parse_sse_event(&ev).is_err());
+    }
+
+    #[test]
+    fn parse_malformed_known_error_event_yields_serde_error() {
+        // The "error" tag is modelled (`StreamEvent::Error`), but this
+        // payload's `error` object is missing the required `message` field.
+        // A modelled tag whose payload does not satisfy its variant must
+        // raise a decode error rather than silently degrade to `Unknown`,
+        // since a swallowed inline API error breaks stream termination.
+        let ev = make_event(r#"{"type":"error","error":{"type":"overloaded_error"}}"#);
+        let err = parse_sse_event(&ev).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Error::Serde {
+                    context: "StreamEvent",
+                    ..
+                }
+            ),
+            "expected Error::Serde, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn parse_malformed_known_message_start_event_yields_serde_error() {
+        // The "message_start" tag is modelled, but this payload has no
+        // `message` field at all — the same fall-through hazard as the
+        // malformed `error` case above, for a different modelled variant.
+        let ev = make_event(r#"{"type":"message_start"}"#);
+        let err = parse_sse_event(&ev).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Error::Serde {
+                    context: "StreamEvent",
+                    ..
+                }
+            ),
+            "expected Error::Serde, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn parse_non_object_string_payload_returns_serde_error() {
+        // A bare JSON string is not a valid SSE event frame at all — it is
+        // malformed input, not a future event type, so it must not decode
+        // to `StreamEvent::Unknown`.
+        let ev = make_event(r#""just_a_string""#);
+        let err = parse_sse_event(&ev).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Error::Serde {
+                    context: "StreamEvent",
+                    ..
+                }
+            ),
+            "expected Error::Serde, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn parse_non_object_number_payload_returns_serde_error() {
+        let ev = make_event("42");
+        let err = parse_sse_event(&ev).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Error::Serde {
+                    context: "StreamEvent",
+                    ..
+                }
+            ),
+            "expected Error::Serde, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn parse_null_payload_returns_serde_error() {
+        let ev = make_event("null");
+        let err = parse_sse_event(&ev).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Error::Serde {
+                    context: "StreamEvent",
+                    ..
+                }
+            ),
+            "expected Error::Serde, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn known_event_tags_cover_every_modelled_variant() {
+        // One minimal, validly-shaped fixture per modelled `StreamEvent`
+        // variant. `event_tag`'s match is exhaustive over `StreamEvent`, so
+        // this loop, combined with that exhaustiveness, is what keeps
+        // `KNOWN_EVENT_TAGS` from drifting: a `StreamEvent` variant added
+        // without a matching `event_tag` arm fails to compile, and a
+        // variant added to `event_tag` but never wired into
+        // `KNOWN_EVENT_TAGS` fails this assertion instead of passing silently.
+        let fixtures = [
+            r#"{"type":"message_start","message":{"id":"msg_0","type":"message","role":"assistant","model":"m","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":0,"output_tokens":0}}}"#,
+            r#"{"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}"#,
+            r#"{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":""}}"#,
+            r#"{"type":"content_block_stop","index":0}"#,
+            r#"{"type":"message_delta","delta":{"stop_reason":null,"stop_sequence":null},"usage":{"output_tokens":0}}"#,
+            r#"{"type":"message_stop"}"#,
+            r#"{"type":"ping"}"#,
+            r#"{"type":"error","error":{"type":"overloaded_error","message":""}}"#,
+        ];
+
+        for fixture in fixtures {
+            let event: StreamEvent = serde_json::from_str(fixture).unwrap();
+            let Some(tag) = event_tag(&event) else {
+                panic!(
+                    "fixture {fixture} decoded to StreamEvent::Unknown, expected a modelled variant"
+                );
+            };
+            assert!(
+                KNOWN_EVENT_TAGS.contains(&tag),
+                "tag {tag:?} (from {fixture}) is missing from KNOWN_EVENT_TAGS"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_object_without_string_type_field_returns_serde_error() {
+        // An object with no string `type` field cannot be a genuinely
+        // unrecognized future event either — the API always tags events by
+        // a string `type`, so this is a malformed frame.
+        let ev = make_event(r#"{"foo":1}"#);
+        let err = parse_sse_event(&ev).unwrap_err();
+        assert!(
+            matches!(
+                err,
+                Error::Serde {
+                    context: "StreamEvent",
+                    ..
+                }
+            ),
+            "expected Error::Serde, got {err:?}"
+        );
     }
 
     // ── ContentDelta serde ─────────────────────────────────────────────────────
@@ -439,6 +723,34 @@ mod tests {
             ContentDelta::SignatureDelta { signature } => assert_eq!(signature, "abc123"),
             other => panic!("wrong variant: {other:?}"),
         }
+    }
+
+    #[test]
+    fn content_delta_unknown_variant_retains_payload() {
+        let json = r#"{"type":"citations_delta","citation":{"cited_text":"x"}}"#;
+        let d: ContentDelta = serde_json::from_str(json).unwrap();
+        match d {
+            ContentDelta::Unknown(v) => {
+                assert_eq!(v["type"], "citations_delta");
+                assert_eq!(v["citation"]["cited_text"], "x");
+            }
+            other => panic!("wrong variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn content_delta_known_variants_still_decode_with_unknown_arm_present() {
+        let d: ContentDelta = serde_json::from_str(r#"{"type":"text_delta","text":"hi"}"#).unwrap();
+        assert!(matches!(d, ContentDelta::TextDelta { text } if text == "hi"));
+    }
+
+    #[test]
+    fn content_delta_missing_required_field_falls_through_to_unknown() {
+        // A known tag whose payload does not satisfy the variant is absorbed by
+        // the fallback rather than raising a decode error. Pinned so this
+        // behavior is deliberate, not an oversight.
+        let d: ContentDelta = serde_json::from_str(r#"{"type":"text_delta"}"#).unwrap();
+        assert!(matches!(d, ContentDelta::Unknown(_)));
     }
 
     // ── MessageMetaDelta + UsageDelta serde ────────────────────────────────────

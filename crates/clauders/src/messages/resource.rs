@@ -386,7 +386,7 @@ mod tests {
     use http::{Response, StatusCode};
 
     use crate::error::{Error, TransportError};
-    use crate::messages::MessageRequest;
+    use crate::messages::{ContentBlock, MessageContent, MessageRequest, Role};
     use crate::test_support::MockHttpTransport;
     use crate::transport::BodyStream;
     use crate::types::{ApiKey, MaxTokens, ModelId};
@@ -466,6 +466,43 @@ mod tests {
             Error::Api(e) => assert_eq!(e.status, StatusCode::TOO_MANY_REQUESTS),
             other => panic!("expected Error::Api, got {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn create_with_unserializable_content_surfaces_typed_serde_error() {
+        // `ContentBlock::Unknown` is deserialize-only (see `content.rs`); the
+        // real path a caller hits is echoing a decoded assistant turn — one
+        // that contains a block kind this SDK release doesn't model — back
+        // into a new request. Assert the typed `Error::Serde` member the SDK
+        // actually surfaces here, not a bare `serde_json::Error`. The mock
+        // transport has no expectations set because serialization fails
+        // before the request ever reaches it.
+        let transport = MockHttpTransport::new();
+        let client = client_with(transport);
+
+        let req = MessageRequest::builder()
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(MaxTokens::new(64).unwrap())
+            .add_message(
+                Role::User,
+                MessageContent::Blocks(vec![ContentBlock::Unknown(serde_json::json!({
+                    "type": "server_tool_use"
+                }))]),
+            )
+            .build();
+
+        let err = client.messages().create(req).await.unwrap_err();
+
+        assert!(
+            matches!(
+                err,
+                Error::Serde {
+                    context: "MessageRequest",
+                    ..
+                }
+            ),
+            "expected Error::Serde{{ context: \"MessageRequest\", .. }}, got {err:?}"
+        );
     }
 
     // ── count_tokens ─────────────────────────────────────────────────────────

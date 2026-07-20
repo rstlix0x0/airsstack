@@ -86,6 +86,7 @@ async fn stream_yields_full_event_sequence() {
                     StreamEvent::MessageStop => "message_stop",
                     StreamEvent::Ping => "ping",
                     StreamEvent::Error { .. } => "error",
+                    _ => "unknown",
                 });
             }
             Some(Err(e)) => panic!("unexpected stream error: {e}"),

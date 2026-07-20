@@ -46,18 +46,24 @@ pub struct Message {
 
 /// Wire-format `type` discriminant for a message response.
 ///
-/// The API always returns `"message"` here; the variant exists so the
+/// The API returns `"message"` here today; the variant exists so the
 /// field is strongly typed rather than an unchecked string.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum MessageKind {
     /// Standard message response.
     Message,
+    /// A discriminant this SDK release does not recognize; carries the raw
+    /// wire value so it can be inspected or logged.
+    #[serde(untagged)]
+    Unknown(String),
 }
 
 /// Reason the model stopped generating tokens.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum StopReason {
     /// Model reached a natural stopping point.
     EndTurn,
@@ -69,6 +75,15 @@ pub enum StopReason {
     ToolUse,
     /// Model declined to produce the constrained output.
     Refusal,
+    /// A stop reason this SDK release does not recognize; carries the raw
+    /// wire value.
+    ///
+    /// The Anthropic API adds stop reasons over time — `pause_turn`, which a
+    /// server-tool turn returns when it reaches its iteration limit, is one
+    /// this release does not model as a typed variant. Retaining the raw
+    /// value keeps the surrounding response decodable.
+    #[serde(untagged)]
+    Unknown(String),
 }
 
 /// Breakdown of tokens created in the cache during a caching-enabled request.
@@ -215,6 +230,37 @@ mod tests {
         }"#;
         let msg: Message = serde_json::from_str(j).unwrap();
         assert_eq!(msg.stop_reason, Some(StopReason::Refusal));
+    }
+
+    #[test]
+    fn pause_turn_stop_reason_decodes_as_unknown_with_payload() {
+        let j = r#"{
+            "id": "msg_01XFDUDYJgAACzvnptvVoYEL",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-5",
+            "content": [],
+            "stop_reason": "pause_turn",
+            "stop_sequence": null,
+            "usage": {"input_tokens": 10, "output_tokens": 0}
+        }"#;
+        let msg: Message = serde_json::from_str(j).unwrap();
+        assert_eq!(
+            msg.stop_reason,
+            Some(StopReason::Unknown("pause_turn".into()))
+        );
+    }
+
+    #[test]
+    fn known_stop_reasons_still_decode_with_unknown_arm_present() {
+        let r: StopReason = serde_json::from_str(r#""max_tokens""#).unwrap();
+        assert_eq!(r, StopReason::MaxTokens);
+    }
+
+    #[test]
+    fn unknown_message_kind_decodes_as_unknown_with_payload() {
+        let k: MessageKind = serde_json::from_str(r#""some_future_kind""#).unwrap();
+        assert_eq!(k, MessageKind::Unknown("some_future_kind".into()));
     }
 
     #[test]

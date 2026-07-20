@@ -27,6 +27,7 @@
 /// ```
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum ContentBlock {
     /// A plain-text content block.
     Text(TextBlock),
@@ -36,6 +37,19 @@ pub enum ContentBlock {
     ToolUse(crate::messages::tools::ToolUseBlock),
     /// A tool result supplied by the caller in response to a tool invocation.
     ToolResult(crate::messages::tools::ToolResultBlock),
+    /// A block kind this SDK release does not model.
+    ///
+    /// The API returns block kinds this release has no typed shape for —
+    /// server-tool invocations and their results, redacted thinking, and
+    /// container uploads among them. The raw JSON object is retained here so
+    /// the surrounding response stays decodable and the block can still be
+    /// inspected.
+    ///
+    /// This variant is **deserialize-only**. Attempting to serialize it — by
+    /// putting it back into a request — is an error rather than a silent
+    /// round-trip of a block this SDK does not understand.
+    #[serde(untagged, skip_serializing)]
+    Unknown(serde_json::Value),
 }
 
 /// Plain-text content block.
@@ -115,6 +129,10 @@ mod tests {
         clippy::unwrap_used,
         reason = "tests unwrap known-valid fixtures; a panic is the intended failure signal"
     )]
+    #![expect(
+        clippy::panic,
+        reason = "test-only panic on a wrong-variant match; a panic is the intended failure signal"
+    )]
 
     use super::*;
 
@@ -166,4 +184,32 @@ mod tests {
         let back: TextBlock = serde_json::from_str(&j).unwrap();
         assert_eq!(back, original);
     }
+
+    #[test]
+    fn unknown_block_type_decodes_with_payload_retained() {
+        let json = r#"{"type":"server_tool_use","id":"srvtoolu_01","name":"web_search"}"#;
+        let block: ContentBlock = serde_json::from_str(json).unwrap();
+        match block {
+            ContentBlock::Unknown(v) => {
+                assert_eq!(v["type"], "server_tool_use");
+                assert_eq!(v["id"], "srvtoolu_01");
+                assert_eq!(v["name"], "web_search");
+            }
+            other => panic!("wrong variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn known_block_types_still_decode_with_unknown_arm_present() {
+        let block: ContentBlock = serde_json::from_str(r#"{"type":"text","text":"hi"}"#).unwrap();
+        assert_eq!(block, ContentBlock::Text(TextBlock::new("hi")));
+    }
+
+    // `unknown_block_cannot_be_serialized_back_to_the_api` previously lived
+    // here and asserted only `serde_json::to_string(&block).is_err()` — true
+    // for any failure reason, not just this one. It is superseded by
+    // `resource::tests::create_with_unserializable_content_surfaces_typed_serde_error`,
+    // which exercises the real caller path (a `MessageRequest` carrying a
+    // `ContentBlock::Unknown`) and asserts the typed
+    // `Error::Serde { context: "MessageRequest", .. }` a caller actually sees.
 }

@@ -26,11 +26,16 @@ use crate::types::ModelId;
 /// let k: ModelInfoKind = serde_json::from_str(r#""model""#).unwrap();
 /// assert_eq!(k, ModelInfoKind::Model);
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum ModelInfoKind {
     /// A Claude model.
     Model,
+    /// A discriminant this SDK release does not recognize; carries the raw
+    /// wire value.
+    #[serde(untagged)]
+    Unknown(String),
 }
 
 /// Metadata record for a single Claude model.
@@ -135,6 +140,12 @@ mod tests {
         assert!(!list.has_more);
         assert!(list.first_id.is_none());
         assert!(list.last_id.is_none());
+    }
+
+    #[test]
+    fn unknown_model_info_kind_decodes_with_payload() {
+        let k: ModelInfoKind = serde_json::from_str(r#""future_kind""#).unwrap();
+        assert_eq!(k, ModelInfoKind::Unknown("future_kind".into()));
     }
 
     #[test]
