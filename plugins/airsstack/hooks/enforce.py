@@ -235,19 +235,35 @@ def _basename_match(file_path, globs):
     return False
 
 
-def _marker_active(cwd, markers):
-    """True if any marker file exists at cwd or any ancestor directory."""
+def marker_active_in(directory, markers):
+    """True when a `detect` marker sits in `directory` or any ancestor.
+
+    Split out of `marker_active` because the two phases anchor differently:
+    a code file anchors on itself, an SDD design doc has no in-repo location
+    to anchor on (it lives under AIRSSTACK_HOME) so it anchors on `cwd`.
+    """
     if not markers:
         return False
-    d = os.path.abspath(cwd or ".")
+    d = os.path.abspath(directory or ".")
     while True:
-        for m in markers:
-            if os.path.isfile(os.path.join(d, m)):
+        for marker in markers:
+            if os.path.isfile(os.path.join(d, marker)):
                 return True
         parent = os.path.dirname(d)
         if parent == d:
             return False
         d = parent
+
+
+def marker_active(file_path, markers, cwd=None):
+    """True when a `detect` marker sits at or above the FILE's directory.
+
+    The pre-repair version searched upward from `cwd`, which is wrong for any
+    file outside the session's working directory. `cwd` survives only as the
+    fallback when the file has no usable directory component.
+    """
+    start = os.path.dirname(os.path.abspath(file_path)) or (cwd or ".")
+    return marker_active_in(start, markers)
 
 
 def _matches(file_path, cwd, manifests):
@@ -260,7 +276,7 @@ def _matches(file_path, cwd, manifests):
     design = is_design_doc(file_path)
     for m in manifests:
         if design:
-            if "design" in m["phase"] and _marker_active(cwd, m["detect"]):
+            if "design" in m["phase"] and marker_active_in(cwd, m["detect"]):
                 hits.append((m["stack"], "design", m["skill"]))
         else:
             if "code" in m["phase"] and _basename_match(file_path, m["match"]):

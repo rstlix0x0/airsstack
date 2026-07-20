@@ -124,5 +124,49 @@ class TestDesignDoc(unittest.TestCase):
         self.assertFalse(enforce.is_design_doc("/elsewhere/specs/x.md", self.root))
 
 
+class TestMarkerActive(unittest.TestCase):
+    def test_found_at_ancestor_of_the_file(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = os.path.join(tmp, "repo", "src", "deep")
+            os.makedirs(repo)
+            open(os.path.join(tmp, "repo", "Cargo.toml"), "w").close()
+            target = os.path.join(repo, "lib.rs")
+            # cwd is deliberately elsewhere: the search must start at the
+            # FILE's directory, not at the session's working directory.
+            self.assertTrue(enforce.marker_active(target, ["Cargo.toml"], cwd=tmp))
+
+    def test_absent_above_the_file(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            marked = os.path.join(tmp, "marked")
+            plain = os.path.join(tmp, "plain")
+            os.makedirs(marked)
+            os.makedirs(plain)
+            open(os.path.join(marked, "Cargo.toml"), "w").close()
+            target = os.path.join(plain, "lib.rs")
+            self.assertFalse(enforce.marker_active(target, ["Cargo.toml"], cwd=marked))
+
+    def test_empty_marker_list_is_inactive(self):
+        self.assertFalse(enforce.marker_active("/tmp/x/lib.rs", [], cwd="/tmp"))
+
+    def test_design_docs_anchor_on_cwd_not_the_file(self):
+        """SDD specs/plans live under AIRSSTACK_HOME, outside every repo.
+
+        Anchoring them on their own directory can never find a marker, which
+        would silently kill design-phase enforcement (e2e case 4).
+        """
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = os.path.join(tmp, "repo")
+            sdd = os.path.join(tmp, "home", "cc", "plugins", "sdd", "proj", "specs")
+            os.makedirs(repo)
+            os.makedirs(sdd)
+            open(os.path.join(repo, "Cargo.toml"), "w").close()
+            spec = os.path.join(sdd, "2026-01-01-x.md")
+            self.assertFalse(enforce.marker_active(spec, ["Cargo.toml"], cwd=repo))
+            self.assertTrue(enforce.marker_active_in(repo, ["Cargo.toml"]))
+
+
 if __name__ == "__main__":
     unittest.main()
