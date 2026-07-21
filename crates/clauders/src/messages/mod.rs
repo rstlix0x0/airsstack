@@ -33,6 +33,8 @@ pub mod token_counting;
 
 pub mod structured_outputs;
 
+pub mod thinking;
+
 #[doc(inline)]
 pub use accumulator::MessageAccumulator;
 #[doc(inline)]
@@ -57,6 +59,9 @@ pub use token_counting::TokenCount;
 
 #[doc(inline)]
 pub use structured_outputs::{OutputConfig, OutputFormat};
+
+#[doc(inline)]
+pub use thinking::{ThinkingConfig, ThinkingDisplay};
 
 #[doc(inline)]
 pub use batches::{
