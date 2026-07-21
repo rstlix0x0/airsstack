@@ -16,7 +16,9 @@
 //! Not responsible for:
 //! - Building the HTTP request or choosing the URL — that lives in
 //!   `resource.rs` (`MessagesResource::stream`).
-//! - Tool-use content deltas are not modelled.
+//! - Assembling a [`Message`] from events — the accumulation rules live in
+//!   [`crate::messages::MessageAccumulator`]; [`MessageStream::collect`] is
+//!   a thin wrapper over it.
 //!
 //! Entry points: [`MessageStream`] (via `MessagesResource::stream`) and
 //! [`StreamEvent`].
@@ -29,8 +31,9 @@ use futures_core::Stream;
 use pin_project_lite::pin_project;
 
 use crate::error::{ApiError, ApiErrorBody, Error};
-use crate::messages::content::{ContentBlock, TextBlock};
-use crate::messages::response::{Message, Usage};
+use crate::messages::accumulator::MessageAccumulator;
+use crate::messages::content::ContentBlock;
+use crate::messages::response::Message;
 use crate::transport::BodyStream;
 use crate::types::StopSequence;
 
@@ -228,17 +231,23 @@ impl MessageStream {
 
     /// Drain the stream and assemble the final [`Message`].
     ///
-    /// Consumes `message_start`, `content_block_*`, and `message_delta`
-    /// events to build the complete message. Stops at `message_stop` or
-    /// stream exhaustion.
+    /// Every event is folded into a [`MessageAccumulator`]; an inline
+    /// `event: error` is intercepted here and returned as [`Error::Api`]
+    /// rather than reaching the accumulator. Stops at stream exhaustion.
+    ///
+    /// Drive a [`MessageAccumulator`] directly instead when the caller needs
+    /// to observe events as they arrive and still end up with the assembled
+    /// message.
     ///
     /// # Errors
     ///
-    /// Returns the first [`Error`] encountered while polling the stream.
-    /// An inline `event: error` becomes [`Error::Api`] and the stream is
-    /// consumed as terminal.
+    /// Returns the first [`Error`] encountered while polling the stream, an
+    /// [`Error::Api`] for an inline error event, [`Error::Stream`] if the
+    /// stream is truncated or violates the content-block index invariant,
+    /// and [`Error::Serde`] if a tool call's accumulated JSON arguments
+    /// fail to parse.
     pub async fn collect(mut self) -> Result<Message, Error> {
-        let mut accumulated: Option<Message> = None;
+        let mut accumulator = MessageAccumulator::new();
 
         loop {
             let item = std::future::poll_fn(|cx| Pin::new(&mut self).poll_next(cx)).await;
@@ -248,69 +257,23 @@ impl MessageStream {
                 Some(Err(e)) => return Err(e),
             };
 
-            match event {
-                StreamEvent::MessageStart { message } => {
-                    accumulated = Some(message);
-                }
-                StreamEvent::ContentBlockStart {
-                    index,
-                    content_block,
-                } => {
-                    if let Some(ref mut m) = accumulated {
-                        let idx = index as usize;
-                        while m.content.len() <= idx {
-                            m.content.push(ContentBlock::Text(TextBlock::new("")));
-                        }
-                        m.content[idx] = content_block;
-                    }
-                }
-                StreamEvent::ContentBlockDelta { index, delta } => {
-                    if let Some(ref mut m) = accumulated {
-                        let idx = index as usize;
-                        if let (Some(ContentBlock::Text(tb)), ContentDelta::TextDelta { text }) =
-                            (m.content.get_mut(idx), delta)
-                        {
-                            tb.text.push_str(&text);
-                        }
-                    }
-                }
-                StreamEvent::MessageDelta { delta, usage } => {
-                    if let Some(ref mut m) = accumulated {
-                        if delta.stop_reason.is_some() {
-                            m.stop_reason = delta.stop_reason;
-                        }
-                        if delta.stop_sequence.is_some() {
-                            m.stop_sequence = delta.stop_sequence;
-                        }
-                        m.usage = Usage {
-                            input_tokens: m.usage.input_tokens,
-                            output_tokens: usage.output_tokens,
-                            cache_creation_input_tokens: m.usage.cache_creation_input_tokens,
-                            cache_read_input_tokens: m.usage.cache_read_input_tokens,
-                            cache_creation: m.usage.cache_creation,
-                        };
-                    }
-                }
-                StreamEvent::Error { error } => {
-                    return Err(Error::Api(ApiError {
-                        // An inline stream-level error has no HTTP status code;
-                        // use 200 as the nominal status since the HTTP layer
-                        // already returned success when the stream started.
-                        status: http::StatusCode::OK,
-                        body: error,
-                        request_id: None,
-                        organization_id: None,
-                        retry_after: None,
-                    }));
-                }
-                StreamEvent::MessageStop
-                | StreamEvent::ContentBlockStop { .. }
-                | StreamEvent::Ping
-                | StreamEvent::Unknown(_) => {}
+            if let StreamEvent::Error { error } = event {
+                return Err(Error::Api(ApiError {
+                    // An inline stream-level error has no HTTP status code;
+                    // use 200 as the nominal status since the HTTP layer
+                    // already returned success when the stream started.
+                    status: http::StatusCode::OK,
+                    body: error,
+                    request_id: None,
+                    organization_id: None,
+                    retry_after: None,
+                }));
             }
+
+            accumulator.accumulate(&event)?;
         }
 
-        accumulated.ok_or_else(|| Error::Stream("stream ended before message_start event".into()))
+        accumulator.finish()
     }
 }
 

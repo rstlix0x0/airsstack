@@ -113,7 +113,25 @@ impl MessageAccumulator {
                 Ok(())
             }
             StreamEvent::ContentBlockStop { index } => self.finish_block(*index),
-            _ => Ok(()),
+            StreamEvent::MessageDelta { delta, usage } => {
+                if let Some(snapshot) = self.snapshot.as_mut() {
+                    if delta.stop_reason.is_some() {
+                        snapshot.stop_reason.clone_from(&delta.stop_reason);
+                    }
+                    if delta.stop_sequence.is_some() {
+                        snapshot.stop_sequence.clone_from(&delta.stop_sequence);
+                    }
+                    snapshot.usage.output_tokens = usage.output_tokens;
+                }
+                Ok(())
+            }
+            // An inline error is a caller-facing concern, not an
+            // accumulation one: leaving it inert keeps this a pure state
+            // machine over well-formed events.
+            StreamEvent::MessageStop
+            | StreamEvent::Ping
+            | StreamEvent::Error { .. }
+            | StreamEvent::Unknown(_) => Ok(()),
         }
     }
 
@@ -255,6 +273,8 @@ mod tests {
     )]
 
     use super::*;
+    use crate::messages::response::StopReason;
+    use crate::types::StopSequence;
 
     // ── fixtures ───────────────────────────────────────────────────────────
 
@@ -660,5 +680,77 @@ mod tests {
             }
             other => panic!("expected a text block and a tool-use block, got {other:?}"),
         }
+    }
+
+    // ── message_delta and inert events ─────────────────────────────────────
+
+    #[test]
+    fn message_delta_sets_stop_reason_stop_sequence_and_output_tokens() {
+        let mut acc = MessageAccumulator::new();
+        acc.accumulate(&message_start()).unwrap();
+        acc.accumulate(&event(
+            r#"{"type":"message_delta",
+                "delta":{"stop_reason":"stop_sequence","stop_sequence":"END"},
+                "usage":{"output_tokens":42}}"#,
+        ))
+        .unwrap();
+
+        let msg = acc.finish().unwrap();
+        assert_eq!(msg.stop_reason, Some(StopReason::StopSequence));
+        assert_eq!(
+            msg.stop_sequence.as_ref().map(StopSequence::as_str),
+            Some("END")
+        );
+        assert_eq!(msg.usage.output_tokens, 42);
+        assert_eq!(
+            msg.usage.input_tokens, 5,
+            "input_tokens must survive the delta"
+        );
+    }
+
+    #[test]
+    fn message_delta_without_a_stop_reason_leaves_the_previous_value() {
+        let mut acc = MessageAccumulator::new();
+        acc.accumulate(&message_start()).unwrap();
+        acc.accumulate(&event(
+            r#"{"type":"message_delta",
+                "delta":{"stop_reason":"end_turn","stop_sequence":null},
+                "usage":{"output_tokens":3}}"#,
+        ))
+        .unwrap();
+        acc.accumulate(&event(
+            r#"{"type":"message_delta",
+                "delta":{"stop_reason":null,"stop_sequence":null},
+                "usage":{"output_tokens":7}}"#,
+        ))
+        .unwrap();
+
+        let msg = acc.finish().unwrap();
+        assert_eq!(msg.stop_reason, Some(StopReason::EndTurn));
+        assert_eq!(msg.usage.output_tokens, 7);
+    }
+
+    #[test]
+    fn message_stop_ping_error_and_unknown_events_are_inert() {
+        let mut acc = started(&[r#"{"type":"text","text":"kept"}"#]);
+        acc.accumulate(&event(r#"{"type":"message_stop"}"#))
+            .unwrap();
+        acc.accumulate(&event(r#"{"type":"ping"}"#)).unwrap();
+        acc.accumulate(&event(
+            r#"{"type":"error","error":{"type":"overloaded_error","message":"busy"}}"#,
+        ))
+        .unwrap();
+        acc.accumulate(&event(r#"{"type":"some_future_event","payload":1}"#))
+            .unwrap();
+
+        let msg = acc.finish().unwrap();
+        assert_eq!(msg.content.len(), 1);
+        match &msg.content[0] {
+            ContentBlock::Text(tb) => assert_eq!(tb.text, "kept"),
+            other => panic!("expected text block, got {other:?}"),
+        }
+        assert_eq!(msg.stop_reason, None);
+        assert_eq!(msg.stop_sequence, None);
+        assert_eq!(msg.usage.output_tokens, 0);
     }
 }
