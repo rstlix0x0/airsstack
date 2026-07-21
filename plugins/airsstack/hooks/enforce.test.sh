@@ -99,111 +99,6 @@ printf '%s' "$out4" | grep -q 'airsstack-guideline-rust:rust-guidelines' \
 printf '%s' "$out4" | grep -q 'airsstack-guideline-python:python-guidelines' \
   || fail "case7: design-phase python pointer not injected (polyglot)"
 
-# --- case 10: node fallback parity (skipped if node absent) ------------
-if command -v node >/dev/null 2>&1; then
-  runjs() {  # session_id file_path cwd
-    printf '{"session_id":"%s","cwd":"%s","tool_input":{"file_path":"%s"}}' "$1" "$3" "$2" \
-    | AIRSSTACK_ENFORCE_REGISTRY="$registry" AIRSSTACK_HOME="$home" TMPDIR="$markers" \
-      node "$SCRIPT_DIR/enforce.js"
-  }
-  outjs=$(runjs js1 "$repo/src/lib.rs" "$repo")
-  printf '%s' "$outjs" | grep -q 'airsstack-guideline-rust:rust-guidelines' \
-    || fail "case10: node enforce.js did not inject rust pointer"
-  printf '%s' "$outjs" | grep -q 'defer' \
-    || fail "case10: node enforce.js missing permissionDecision defer"
-  outjs2=$(runjs js1 "$repo/src/other.rs" "$repo")
-  [ -z "$outjs2" ] || fail "case10: node enforce.js dedup failed: $outjs2"
-else
-  printf 'SKIP case10: node not installed\n' >&2
-fi
-
-# --- case 13: glob char-class parity js==py ----------------------------
-# Exercises [seq] and [!seq] character-class metacharacters.  Python fnmatch
-# handles these natively; enforce.js globToRegExp must now match.
-# Skipped when node is not installed (mirrors case 10 guard).
-if command -v node >/dev/null 2>&1; then
-  # fixture: airsstack plugin whose manifest match uses a char-class glob
-  ccdir="$work/plugins/charclass"; mkdir -p "$ccdir"
-  cat > "$ccdir/enforcement.json" <<'JSON'
-{ "stack": "charclass-test", "detect": [], "match": ["**/v[0-9].rs"],
-  "skill": "charclass-skill:check", "phase": ["code"] }
-JSON
-  registry13="$work/installed_plugins_13.json"
-  cat > "$registry13" <<JSON
-{ "plugins": {
-  "airsstack-charclass@airsstack": [ { "installPath": "$ccdir" } ]
-} }
-JSON
-
-  runjs13() {  # session_id file_path cwd
-    printf '{"session_id":"%s","cwd":"%s","tool_input":{"file_path":"%s"}}' "$1" "$3" "$2" \
-    | AIRSSTACK_ENFORCE_REGISTRY="$registry13" AIRSSTACK_HOME="$home" TMPDIR="$markers" \
-      node "$SCRIPT_DIR/enforce.js"
-  }
-  runpy13() {  # session_id file_path cwd
-    printf '{"session_id":"%s","cwd":"%s","tool_input":{"file_path":"%s"}}' "$1" "$3" "$2" \
-    | AIRSSTACK_ENFORCE_REGISTRY="$registry13" AIRSSTACK_HOME="$home" TMPDIR="$markers" \
-      python3 "$SCRIPT_DIR/enforce.py"
-  }
-
-  # matching file: v3.rs  → both runtimes must inject
-  out13_js_match=$(runjs13 s13a "$repo/src/v3.rs" "$repo")
-  out13_py_match=$(runpy13 s13b "$repo/src/v3.rs" "$repo")
-  printf '%s' "$out13_js_match" | grep -q 'charclass-skill:check' \
-    || fail "case13: enforce.js did not inject for v3.rs (char-class match)"
-  printf '%s' "$out13_py_match" | grep -q 'charclass-skill:check' \
-    || fail "case13: enforce.py did not inject for v3.rs (char-class match)"
-
-  # non-matching file: vx.rs → both runtimes must be silent
-  out13_js_nomatch=$(runjs13 s13c "$repo/src/vx.rs" "$repo")
-  out13_py_nomatch=$(runpy13 s13d "$repo/src/vx.rs" "$repo")
-  [ -z "$out13_js_nomatch" ] \
-    || fail "case13: enforce.js injected for vx.rs (should not match [0-9]): $out13_js_nomatch"
-  [ -z "$out13_py_nomatch" ] \
-    || fail "case13: enforce.py injected for vx.rs (should not match [0-9]): $out13_py_nomatch"
-
-  # negated class: vx.rs must match v[!0-9].rs  (x is not a digit)
-  ccdir2="$work/plugins/charclass2"; mkdir -p "$ccdir2"
-  cat > "$ccdir2/enforcement.json" <<'JSON'
-{ "stack": "charclass-neg", "detect": [], "match": ["**/v[!0-9].rs"],
-  "skill": "charclass-neg-skill:check", "phase": ["code"] }
-JSON
-  registry13b="$work/installed_plugins_13b.json"
-  cat > "$registry13b" <<JSON
-{ "plugins": {
-  "airsstack-charclass-neg@airsstack": [ { "installPath": "$ccdir2" } ]
-} }
-JSON
-
-  runjs13b() {
-    printf '{"session_id":"%s","cwd":"%s","tool_input":{"file_path":"%s"}}' "$1" "$3" "$2" \
-    | AIRSSTACK_ENFORCE_REGISTRY="$registry13b" AIRSSTACK_HOME="$home" TMPDIR="$markers" \
-      node "$SCRIPT_DIR/enforce.js"
-  }
-  runpy13b() {
-    printf '{"session_id":"%s","cwd":"%s","tool_input":{"file_path":"%s"}}' "$1" "$3" "$2" \
-    | AIRSSTACK_ENFORCE_REGISTRY="$registry13b" AIRSSTACK_HOME="$home" TMPDIR="$markers" \
-      python3 "$SCRIPT_DIR/enforce.py"
-  }
-
-  # vx.rs matches v[!0-9].rs → both inject
-  out13b_js_match=$(runjs13b s13e "$repo/src/vx.rs" "$repo")
-  out13b_py_match=$(runpy13b s13f "$repo/src/vx.rs" "$repo")
-  printf '%s' "$out13b_js_match" | grep -q 'charclass-neg-skill:check' \
-    || fail "case13: enforce.js did not inject for vx.rs (negated char-class [!0-9])"
-  printf '%s' "$out13b_py_match" | grep -q 'charclass-neg-skill:check' \
-    || fail "case13: enforce.py did not inject for vx.rs (negated char-class [!0-9])"
-
-  # v3.rs does NOT match v[!0-9].rs → both silent
-  out13b_js_nomatch=$(runjs13b s13g "$repo/src/v3.rs" "$repo")
-  out13b_py_nomatch=$(runpy13b s13h "$repo/src/v3.rs" "$repo")
-  [ -z "$out13b_js_nomatch" ] \
-    || fail "case13: enforce.js injected for v3.rs against [!0-9] (should not match): $out13b_js_nomatch"
-  [ -z "$out13b_py_nomatch" ] \
-    || fail "case13: enforce.py injected for v3.rs against [!0-9] (should not match): $out13b_py_nomatch"
-else
-  printf 'SKIP case13: node not installed\n' >&2
-fi
 
 # --- case 11: hooks.json registers PreToolUse → enforce.sh -------------
 hooks_json="$SCRIPT_DIR/hooks.json"
@@ -219,5 +114,176 @@ rust_readme="$SCRIPT_DIR/../../airsstack-guideline-rust/README.md"
 grep -qi 'No agents, no hooks' "$rust_readme" \
   && fail "case12: stale 'No agents, no hooks' claim still present"
 printf 'docs ok\n' >/dev/null
+
+# --- case 14: launcher exit matrix (D10) — every mode must exit 0 --------
+# PreToolUse exit 2 blocks the tool call. Assert the launcher swallows every
+# child failure mode instead of propagating it.
+lwork="$work/launcher"; mkdir -p "$lwork"
+cp "$LAUNCHER" "$lwork/enforce.sh"
+
+probe() {  # -> prints the launcher's exit code
+  printf '{"session_id":"L","cwd":"%s","tool_input":{"file_path":"%s"}}' "$repo" "$repo/src/lib.rs" \
+  | AIRSSTACK_ENFORCE_REGISTRY="$registry" AIRSSTACK_HOME="$home" TMPDIR="$markers" \
+    sh "$lwork/enforce.sh" >/dev/null 2>&1
+  printf '%s' "$?"
+}
+
+rm -f "$lwork/enforce.py"
+[ "$(probe)" = 0 ] || fail "case14: enforce.py missing did not exit 0"
+
+printf 'import sys\n' > "$lwork/enforce.py"; chmod 000 "$lwork/enforce.py"
+[ "$(probe)" = 0 ] || fail "case14: enforce.py unreadable did not exit 0"
+chmod 644 "$lwork/enforce.py"
+
+printf 'def (\n' > "$lwork/enforce.py"
+[ "$(probe)" = 0 ] || fail "case14: enforce.py SyntaxError did not exit 0"
+
+printf 'raise SystemExit(3)\n' > "$lwork/enforce.py"
+[ "$(probe)" = 0 ] || fail "case14: enforce.py nonzero SystemExit did not exit 0"
+
+cp "$SCRIPT_DIR/enforce.py" "$lwork/enforce.py"
+[ "$(probe)" = 0 ] || fail "case14: healthy enforce.py did not exit 0"
+
+# --- case 15: node runtime fully removed (D5) ---------------------------
+# The runtime's filename is assembled from parts on purpose: this file is one
+# of the files scanned below, so spelling the name literally here would make
+# the check match its own source and fail forever.
+js_stem='enforce'
+[ -e "$SCRIPT_DIR/${js_stem}.js" ] && fail "case15: node runtime file still exists"
+for f in "$SCRIPT_DIR/enforce.sh" "$SCRIPT_DIR/hooks.json" "$SCRIPT_DIR/enforce.test.sh" \
+         "$SCRIPT_DIR/../README.md"; do
+  grep -q "${js_stem}\\.js" "$f" && fail "case15: node runtime referenced in $f"
+done
+printf 'no node references\n' >/dev/null
+
+# --- case 16: gate 1 — record bound to another project contributes nothing
+otherrepo="$work/other"; mkdir -p "$otherrepo"; : > "$otherrepo/Cargo.toml"
+registry16="$work/installed_plugins_16.json"
+cat > "$registry16" <<JSON
+{ "plugins": {
+  "airsstack-guideline-rust@airsstack": [
+    { "scope": "project", "projectPath": "$otherrepo", "installPath": "$rustdir" }
+  ]
+} }
+JSON
+out16=$(printf '{"session_id":"s16","cwd":"%s","tool_input":{"file_path":"%s"}}' \
+    "$repo" "$repo/src/lib.rs" \
+  | AIRSSTACK_ENFORCE_REGISTRY="$registry16" AIRSSTACK_HOME="$home" TMPDIR="$markers" \
+    sh "$LAUNCHER")
+[ -z "$out16" ] || fail "case16: project-bound record leaked into another repo: $out16"
+
+# --- case 17: gate 2 — .rs file with no Cargo.toml above it is silent ----
+bare="$work/bare"; mkdir -p "$bare/src"
+out17=$(run s17 "$bare/src/lib.rs" "$bare")
+[ -z "$out17" ] || fail "case17: .rs outside a Cargo project emitted: $out17"
+
+# --- case 18: gate 3 — root Cargo.toml matches **/Cargo.toml ------------
+out18=$(run s18 "$repo/Cargo.toml" "$repo")
+printf '%s' "$out18" | grep -q 'airsstack-guideline-rust:rust-guidelines' \
+  || fail "case18: root Cargo.toml did not match **/Cargo.toml"
+
+# --- case 19: subagent gets its own shot --------------------------------
+out19a=$(printf '{"session_id":"s19","cwd":"%s","tool_input":{"file_path":"%s"}}' \
+    "$repo" "$repo/src/lib.rs" \
+  | AIRSSTACK_ENFORCE_REGISTRY="$registry" AIRSSTACK_HOME="$home" TMPDIR="$markers" \
+    sh "$LAUNCHER")
+printf '%s' "$out19a" | grep -q 'rust-guidelines' || fail "case19: main thread got no pointer"
+out19b=$(printf '{"session_id":"s19","agent_id":"explorer-1","cwd":"%s","tool_input":{"file_path":"%s"}}' \
+    "$repo" "$repo/src/other.rs" \
+  | AIRSSTACK_ENFORCE_REGISTRY="$registry" AIRSSTACK_HOME="$home" TMPDIR="$markers" \
+    sh "$LAUNCHER")
+printf '%s' "$out19b" | grep -q 'rust-guidelines' \
+  || fail "case19: subagent shot was consumed by the main thread"
+
+# --- case 20: hooks.json trigger surface --------------------------------
+grep -q '"Read|Edit|Write"' "$hooks_json" || fail "case20: PreToolUse matcher is not Read|Edit|Write"
+grep -q '"compact"' "$hooks_json" || fail "case20: SessionStart compact matcher missing"
+grep -q 'rearm.sh' "$hooks_json" || fail "case20: rearm.sh not wired"
+
+# --- case 21: rearm clears this session's sentinels and re-arms ----------
+out21a=$(run s21 "$repo/src/lib.rs" "$repo")
+printf '%s' "$out21a" | grep -q 'rust-guidelines' || fail "case21: first pointer missing"
+out21b=$(run s21 "$repo/src/two.rs" "$repo")
+[ -z "$out21b" ] || fail "case21: dedup failed before rearm"
+
+# rearm.sh must see the same TMPDIR the dispatcher wrote its sentinels into.
+if ! printf '{"session_id":"s21"}' \
+   | TMPDIR="$markers" sh "$SCRIPT_DIR/rearm.sh" >/dev/null 2>&1; then
+  fail "case21: rearm.sh exited non-zero"
+fi
+
+out21c=$(run s21 "$repo/src/three.rs" "$repo")
+printf '%s' "$out21c" | grep -q 'rust-guidelines' || fail "case21: pointer did not re-arm after compact"
+
+# --- case 21b: rearm is scoped to one session ---------------------------
+out21d=$(run s21b "$repo/src/lib.rs" "$repo")
+printf '%s' "$out21d" | grep -q 'rust-guidelines' || fail "case21b: first pointer missing"
+if ! printf '{"session_id":"s21"}' \
+   | TMPDIR="$markers" sh "$SCRIPT_DIR/rearm.sh" >/dev/null 2>&1; then
+  fail "case21b: rearm.sh exited non-zero"
+fi
+out21e=$(run s21b "$repo/src/four.rs" "$repo")
+[ -z "$out21e" ] || fail "case21b: rearm of s21 cleared another session's sentinel: $out21e"
+
+# --- case 22: README documents the repaired dispatcher ------------------
+grep -q 'Read|Edit|Write' "$air_readme" || fail "case22: README does not document the Read trigger"
+grep -qi 'repo-relative' "$air_readme" || fail "case22: README still describes basename matching"
+grep -qi 'project binding' "$air_readme" || fail "case22: README does not document the project-binding gate"
+grep -qi 'compact' "$air_readme" || fail "case22: README does not document the compaction re-arm"
+
+# --- case 23: plugin version bumped past 0.1.0 --------------------------
+plugin_json="$SCRIPT_DIR/../.claude-plugin/plugin.json"
+python3 -c "
+import json,sys
+v=json.load(open('$plugin_json'))['version']
+sys.exit(0 if v != '0.1.0' else 1)
+" || fail "case23: airsstack plugin.json still at 0.1.0 (cache will not refresh)"
+
+# --- case 24: the doctor command exists and drives enforce.py -----------
+# The invocation LINE, not file-wide substring greps: `--explain` and
+# `ARGUMENTS` each also appear in this doc's prose (`--explain` x2,
+# `ARGUMENTS` x3), so a file-wide `grep -q` only proves the words exist
+# somewhere in a markdown file — measured: deleting the entire fenced
+# command block, or dropping any one of `--explain` / `$ARGUMENTS` /
+# `${CLAUDE_PLUGIN_ROOT}` from the command line, still left a file-wide
+# grep GREEN. This pattern anchors on the actual invocation, so all four
+# of those mutations turn it RED.
+doctor="$SCRIPT_DIR/../commands/enforce-doctor.md"
+[ -f "$doctor" ] || fail "case24: commands/enforce-doctor.md missing"
+grep -Eq '\$\{CLAUDE_PLUGIN_ROOT\}/hooks/enforce\.py"[[:space:]]+--explain[[:space:]]+"\$ARGUMENTS"' \
+  "$doctor" \
+  || fail "case24: doctor does not invoke \${CLAUDE_PLUGIN_ROOT}/hooks/enforce.py --explain \$ARGUMENTS"
+
+# --- case 25: --explain runs end to end and names a stage ---------------
+out25=$(AIRSSTACK_ENFORCE_REGISTRY="$registry" AIRSSTACK_HOME="$home" TMPDIR="$markers" \
+  python3 "$SCRIPT_DIR/enforce.py" --explain "$repo/src/doctor.rs" 2>&1)
+printf '%s' "$out25" | grep -q 'outcome:' || fail "case25: --explain printed no outcome"
+printf '%s' "$out25" | grep -q 'python:' || fail "case25: --explain printed no runtime"
+
+# --- case 26: --explain never exits non-zero -----------------------------
+# Structural form deliberately, not `cmd; [ "$?" = 0 ] || fail ...`: under
+# `set -eu` a bare failing command aborts the script at that line, so a
+# `$?`-based check below it can never run and its `fail` message can never
+# print — an assertion that cannot report its own failure is not a test.
+if ! TMPDIR="$markers" python3 "$SCRIPT_DIR/enforce.py" --explain >/dev/null 2>&1; then
+  fail "case26: --explain with no path exited non-zero"
+fi
+
+# --- case 27: README documents the doctor -------------------------------
+# A bare `grep -q 'enforce-doctor'` is file-wide, same shape as case 24: a
+# heading mention alone satisfies it even with the explanatory prose
+# removed. Require the heading AND a substantive sentence from that section.
+grep -q 'enforce-doctor' "$air_readme" || fail "case27: README does not document the doctor"
+grep -q 'names the stage that' "$air_readme" \
+  || fail "case27: README mentions enforce-doctor but the explanation of what it does is missing"
+
+# --- case 28: plugin version bumped to 0.1.2 for the commands/ addition -
+if ! python3 -c "
+import json,sys
+v=json.load(open('$SCRIPT_DIR/../.claude-plugin/plugin.json'))['version']
+sys.exit(0 if v == '0.1.2' else 1)
+"; then
+  fail "case28: airsstack plugin.json not bumped to 0.1.2"
+fi
 
 printf 'PASS\n'

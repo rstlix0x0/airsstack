@@ -9,6 +9,15 @@
             "command": "echo 'Reminder: run /airsstack:snapshot-load for the current git branch to rehydrate relevant project memory before starting work.'"
           }
         ]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/rearm.sh\""
+          }
+        ]
       }
     ],
     "SessionEnd": [
@@ -33,7 +42,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Edit|Write",
+        "matcher": "Read|Edit|Write",
         "hooks": [
           {
             "type": "command",

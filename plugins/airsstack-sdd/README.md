@@ -31,20 +31,34 @@ Skills are namespaced `airsstack-sdd:<name>`.
 
 ## Artifact layout
 
-All artifacts live in a per-project, **git-ignored** tree:
+Artifacts live under **two roots**, split by what the artifact is.
+
+**Worktree-local** — RFCs only, inside your project:
 
 ```
 .airsstack/cc/plugins/sdd/
-├── rfcs/    # human-authored RFCs — design input, read-only to the plugin
+└── rfcs/    # human-authored RFCs — design input, read-only to the plugin
+```
+
+Git-ignored via a single `.gitignore` line: `.airsstack/`. RFCs are transient per-working-tree
+input, deliberately not shared across worktrees.
+
+**HOME-global** — specs and plans, outside any repo:
+
+```
+${AIRSSTACK_HOME:-~/.airsstack}/cc/plugins/sdd/<key>/
 ├── specs/   # brainstorm writes specs
 └── plans/   # write-plan writes plans
     └── _archive/
 ```
 
-The whole `.airsstack/` tree is git-ignored via a single `.gitignore` line: `.airsstack/`.
-Artifacts are therefore local to your working tree, not committed.
+`<key>` is a stable per-repo key resolved from `git rev-parse --git-common-dir`, so every
+linked worktree of one repo collapses to one store. Specs and plans are therefore visible
+from every worktree and survive worktree teardown. The root sits outside any repo, so
+nothing is ever committed — durability here is per-user local persistence, the same
+contract the snapshot and journal stores use. `AIRSSTACK_HOME` overrides the base.
 
-The tree and the `.gitignore` entry are provisioned three ways, all idempotent:
+Both roots and the `.gitignore` entry are provisioned three ways, all idempotent:
 
 - automatically on session start (a plugin SessionStart hook),
 - on demand with `/airsstack-sdd:setup`,
@@ -55,7 +69,7 @@ Canonical path definitions live in two mirrored authorities: prose in
 
 ## RFCs as input
 
-Drop an RFC into `rfcs/` (any filename — no convention enforced). `brainstorm` auto-scans
+Drop an RFC into the worktree-local `rfcs/` (any filename — no convention enforced). `brainstorm` auto-scans
 the directory and surfaces what it finds, or you can name an RFC explicitly to load it as
 primary design input. When an RFC seeds a spec, the spec header records its provenance
 with a `Derived-from-RFC: rfcs/<file>` line. RFCs are read-only to the plugin — it never
@@ -70,8 +84,9 @@ the workflow with adjustments for this stack:
 
 - **One objective per plan file**, with an explicit spec-vs-plan artifact lifecycle (specs are
   the durable record; plans are disposable scaffolding).
-- A per-project, **git-ignored `.airsstack/` artifact tree** (`rfcs/`, `specs/`, `plans/`)
-  provisioned idempotently three ways (SessionStart hook, `setup` command, lazy pre-write).
+- A **two-root artifact layout** — RFCs in a git-ignored `.airsstack/` tree per working tree,
+  specs and plans in a HOME-global per-repo store shared across worktrees — provisioned
+  idempotently three ways (SessionStart hook, `setup` command, lazy pre-write).
 - **RFCs as first-class design input** scanned from `rfcs/`, with `Derived-from-RFC` provenance.
 - **Soft-coupling to the `airsstack` plugin's `orchestrate`** skill for execution, degrading to
   guided inline work when that plugin is absent.
