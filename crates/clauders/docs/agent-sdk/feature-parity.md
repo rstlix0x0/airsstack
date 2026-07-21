@@ -177,7 +177,7 @@ clauders models a broad hook-event set and the full control-response payload.
 | Aspect | Python | TS | clauders |
 |---|---|---|---|
 | Registration with matcher | ✅ `HookMatcher` | ✅ `HookCallbackMatcher` | ✅ `Options::hook(event, matcher, Arc<dyn Hook>)` |
-| Capability-gated to binary support | — | — | ✅ `Capabilities::supports_hook` warns on unsupported events |
+| Capability-gated to binary support | — | — | 🟣 `Capabilities::supports_hook` and the registration-time gate were a clauders-only superset, now removed; `HookRegistry::initialize_payload` declares every registered hook unconditionally, and it is the binary that ignores an event it does not support |
 | Return: block / continue / suppressOutput / systemMessage / reason | ✅ | ✅ | ✅ `HookOutput { continue_, suppress_output, decision: Block, system_message, reason }` |
 | Hook-lifecycle observability frames | ✅ (`includeHookEvents`) | ✅ | ✅ `Options::include_hook_events` → `--include-hook-events`; frames surface as `Message::Other` (WS 1) |
 
@@ -196,10 +196,11 @@ tool hooks). clauders now models `SessionStart`/`SessionEnd`/`Setup` and the eli
 `SessionStart`/`SessionEnd`/`Setup`/`Elicitation`/`ElicitationResult` (WS 3, WS 7); clauders' own
 `PostToolUseFailure`/`PermissionRequest` extras remain the only edge divergence.
 
-> **Deferred:** the `Elicitation`/`ElicitationResult` hook events are registered and capability-gated,
-> but their answer-substituting semantics — a hook returning `{action, content}` to pre-empt or override
-> an elicitation before the registered `ElicitationPolicy` runs — require `HookOutput` fields that do
-> not exist yet (`HookOutput` today carries `continue_`/`suppress_output`/`decision`/`system_message`/
+> **Deferred:** the `Elicitation`/`ElicitationResult` hook events are registered — declared
+> unconditionally now that the capability gate is gone (see the row above) — but their
+> answer-substituting semantics — a hook returning `{action, content}` to pre-empt or override an
+> elicitation before the registered `ElicitationPolicy` runs — require `HookOutput` fields that do not
+> exist yet (`HookOutput` today carries `continue_`/`suppress_output`/`decision`/`system_message`/
 > `reason` only). Tracked as a follow-up, not a gap in the hook *event* surface itself.
 
 ---

@@ -149,8 +149,8 @@ impl Runtime for MockRuntime {
         Ok(self.mcp_status.clone())
     }
 
-    fn capabilities(&self) -> &Capabilities {
-        &self.capabilities
+    fn capabilities(&self) -> Capabilities {
+        self.capabilities.clone()
     }
 }
 
@@ -159,7 +159,7 @@ mod tests {
     #![expect(clippy::expect_used, reason = "test assertions use expect for context")]
 
     use super::{ControlCall, MockRuntime};
-    use crate::agent::message::{Message, ResultMessage};
+    use crate::agent::message::{Message, ResultMessage, ResultSubtype};
     use crate::agent::permissions::PermissionMode;
     use crate::agent::runtime::Runtime;
     use crate::agent::types::{Prompt, SessionId};
@@ -168,6 +168,8 @@ mod tests {
 
     fn result(text: &str) -> Message {
         Message::Result(ResultMessage {
+            subtype: ResultSubtype::Success,
+            errors: Vec::new(),
             result: text.into(),
             structured_output: None,
             is_error: false,

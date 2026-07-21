@@ -50,12 +50,14 @@ mod tests {
     #![expect(clippy::expect_used, reason = "test assertions use expect for context")]
 
     use super::ReceiverStream;
-    use crate::agent::message::{Message, ResultMessage};
+    use crate::agent::message::{Message, ResultMessage, ResultSubtype};
     use futures_util::StreamExt;
     use tokio::sync::mpsc;
 
     fn result_msg() -> Message {
         Message::Result(ResultMessage {
+            subtype: ResultSubtype::Success,
+            errors: Vec::new(),
             result: "ok".into(),
             structured_output: None,
             is_error: false,

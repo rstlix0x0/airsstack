@@ -86,9 +86,45 @@ pub struct SystemMessage {
     pub extra: serde_json::Value,
 }
 
+/// Why a turn ended, as reported on the terminal result frame.
+///
+/// The success case and the four error cases are the closed set the binary
+/// ships today; an unrecognized value keeps its wire name rather than being
+/// discarded, so a caller can log or match on it.
+#[non_exhaustive]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResultSubtype {
+    /// The turn completed.
+    Success,
+    /// The turn failed while executing.
+    ErrorDuringExecution,
+    /// The turn hit its configured turn limit.
+    ErrorMaxTurns,
+    /// The turn hit its configured USD budget.
+    ErrorMaxBudgetUsd,
+    /// Structured output could not be produced within the retry limit.
+    ErrorMaxStructuredOutputRetries,
+    /// A subtype this release does not model, retained verbatim.
+    ///
+    /// Deserialize-only: serializing it is an error rather than emitting a
+    /// value this release cannot interpret.
+    #[serde(untagged, skip_serializing)]
+    Unknown(String),
+}
+
 /// Terminal result frame for a turn.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ResultMessage {
+    /// Why the turn ended.
+    pub subtype: ResultSubtype,
+    /// Diagnostics attached to an error result.
+    ///
+    /// `SDKResultError` declares this required; `SDKResultSuccess` has no
+    /// such field, so it defaults to empty rather than failing a success
+    /// frame.
+    #[serde(default)]
+    pub errors: Vec<String>,
     /// Final result text.
     #[serde(default)]
     pub result: String,
@@ -169,7 +205,7 @@ mod tests {
     #![expect(clippy::expect_used, reason = "test assertions use expect for context")]
     #![expect(clippy::panic, reason = "test failure signal via panic in match arms")]
 
-    use super::{Message, ResultMessage, Usage};
+    use super::{Message, ResultMessage, ResultSubtype, Usage};
 
     #[test]
     fn usage_carries_cache_counters_when_present() {
@@ -219,6 +255,7 @@ mod tests {
     #[test]
     fn result_message_defaults_structured_output_to_none_on_deserialize() {
         let json = serde_json::json!({
+            "subtype": "success",
             "result": "hi",
             "session_id": "s1",
             "num_turns": 1
@@ -230,6 +267,7 @@ mod tests {
     #[test]
     fn result_message_carries_structured_output_when_present() {
         let json = serde_json::json!({
+            "subtype": "success",
             "result": "{\"city\":\"Paris\"}",
             "structured_output": { "city": "Paris" },
             "session_id": "s1",
@@ -249,6 +287,47 @@ mod tests {
             Message::Other(v) => assert_eq!(v["type"], "hook_progress"),
             other => panic!("expected Other, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn error_result_carries_subtype_and_diagnostics() {
+        // Field set copied from SDKResultError, sdk.d.ts:4230-4248.
+        let json = r#"{
+            "type":"result","subtype":"error_max_turns","duration_ms":1,
+            "duration_api_ms":1,"is_error":true,"num_turns":9,"stop_reason":null,
+            "total_cost_usd":0.5,"session_id":"s1","errors":["turn limit reached"]
+        }"#;
+        let message: Message = serde_json::from_str(json).expect("deserialize");
+        let Message::Result(result) = message else {
+            panic!("expected Result");
+        };
+        assert_eq!(result.subtype, ResultSubtype::ErrorMaxTurns);
+        assert!(!result.errors.is_empty(), "diagnostics must survive");
+        assert_eq!(result.errors[0], "turn limit reached");
+    }
+
+    #[test]
+    fn success_result_has_no_diagnostics() {
+        let json = r#"{
+            "type":"result","subtype":"success","duration_ms":1,"duration_api_ms":1,
+            "is_error":false,"num_turns":2,"session_id":"s1","result":"done"
+        }"#;
+        let message: Message = serde_json::from_str(json).expect("deserialize");
+        let Message::Result(result) = message else {
+            panic!("expected Result");
+        };
+        assert_eq!(result.subtype, ResultSubtype::Success);
+        assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn unmodelled_result_subtype_retains_its_wire_name() {
+        let subtype: ResultSubtype =
+            serde_json::from_str("\"error_something_new\"").expect("deserialize");
+        assert_eq!(
+            subtype,
+            ResultSubtype::Unknown("error_something_new".to_string())
+        );
     }
 
     #[test]

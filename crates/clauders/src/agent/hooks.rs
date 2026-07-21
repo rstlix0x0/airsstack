@@ -11,7 +11,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde::Serialize;
 
-use crate::agent::capabilities::{Capabilities, HookEvent};
+use crate::agent::capabilities::HookEvent;
 use crate::agent::error::AgentError;
 
 /// A hook's control verdict. Only `block` is defined by the protocol today.
@@ -126,22 +126,12 @@ impl HookRegistry {
     /// Build the `hooks` object for the initialize handshake.
     ///
     /// Groups entries by `PascalCase` event name into
-    /// `{event: [{matcher?, hookCallbackIds:[…]}]}`. When `caps` lists
-    /// supported hook events (non-empty), unsupported events are omitted and a
-    /// warning is logged; when `caps` is empty (unknown), all events are
-    /// included.
+    /// `{event: [{matcher?, hookCallbackIds:[…]}]}`. Every registered hook is
+    /// declared: the binary simply never fires an event it does not support.
     #[must_use]
-    pub fn initialize_payload(&self, caps: &Capabilities) -> serde_json::Value {
-        let gate = !caps.supported_hook_events.is_empty();
+    pub fn initialize_payload(&self) -> serde_json::Value {
         let mut map = serde_json::Map::new();
         for entry in &self.entries {
-            if gate && !caps.supports_hook(entry.event) {
-                tracing::warn!(
-                    event = ?entry.event,
-                    "hook event not supported by this binary; skipping registration"
-                );
-                continue;
-            }
             let Ok(serde_json::Value::String(name)) = serde_json::to_value(entry.event) else {
                 continue;
             };
@@ -175,7 +165,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::{Hook, HookDecision, HookInput, HookOutput, HookRegistry};
-    use crate::agent::capabilities::{Capabilities, HookEvent};
+    use crate::agent::capabilities::HookEvent;
     use crate::agent::error::AgentError;
 
     #[test]
@@ -233,8 +223,7 @@ mod tests {
             Some("Bash".to_string()),
             Arc::new(NoopHook),
         );
-        let caps = Capabilities::default(); // empty => no gating
-        let value = reg.initialize_payload(&caps);
+        let value = reg.initialize_payload();
         let entries = value["PreToolUse"].as_array().expect("array");
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0]["matcher"], "Bash");
@@ -242,28 +231,9 @@ mod tests {
     }
 
     #[test]
-    fn initialize_payload_omits_unsupported_events_when_caps_known() {
-        let mut reg = HookRegistry::default();
-        reg.register(HookEvent::PreToolUse, None, Arc::new(NoopHook));
-        reg.register(HookEvent::Stop, None, Arc::new(NoopHook));
-        let mut supported = std::collections::HashSet::new();
-        supported.insert(HookEvent::PreToolUse);
-        let caps = Capabilities {
-            supported_hook_events: supported,
-            ..Capabilities::default()
-        };
-        let value = reg.initialize_payload(&caps);
-        assert!(value.get("PreToolUse").is_some());
-        assert!(
-            value.get("Stop").is_none(),
-            "unsupported event must be omitted"
-        );
-    }
-
-    #[test]
     fn empty_registry_yields_empty_payload() {
         let reg = HookRegistry::default();
-        let value = reg.initialize_payload(&Capabilities::default());
+        let value = reg.initialize_payload();
         assert_eq!(value, serde_json::json!({}));
     }
 
@@ -271,9 +241,26 @@ mod tests {
     fn initialize_payload_groups_session_start() {
         let mut reg = HookRegistry::default();
         reg.register(HookEvent::SessionStart, None, Arc::new(NoopHook));
-        let value = reg.initialize_payload(&Capabilities::default());
+        let value = reg.initialize_payload();
         let entries = value["SessionStart"].as_array().expect("array");
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0]["hookCallbackIds"][0], "hook_0");
+    }
+
+    #[test]
+    fn initialize_payload_declares_every_registered_event() {
+        // Every survivor above registers at most one event, so a filter
+        // that kept only the first-registered event's entry would still
+        // pass them. Register two different events and require both keys
+        // in the payload.
+        let mut reg = HookRegistry::default();
+        reg.register(HookEvent::PreToolUse, None, Arc::new(NoopHook));
+        reg.register(HookEvent::Stop, None, Arc::new(NoopHook));
+        let value = reg.initialize_payload();
+        assert!(
+            value["PreToolUse"].is_array(),
+            "PreToolUse must be declared"
+        );
+        assert!(value["Stop"].is_array(), "Stop must be declared");
     }
 }

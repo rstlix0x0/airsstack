@@ -77,8 +77,8 @@ impl<R: Runtime> Client<R> {
         self.runtime.mcp_status().await
     }
 
-    /// The capabilities negotiated with the backend.
-    pub fn capabilities(&self) -> &Capabilities {
+    /// The capabilities the backend advertised.
+    pub fn capabilities(&self) -> Capabilities {
         self.runtime.capabilities()
     }
 }
@@ -182,7 +182,7 @@ mod tests {
     #![expect(clippy::expect_used, reason = "test assertions use expect for context")]
 
     use super::Client;
-    use crate::agent::message::{Message, ResultMessage};
+    use crate::agent::message::{Message, ResultMessage, ResultSubtype};
     use crate::agent::permissions::PermissionMode;
     use crate::agent::runtime::mock::{ControlCall, MockRuntime};
     use crate::agent::types::SessionId;
@@ -191,6 +191,8 @@ mod tests {
 
     fn result(text: &str) -> Message {
         Message::Result(ResultMessage {
+            subtype: ResultSubtype::Success,
+            errors: Vec::new(),
             result: text.into(),
             structured_output: None,
             is_error: false,

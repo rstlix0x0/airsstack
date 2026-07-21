@@ -96,9 +96,12 @@ Carried from Phase 4, updated for the post-removal tree:
 3. **Strong types over stringly config.** New surfaces are exhaustive enums / newtypes
    (`ThinkingConfig`, `EffortLevel`, richer `ToolContent`), never `Option<String>` + magic values. No
    `bool` parameters for semantic flags in public constructors.
-4. **Capability-gate CLI-only concepts.** The existing `Capabilities` type gates hook events against
+4. ~~**Capability-gate CLI-only concepts.** The existing `Capabilities` type gates hook events against
    binary support; extend it for new hook events (WS 3) and elicitation (WS 7) rather than silently
-   emitting unsupported frames.
+   emitting unsupported frames.~~ — **withdrawn (Phase 1)**: the registration-time gate was a
+   clauders-only superset the official SDKs do not have, and it never fired (it was conditional on a
+   non-empty manifest that nothing populated). It is deleted; every registered hook is now declared
+   unconditionally and the binary ignores events it does not support.
 5. **Featureless, zero-warning, test-first.** The Rust Definition-of-Done binds every change
    (`cargo test --workspace --all-features`, clippy `-D warnings`, `RUSTDOCFLAGS="-D warnings"`).
 
@@ -149,10 +152,10 @@ Exact CLI flag/control-message names are marked *verify against `--help`/live*, 
 - **clauders today:** `HookEvent` (`capabilities.rs:11-33`) has `PreToolUse`, `PostToolUse`,
   `PostToolUseFailure`, `UserPromptSubmit`, `Stop`, `SubagentStart`, `SubagentStop`, `PreCompact`,
   `Notification`, `PermissionRequest` — missing `SessionStart`/`SessionEnd`.
-- **Design sketch:** add `SessionStart`/`SessionEnd` variants + `Capabilities::supports_hook` gating +
-  demux routing in `runtime/cli/demux.rs`. Keep clauders' extra variants (`PostToolUseFailure`,
-  `PermissionRequest`).
-- **Acceptance:** `SessionStart`/`SessionEnd` dispatch to registered hooks; capability-gated; DoD
+- **Design sketch:** add `SessionStart`/`SessionEnd` variants + ~~`Capabilities::supports_hook` gating~~
+  (**withdrawn (Phase 1)** — that gate is deleted, see the guideline above) + demux routing in
+  `runtime/cli/demux.rs`. Keep clauders' extra variants (`PostToolUseFailure`, `PermissionRequest`).
+- **Acceptance:** `SessionStart`/`SessionEnd` dispatch to registered hooks; ~~capability-gated;~~ DoD
   green.
 - **Open questions:** which of the newer official events (`Setup`/`PostTurn`/agent-message hooks) does
   the current binary actually forward? Scope to the verified set.

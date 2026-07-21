@@ -53,8 +53,11 @@ pub trait Runtime: Send + Sync {
     /// has closed, or the response cannot be decoded.
     async fn mcp_status(&self) -> Result<McpStatus, AgentError>;
 
-    /// The capabilities negotiated with the backend at construction.
-    fn capabilities(&self) -> &Capabilities;
+    /// The capabilities the backend advertised.
+    ///
+    /// Empty until the binary's `system`/`init` frame has been read, so a
+    /// caller that checks before the first turn sees no flags.
+    fn capabilities(&self) -> Capabilities;
 }
 
 #[cfg(test)]

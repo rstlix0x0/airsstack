@@ -1,7 +1,7 @@
 //! The subprocess-backed `Runtime` implementation.
 
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -13,12 +13,13 @@ use tokio::task::JoinHandle;
 
 use crate::agent::capabilities::Capabilities;
 use crate::agent::error::AgentError;
+use crate::agent::message::Message;
 use crate::agent::options::Options;
 use crate::agent::permissions::PermissionMode;
 use crate::agent::process::{LineError, ManagedProcess, ProcessConfig, ProcessIo, StdoutLines};
 use crate::agent::protocol::{
-    ControlResponseBody, OutboundControlRequest, OutboundRequestBody, RequestId, RequestIdGen,
-    decode_inbound, encode_line,
+    ControlResponseBody, InboundFrame, OutboundControlRequest, OutboundRequestBody, RequestId,
+    RequestIdGen, decode_inbound, encode_line,
 };
 use crate::agent::runtime::Runtime;
 use crate::agent::stream::{MessageStream, ReceiverStream};
@@ -29,7 +30,7 @@ use super::argv::{build_argv, permission_mode_wire};
 use super::demux::Demux;
 use super::discovery::{check_version, discover};
 use super::dispatch::Dispatcher;
-use super::handshake::{initialize_request, parse_capabilities, warn_unsupported_hooks};
+use super::handshake::initialize_request;
 
 /// Per-turn message channel capacity (natural backpressure beyond this).
 const TURN_CHANNEL_CAPACITY: usize = 64;
@@ -41,7 +42,7 @@ pub struct CliRuntime {
     out_tx: mpsc::UnboundedSender<String>,
     demux: Arc<Demux>,
     id_gen: RequestIdGen,
-    capabilities: Capabilities,
+    capabilities: Arc<Mutex<Capabilities>>,
     control_request_timeout: Duration,
     reader: JoinHandle<()>,
     writer: JoinHandle<()>,
@@ -80,8 +81,8 @@ impl CliRuntime {
         let mut stdout = stdout;
 
         let id_gen = RequestId::generator();
-        let capabilities = handshake(&mut stdin, &mut stdout, &options, &id_gen).await?;
-        warn_unsupported_hooks(&options, &capabilities);
+        handshake(&mut stdin, &mut stdout, &options, &id_gen).await?;
+        let capabilities = Arc::new(Mutex::new(Capabilities::default()));
 
         // Single writer task owns stdin from here on.
         let (out_tx, out_rx) = mpsc::unbounded_channel::<String>();
@@ -101,7 +102,12 @@ impl CliRuntime {
         ));
 
         let demux = Arc::new(Demux::new());
-        let reader = tokio::spawn(reader_loop(stdout, Arc::clone(&demux), dispatcher));
+        let reader = tokio::spawn(reader_loop(
+            stdout,
+            Arc::clone(&demux),
+            dispatcher,
+            Arc::clone(&capabilities),
+        ));
         // stderr is drained by the process layer; not needed for message routing.
         drop(stderr);
 
@@ -271,8 +277,11 @@ impl Runtime for CliRuntime {
         serde_json::from_value(value).map_err(|e| AgentError::Decode(e.to_string()))
     }
 
-    fn capabilities(&self) -> &Capabilities {
-        &self.capabilities
+    fn capabilities(&self) -> Capabilities {
+        self.capabilities
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 }
 
@@ -323,7 +332,7 @@ async fn handshake(
     stdout: &mut StdoutLines,
     options: &Options,
     id_gen: &RequestIdGen,
-) -> Result<Capabilities, AgentError> {
+) -> Result<(), AgentError> {
     let id = id_gen.next();
     let request = initialize_request(options, id.as_str());
     let line = encode_line(&request)?;
@@ -347,7 +356,7 @@ async fn handshake(
 }
 
 /// Read frames from `stdout` until the initialize response arrives.
-async fn read_initialize_response(stdout: &mut StdoutLines) -> Result<Capabilities, AgentError> {
+async fn read_initialize_response(stdout: &mut StdoutLines) -> Result<(), AgentError> {
     loop {
         match stdout.next_line().await {
             Ok(Some(text)) if text.trim().is_empty() => {}
@@ -355,14 +364,33 @@ async fn read_initialize_response(stdout: &mut StdoutLines) -> Result<Capabiliti
                 if let crate::agent::protocol::InboundFrame::ControlResponse(response) =
                     decode_inbound(&text)?
                 {
-                    return control_response_outcome(response.response, "initialize")
-                        .map(|value| parse_capabilities(&value));
+                    return control_response_outcome(response.response, "initialize").map(|_| ());
                 }
                 // Ignore any pre-handshake message frames.
             }
             Ok(None) | Err(_) => return Err(AgentError::TransportClosed),
         }
     }
+}
+
+/// Read the capability manifest out of a `system`/`init` message frame.
+///
+/// Returns `None` for every other frame, and for an `init` frame that does
+/// not carry a `capabilities` key. That second case matters because
+/// `Capabilities` is `#[serde(default)]` with no `deny_unknown_fields`, so
+/// `from_value` would otherwise succeed on any object — including one with
+/// no `capabilities` key — and the caller's "replace the stored manifest on
+/// `Some`" pattern would wipe an earlier, populated manifest with an empty
+/// one whenever a later `init` frame omits the field.
+fn capabilities_from_frame(frame: &InboundFrame) -> Option<Capabilities> {
+    let InboundFrame::Message(Message::System(system)) = frame else {
+        return None;
+    };
+    if system.subtype.as_deref() != Some("init") {
+        return None;
+    }
+    system.extra.get("capabilities")?;
+    serde_json::from_value(system.extra.clone()).ok()
 }
 
 /// The single outbound writer: owns stdin, drains pre-encoded lines.
@@ -379,7 +407,12 @@ async fn writer_loop(mut stdin: ChildStdin, mut rx: mpsc::UnboundedReceiver<Stri
 
 /// The background reader: decode each line, dispatch control requests, and
 /// demultiplex everything else.
-async fn reader_loop(mut stdout: StdoutLines, demux: Arc<Demux>, dispatcher: Arc<Dispatcher>) {
+async fn reader_loop(
+    mut stdout: StdoutLines,
+    demux: Arc<Demux>,
+    dispatcher: Arc<Dispatcher>,
+    capabilities: Arc<Mutex<Capabilities>>,
+) {
     loop {
         #[expect(
             clippy::match_same_arms,
@@ -395,7 +428,12 @@ async fn reader_loop(mut stdout: StdoutLines, demux: Arc<Demux>, dispatcher: Arc
                     let dispatcher = Arc::clone(&dispatcher);
                     tokio::spawn(async move { dispatcher.handle(req).await });
                 }
-                Ok(frame) => demux.route(frame).await,
+                Ok(frame) => {
+                    if let Some(caps) = capabilities_from_frame(&frame) {
+                        *capabilities.lock().unwrap_or_else(PoisonError::into_inner) = caps;
+                    }
+                    demux.route(frame).await;
+                }
                 Err(error) => demux.fail_turn(error).await,
             },
             Ok(None) => {
@@ -581,5 +619,108 @@ mod tests {
         assert!(first.contains("\"content\":\"a\""));
         assert!(second.contains("\"content\":\"b\""));
         assert!(rx.recv().await.is_none());
+    }
+
+    #[test]
+    fn init_frame_populates_the_capability_manifest() {
+        // The manifest arrives on the system/init MESSAGE frame, not on the
+        // initialize control response. Parsing the control response — what
+        // the crate did before — can never populate it.
+        let line = r#"{"type":"system","subtype":"init","session_id":"s1","capabilities":["interrupt_receipt_v1","msg_lifecycle_v1"]}"#;
+        let frame = crate::agent::protocol::decode_inbound(line).expect("decode");
+        let caps = super::capabilities_from_frame(&frame).expect("init frame carries a manifest");
+        assert!(caps.supports("interrupt_receipt_v1"));
+        assert!(caps.supports("msg_lifecycle_v1"));
+    }
+
+    #[test]
+    fn non_init_frames_carry_no_manifest() {
+        let line = r#"{"type":"system","subtype":"other","session_id":"s1"}"#;
+        let frame = crate::agent::protocol::decode_inbound(line).expect("decode");
+        assert!(super::capabilities_from_frame(&frame).is_none());
+    }
+
+    // `capabilities_from_frame` extracting a manifest correctly in isolation
+    // (the two tests above) says nothing about whether `reader_loop` actually
+    // stores what it extracts, or whether a second frame missing the key
+    // erases an earlier, populated manifest — that composed behavior lives
+    // in `reader_loop` itself, so it is pinned by driving `reader_loop`
+    // directly below rather than reimplementing its store-on-`Some` pattern
+    // here (a reimplementation would stay green even if `reader_loop`
+    // regressed to an unconditional `unwrap_or_default()` write).
+    //
+    // `reader_loop` needs a genuine `ChildStdout` (`StdoutLines` only wraps
+    // one), so a live subprocess is unavoidable here; the crate's own
+    // `claude`-CLI-lookalike test child (`clauders-agent-testchild`) is not
+    // reachable from this file — its `CARGO_BIN_EXE_*` path is only set for
+    // integration tests under `tests/`, not for a unit test module inside
+    // `src/`. `cat` stands in instead: a real child process that echoes the
+    // frames written to its stdin back out on its stdout, unmodified, which
+    // is all `reader_loop` needs from the far end of the pipe.
+    //
+    // This test asserts on the locally-built `Arc<Mutex<Capabilities>>`, not
+    // on `CliRuntime::capabilities()` or `connect()`'s own `Arc::clone` into
+    // the reader task — `CliRuntime::connect` is `pub` and reachable from an
+    // integration test with `CARGO_BIN_EXE_*` available, so that half of the
+    // wiring is covered separately by
+    // `tests/agent_capabilities.rs::connect_drives_the_init_frame_into_the_public_capabilities_accessor`,
+    // which drives the real `connect()` and reads `capabilities()` back.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn reader_loop_stores_first_init_frame_and_a_keyless_second_frame_does_not_erase_it() {
+        use std::sync::{Arc, Mutex};
+
+        use tokio::io::AsyncWriteExt;
+
+        use super::{Capabilities, Demux, Dispatcher, reader_loop};
+        use crate::agent::hooks::HookRegistry;
+        use crate::agent::mcp::SdkMcpRegistry;
+        use crate::agent::process::{ManagedProcess, ProcessConfig, ProcessIo};
+
+        let (_proc, io) = ManagedProcess::spawn(&ProcessConfig::new("cat")).expect("spawn cat");
+        let ProcessIo {
+            mut stdin, stdout, ..
+        } = io;
+
+        let (out_tx, _out_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let dispatcher = Arc::new(Dispatcher::new(
+            Arc::new(HookRegistry::default()),
+            None,
+            None,
+            Arc::new(SdkMcpRegistry::default()),
+            out_tx,
+        ));
+        let demux = Arc::new(Demux::new());
+        let capabilities = Arc::new(Mutex::new(Capabilities::default()));
+
+        let reader = tokio::spawn(reader_loop(
+            stdout,
+            Arc::clone(&demux),
+            dispatcher,
+            Arc::clone(&capabilities),
+        ));
+
+        let first = r#"{"type":"system","subtype":"init","session_id":"s1","capabilities":["interrupt_receipt_v1"]}"#;
+        let second = r#"{"type":"system","subtype":"init","session_id":"s2"}"#;
+        stdin
+            .write_all(format!("{first}\n{second}\n").as_bytes())
+            .await
+            .expect("write init frames");
+        stdin.flush().await.expect("flush");
+        drop(stdin); // EOF -> cat exits -> reader_loop sees Ok(None) and returns.
+
+        tokio::time::timeout(Duration::from_secs(5), reader)
+            .await
+            .expect("reader_loop did not finish within the deadline")
+            .expect("reader_loop task panicked");
+
+        let caps = capabilities
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        assert!(
+            caps.supports("interrupt_receipt_v1"),
+            "the second, key-less init frame must not erase the manifest the first frame stored"
+        );
     }
 }
