@@ -567,6 +567,52 @@ class TestExplainStages(unittest.TestCase):
         ]
         self.assertEqual(len(rendered), 20)
 
+    def test_headline_counts_only_out_of_sync_not_unreadable_entries(self):
+        """T4-review carry-over (blue): the headline claims 'N file(s) out of
+        sync', but `drift` also carries 'source tree unreadable, parity
+        unknown' lines for a plugin whose source could not even be compared
+        -- counting those into N asserts precisely what the very next detail
+        line says is unknown. Register two plugin keys: one with a genuine
+        MISSING-from-cache drift, and a second whose source directory is
+        wholly unreadable. The headline must count only the first."""
+        import json as _json
+
+        plugin_a_src = os.path.join(self.repo, "plugins", "airsstack-guideline-rust")
+        os.makedirs(os.path.join(plugin_a_src, ".claude-plugin"))
+        manifest_json = '{"name":"airsstack-guideline-rust","version":"0.1.0"}'
+        with open(os.path.join(plugin_a_src, ".claude-plugin", "plugin.json"), "w") as fh:
+            fh.write(manifest_json)
+        os.makedirs(os.path.join(self.plugin, ".claude-plugin"))
+        with open(os.path.join(self.plugin, ".claude-plugin", "plugin.json"), "w") as fh:
+            fh.write(manifest_json)
+        with open(os.path.join(plugin_a_src, "extra.txt"), "w") as fh:
+            fh.write("present in source only")
+
+        plugin_b_src = os.path.join(self.repo, "plugins", "airsstack-journal")
+        os.makedirs(plugin_b_src)
+        plugin_b_cache = os.path.join(self.tmp, "cache-b")
+        os.makedirs(plugin_b_cache)
+        with open(self.registry, "w") as fh:
+            _json.dump({
+                "plugins": {
+                    "airsstack-guideline-rust@airsstack": [
+                        {"scope": "user", "installPath": self.plugin}
+                    ],
+                    "airsstack-journal@airsstack": [
+                        {"scope": "user", "installPath": plugin_b_cache}
+                    ],
+                }
+            }, fh)
+
+        os.chmod(plugin_b_src, 0o000)
+        try:
+            text = self._explain()
+        finally:
+            os.chmod(plugin_b_src, 0o755)
+
+        self.assertIn("parity: 1 file(s) out of sync between repo and cache", text)
+        self.assertIn("unreadable, parity unknown", text)
+
 
 class TestCli(unittest.TestCase):
     """`_cli` must always return 0 — both `--explain` branches (reviewer's
@@ -942,6 +988,64 @@ class TestParity(unittest.TestCase):
                     "files MISSING (that implies the source WAS read and compared)"
                     % (oct(mode),),
                 )
+
+    def test_key_with_absent_source_dir_is_skipped(self):
+        """T4-review carry-over (blue): a registry key with NO source
+        directory at all under `plugins/<name>/` (a plugin simply not
+        developed in this repo) must be skipped outright -- distinct from
+        `test_key_with_no_source_manifest_is_skipped` above, whose orphan
+        directory is populated and therefore stops one guard later (the
+        manifest-exists check). This exercises the earlier `if not
+        os.path.isdir(src_dir): continue` guard on its own: without it,
+        `os.listdir` on a nonexistent path raises, and a plugin that was
+        never checked out here would falsely report 'source tree
+        unreadable, parity unknown'."""
+        import shutil
+        shutil.copy2(
+            os.path.join(self.src, "enforcement.json"),
+            os.path.join(self.cache, "enforcement.json"),
+        )
+        absent_cache = os.path.join(self.tmp, "cache", "absent-plugin", "0.1.0")
+        os.makedirs(absent_cache)
+        records = dict(self.records)
+        records["absent-plugin@airsstack"] = [{"installPath": absent_cache}]
+        # Deliberately no plugins/absent-plugin/ directory in source at all.
+        self.assertEqual(enforce.parity_report(self.top, records), [])
+
+    def test_unreadable_nested_subdir_is_reported_not_silently_agreed(self):
+        """T4-review carry-over (blue): `os.walk`'s default `onerror=None`
+        swallows a `PermissionError` raised while listing a NESTED
+        subdirectory and simply yields fewer files, so an unreadable
+        subdirectory one level below `src_dir` reads back identically to an
+        empty one -- the same false all-clear the top-level `os.listdir`
+        probe (`test_unreadable_source_dir_is_reported_not_silently_agreed`
+        above) closes, just one level deeper. `src_dir` itself stays fully
+        readable here so that top-level probe passes clean; only the nested
+        subdirectory is unreadable, which only `_tree_files`' `onerror`
+        argument and the `if walk_errors:` check that follows it can catch."""
+        import shutil
+        shutil.copy2(
+            os.path.join(self.src, "enforcement.json"),
+            os.path.join(self.cache, "enforcement.json"),
+        )
+        nested = os.path.join(self.src, "nested")
+        os.makedirs(nested)
+        with open(os.path.join(nested, "inner.txt"), "w") as fh:
+            fh.write("only reachable if permissions allow it")
+        os.chmod(nested, 0o000)
+        try:
+            report = enforce.parity_report(self.top, self.records)
+        finally:
+            os.chmod(nested, 0o755)
+        self.assertTrue(
+            any("unreadable" in line for line in report),
+            "expected an 'unreadable' line for the nested subdir, got: %r" % (report,),
+        )
+        self.assertFalse(
+            any("MISSING" in line for line in report),
+            "an unreadable nested subdir must not be reported as files "
+            "MISSING (that implies the source subtree WAS read and compared)",
+        )
 
     def test_tree_files_are_sorted(self):
         """Mirrors `test_held_sentinels_are_sorted`: the filesystem may

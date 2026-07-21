@@ -620,7 +620,17 @@ def explain(file_path, cwd, registry=None, home=None, session_id=None, agent="do
     if top:
         drift = parity_report(top, read_registry(registry))
         if drift:
-            lines.append("parity: %d file(s) out of sync between repo and cache" % len(drift))
+            # `drift` also carries "source tree unreadable, parity unknown"
+            # lines for a plugin whose source could not even be compared.
+            # Counting those into the headline would claim the file IS out
+            # of sync when the very next line says that is precisely
+            # unknown; count only lines that report an actual comparison
+            # result (MISSING/DIFFERS), never an unreadable-source line.
+            out_of_sync = sum(
+                1 for entry in drift
+                if "MISSING from cache" in entry or "DIFFERS from source" in entry
+            )
+            lines.append("parity: %d file(s) out of sync between repo and cache" % out_of_sync)
             lines.extend("  " + entry for entry in drift[:20])
             if len(drift) > 20:
                 lines.append("  (+%d more)" % (len(drift) - 20))
