@@ -239,4 +239,51 @@ v=json.load(open('$plugin_json'))['version']
 sys.exit(0 if v != '0.1.0' else 1)
 " || fail "case23: airsstack plugin.json still at 0.1.0 (cache will not refresh)"
 
+# --- case 24: the doctor command exists and drives enforce.py -----------
+# The invocation LINE, not file-wide substring greps: `--explain` and
+# `ARGUMENTS` each also appear in this doc's prose (`--explain` x2,
+# `ARGUMENTS` x3), so a file-wide `grep -q` only proves the words exist
+# somewhere in a markdown file — measured: deleting the entire fenced
+# command block, or dropping any one of `--explain` / `$ARGUMENTS` /
+# `${CLAUDE_PLUGIN_ROOT}` from the command line, still left a file-wide
+# grep GREEN. This pattern anchors on the actual invocation, so all four
+# of those mutations turn it RED.
+doctor="$SCRIPT_DIR/../commands/enforce-doctor.md"
+[ -f "$doctor" ] || fail "case24: commands/enforce-doctor.md missing"
+grep -Eq '\$\{CLAUDE_PLUGIN_ROOT\}/hooks/enforce\.py"[[:space:]]+--explain[[:space:]]+"\$ARGUMENTS"' \
+  "$doctor" \
+  || fail "case24: doctor does not invoke \${CLAUDE_PLUGIN_ROOT}/hooks/enforce.py --explain \$ARGUMENTS"
+
+# --- case 25: --explain runs end to end and names a stage ---------------
+out25=$(AIRSSTACK_ENFORCE_REGISTRY="$registry" AIRSSTACK_HOME="$home" TMPDIR="$markers" \
+  python3 "$SCRIPT_DIR/enforce.py" --explain "$repo/src/doctor.rs" 2>&1)
+printf '%s' "$out25" | grep -q 'outcome:' || fail "case25: --explain printed no outcome"
+printf '%s' "$out25" | grep -q 'python:' || fail "case25: --explain printed no runtime"
+
+# --- case 26: --explain never exits non-zero -----------------------------
+# Structural form deliberately, not `cmd; [ "$?" = 0 ] || fail ...`: under
+# `set -eu` a bare failing command aborts the script at that line, so a
+# `$?`-based check below it can never run and its `fail` message can never
+# print — an assertion that cannot report its own failure is not a test.
+if ! TMPDIR="$markers" python3 "$SCRIPT_DIR/enforce.py" --explain >/dev/null 2>&1; then
+  fail "case26: --explain with no path exited non-zero"
+fi
+
+# --- case 27: README documents the doctor -------------------------------
+# A bare `grep -q 'enforce-doctor'` is file-wide, same shape as case 24: a
+# heading mention alone satisfies it even with the explanatory prose
+# removed. Require the heading AND a substantive sentence from that section.
+grep -q 'enforce-doctor' "$air_readme" || fail "case27: README does not document the doctor"
+grep -q 'names the stage that' "$air_readme" \
+  || fail "case27: README mentions enforce-doctor but the explanation of what it does is missing"
+
+# --- case 28: plugin version bumped to 0.1.2 for the commands/ addition -
+if ! python3 -c "
+import json,sys
+v=json.load(open('$SCRIPT_DIR/../.claude-plugin/plugin.json'))['version']
+sys.exit(0 if v == '0.1.2' else 1)
+"; then
+  fail "case28: airsstack plugin.json not bumped to 0.1.2"
+fi
+
 printf 'PASS\n'

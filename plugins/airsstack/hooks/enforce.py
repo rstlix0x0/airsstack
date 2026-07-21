@@ -425,6 +425,7 @@ def resolve(file_path, cwd, session_id, agent, registry=None, home=None, trace=N
         if record is None:
             note("%s: GATE 1 no record bound to this project" % key)
             continue
+        note("%s: using %s" % (key, record["installPath"]))
         bound = load_manifest(record["installPath"]) or manifest
         # A design doc lives under AIRSSTACK_HOME, outside every repo, so it
         # has no directory of its own to anchor the marker search on; `cwd`
@@ -445,6 +446,192 @@ def resolve(file_path, cwd, session_id, agent, registry=None, home=None, trace=N
         note("%s: EMIT %s" % (key, bound["skill"]))
         pointers.append(pointer(bound["stack"], bound["skill"]))
     return pointers
+
+
+PARITY_IGNORED = frozenset([".in_use", ".DS_Store", ".git"])
+
+
+def _tree_files(root, onerror=None):
+    """Root-relative file paths under `root`, ignore-list applied.
+
+    `onerror`, when given, is handed to `os.walk` and receives each OSError
+    hit while listing a subdirectory (e.g. permission denied). Left at the
+    default `None`, `os.walk` swallows that error and simply yields fewer
+    files — which makes an unreadable source tree look identical to a
+    genuinely empty one to any caller that does not pass `onerror`.
+    """
+    found = []
+    for dirpath, dirnames, filenames in os.walk(root, onerror=onerror):
+        dirnames[:] = [d for d in dirnames if d not in PARITY_IGNORED]
+        for name in filenames:
+            if name in PARITY_IGNORED:
+                continue
+            found.append(os.path.relpath(os.path.join(dirpath, name), root))
+    return sorted(found)
+
+
+def parity_report(top, plugins):
+    """Lines describing source files missing from or differing in the cache.
+
+    The doctor ships inside the plugin and therefore runs FROM the cache. Faced
+    with the delivery bug it was built for, a pipeline trace alone would report
+    'zero manifests loaded' and be unable to say why. This is the part that can
+    say why — but only when invoked inside the plugin source repo.
+    """
+    import filecmp
+
+    source_root = os.path.join(top, "plugins")
+    if not os.path.isdir(source_root):
+        return []
+    report = []
+    for key in sorted(plugins):
+        name = key[: -len(MARKETPLACE_SUFFIX)] if key.endswith(MARKETPLACE_SUFFIX) else key
+        src_dir = os.path.join(source_root, name)
+        # `os.path.isdir` only needs +x on `source_root`, never on `src_dir`
+        # itself, so it is a safe way to ask "is there anything at this name
+        # at all" before touching permissions on `src_dir`.
+        if not os.path.isdir(src_dir):
+            continue  # nothing at this name in the source tree at all
+        # Probe readability explicitly rather than trusting
+        # `os.path.isfile(.../plugin.json) is False` to mean "no manifest
+        # here": `isfile()` swallows every OSError internally and reports
+        # False identically whether the manifest is genuinely absent or the
+        # directory is simply unreachable (e.g. `chmod 0o000`, which removes
+        # +x and makes even traversal into `src_dir` fail). Without this
+        # probe, an unreadable `src_dir` would `continue` here before
+        # `os.walk` below is ever reached, and report nothing wrong at all —
+        # the same false "repo and cache agree" the missing-cache-dir fix
+        # closed, just from the source side and one guard earlier.
+        try:
+            os.listdir(src_dir)
+        except OSError as exc:
+            report.append(
+                "%s: source tree unreadable, parity unknown (%s)"
+                % (name, exc.strerror or "permission error")
+            )
+            continue
+        # Known, accepted gap: `src_dir` itself is readable but its
+        # `.claude-plugin/` subdir is `chmod 0o000`. `isfile()` swallows that
+        # OSError too, so the plugin is skipped and reports "repo and cache
+        # agree". The `os.listdir` probe above does not reach one level down.
+        # Left unfixed deliberately — materially more contrived than an
+        # unreadable `src_dir`, and probing every ancestor would trade a real
+        # false-agree for speculative depth.
+        if not os.path.isfile(os.path.join(src_dir, ".claude-plugin", "plugin.json")):
+            continue
+        # Distinct installPath values only — several registry records can
+        # point at the SAME cache dir (this machine commonly has 2-3 per
+        # key), and comparing once per record would double- or triple-count
+        # every line. Mirrors cache_sync.resolve_install_paths (cache_sync.py
+        # in airsstack-plugin-dev), which de-duplicates for the same reason.
+        # `os.walk`'s default `onerror=None` silently drops a subdirectory
+        # it cannot list, which would make an unreadable NESTED subdirectory
+        # read back as an EMPTY one even though `src_dir` itself was
+        # readable — a narrower instance of the same false all-clear, one
+        # level deeper than the `os.listdir` probe above catches. Collect
+        # any such error and refuse to compare rather than report a false
+        # all-clear on a partial (or zero-file) listing.
+        walk_errors = []
+        files = _tree_files(src_dir, onerror=walk_errors.append)
+        if walk_errors:
+            report.append(
+                "%s: source tree unreadable, parity unknown (%s)"
+                % (name, walk_errors[0].strerror or "permission error")
+            )
+            continue
+        cache_dirs = sorted({
+            r.get("installPath") for r in plugins[key] if r.get("installPath")
+        })
+        for cache_dir in cache_dirs:
+            # No isdir guard: a registry-listed plugin whose cache dir does
+            # not exist at all is the most complete delivery failure there
+            # is, and every dest path below simply reports MISSING for it —
+            # `os.path.exists` returns False for a path under a nonexistent
+            # directory rather than raising, so this needs no special case.
+            # Guarding it out here previously made a wholly-missing cache
+            # dir report a false "repo and cache agree".
+            for rel in files:
+                src = os.path.join(src_dir, rel)
+                dest = os.path.join(cache_dir, rel)
+                if not os.path.exists(dest):
+                    report.append("%s: %s MISSING from cache" % (name, rel))
+                elif not filecmp.cmp(src, dest, shallow=False):
+                    report.append("%s: %s DIFFERS from source" % (name, rel))
+    return report
+
+
+def _held_sentinels(session_id, agent):
+    """The stack:phase keys already claimed for this session and agent context."""
+    prefix = SENTINEL_PREFIX + "-".join(
+        [_sanitize(session_id or "nosession"), _sanitize(agent or "main")]
+    ) + "-"
+    held = []
+    try:
+        for name in sorted(os.listdir(sentinel_dir())):
+            if name.startswith(prefix):
+                held.append(name[len(prefix):].replace("-", ":", 1))
+    except OSError:
+        pass
+    return held
+
+
+def explain(file_path, cwd, registry=None, home=None, session_id=None, agent="doctor"):
+    """Human-readable trace of the resolution pipeline for one path.
+
+    Drives the same resolve() the hook drives, with a trace collector attached.
+    A doctor that reimplemented resolution would eventually disagree with the
+    hook, and would then be lying about the one thing it exists to make
+    trustworthy.
+
+    The framework has several paths that end in silence and are mutually
+    indistinguishable from outside; this names the one that was taken.
+
+    `resolve()` claims sentinels as a side effect, so a second `--explain` of
+    the same session/agent/stack/phase reports "already claimed" from the
+    doctor's own prior run, not from the hook.
+    """
+    session = session_id if session_id is not None else "enforce-doctor"
+    lines = [
+        "python:   %d.%d.%d" % sys.version_info[:3],
+        "path:     " + os.path.abspath(file_path),
+        "cwd:      " + os.path.abspath(cwd),
+        "registry: " + (registry or registry_path()),
+        "sdd root: " + sdd_root(home),
+        "sentinel dir: " + sentinel_dir(),
+        "sentinels held: " + (", ".join(_held_sentinels(session, agent)) or "none"),
+    ]
+
+    trace = []
+    pointers = resolve(
+        file_path,
+        cwd,
+        session,
+        agent,
+        registry=registry,
+        home=home,
+        trace=trace,
+    )
+    lines.extend("  " + entry for entry in trace)
+    lines.append("outcome: %d pointer(s)" % len(pointers))
+    for text in pointers:
+        lines.append("  -> " + text)
+
+    top = _git(cwd, ["rev-parse", "--show-toplevel"])
+    if top:
+        drift = parity_report(top, read_registry(registry))
+        if drift:
+            lines.append("parity: %d file(s) out of sync between repo and cache" % len(drift))
+            lines.extend("  " + entry for entry in drift[:20])
+            if len(drift) > 20:
+                lines.append("  (+%d more)" % (len(drift) - 20))
+            lines.append(
+                "  -> the dispatcher runs from the cache, so anything MISSING there "
+                "is invisible to it. Start a session in the plugin repo's main "
+                "worktree to let the cache guard backfill, or reinstall the plugin."
+            )
+        elif os.path.isdir(os.path.join(top, "plugins")):
+            lines.append("parity: repo and cache agree")
+    return "\n".join(lines)
 
 
 def main():
@@ -479,5 +666,62 @@ def main():
         pass  # fail-open: never block an edit
 
 
+def _cli(argv):
+    """Dispatch argv; always returns 0 — this file doubles as a hook, and a
+    hook's exit code must never propagate a tool-blocking failure.
+
+    A bare guard around the write is not sufficient: a small write to a
+    pipe is typically only buffered, not actually sent to the OS, so a
+    closed reader does not fail here — it fails later, when CPython
+    flushes stdout during interpreter shutdown (after this function has
+    already returned 0), which prints its own traceback and exits 120,
+    bypassing every guard in this function. Forcing the flush here, inside
+    the guard, surfaces that failure early; redirecting the fd to
+    os.devnull afterward leaves the shutdown-time flush nothing left to
+    fail on. stderr gets the identical treatment — the usage message on
+    the no-path branch writes there, and a closed stderr is the same
+    shutdown-time hazard.
+
+    The handler prints the failure to stderr before redirecting: D10
+    requires exit 0, not silence — a broken doctor must say so loudly and
+    still exit clean, or a real defect becomes indistinguishable from "no
+    doctor ran at all".
+    """
+    try:
+        if len(argv) >= 2 and argv[0] == "--explain":
+            sys.stdout.write(explain(argv[1], os.getcwd()) + "\n")
+        elif argv and argv[0] == "--explain":
+            sys.stderr.write("usage: enforce.py --explain <path>\n")
+        else:
+            main()
+        sys.stdout.flush()
+        sys.stderr.flush()
+    except Exception:
+        try:
+            import traceback
+            traceback.print_exc()
+        except Exception:
+            pass
+        try:
+            devnull = os.open(os.devnull, os.O_WRONLY)
+            try:
+                # Each redirect is guarded on its own: one stream's
+                # fileno() failing (e.g. a StringIO stand-in with nothing
+                # wrong with it) must not skip the other stream's redirect.
+                try:
+                    os.dup2(devnull, sys.stdout.fileno())
+                except Exception:
+                    pass
+                try:
+                    os.dup2(devnull, sys.stderr.fileno())
+                except Exception:
+                    pass
+            finally:
+                os.close(devnull)
+        except Exception:
+            pass
+    return 0
+
+
 if __name__ == "__main__":
-    main()
+    sys.exit(_cli(sys.argv[1:]))

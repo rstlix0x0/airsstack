@@ -166,6 +166,36 @@ Definition of Done is the **retroactive** gate. The dispatcher is fail-open —
 a missing registry, an absent or malformed manifest, or a missing runtime all
 resolve to "do nothing," never to a blocked edit.
 
+### Diagnosing it — `/airsstack:enforce-doctor`
+
+The dispatcher is fail-open, which means several distinct failures all look
+identical from outside: an empty registry, a plugin whose manifest never reached
+the install cache, a project-binding miss, a missing `detect` marker, a glob that
+did not hit, and an already-fired pointer are all just *silence*. That
+indistinguishability is precisely how the framework stayed dead for weeks without
+anyone noticing.
+
+`/airsstack:enforce-doctor <path>` runs `enforce.py --explain <path>` — the same
+`resolve()` the hook drives, with a trace attached — and names the stage that
+ended the run. It also reports the runtime, the resolved project key, the
+repo-relative path the globs were tested against, which registry record (i.e.
+`installPath`) each matching plugin resolved to, and which dedup sentinels this
+context already holds. A second `--explain` of the same path in the same session
+will itself show up as "already claimed" — that is the doctor observing the
+sentinel its own first run set, not a real hook's.
+
+Inside the plugin source repo it additionally diffs each plugin's source tree
+against its install cache. That check is not optional decoration: the doctor
+ships inside the plugin and therefore runs *from the cache*, so without it, faced
+with the exact bug it exists to diagnose, it would report "zero manifests loaded"
+and be unable to say why. Every source file reported `MISSING from cache` under
+one plugin means that plugin's cache directory does not exist, or exists but is
+empty — the two produce identical output; a mix of `MISSING`/`DIFFERS` alongside
+files that are not reported means the cache dir has some content but delivery is
+partial or stale. If the source directory itself cannot be read, the parity check
+reports that directly (`source tree unreadable, parity unknown`) rather than
+falling through to a false "repo and cache agree".
+
 ## Attribution
 
 The `concise` skill is **inspired by the [caveman](https://github.com/juliusbrussee/caveman)
