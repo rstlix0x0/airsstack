@@ -99,6 +99,17 @@ impl MessageAccumulator {
     /// blocks.
     pub fn accumulate(&mut self, event: &StreamEvent) -> Result<(), Error> {
         match event {
+            // All three official SDKs disagree on what a second
+            // message_start should do: TypeScript throws
+            // (`MessageStream.ts:562-564`); Python has no guard at all and
+            // silently keeps appending the second message's content blocks
+            // onto the first message's content list, with no error
+            // (`_messages.py:450-464`); Go replaces the whole message
+            // struct, discarding everything accumulated so far
+            // (`messageutil.go:26-27`). This accumulator follows Go: both
+            // the snapshot and `json_bufs` are replaced wholesale, so
+            // nothing accumulated under a prior `message_start` — content,
+            // buffered tool JSON, or otherwise — survives a second one.
             StreamEvent::MessageStart { message } => {
                 self.json_bufs = vec![String::new(); message.content.len()];
                 self.snapshot = Some(message.clone());
@@ -113,6 +124,16 @@ impl MessageAccumulator {
                 Ok(())
             }
             StreamEvent::ContentBlockStop { index } => self.finish_block(*index),
+            // Python (`_messages.py:504-505`) and TypeScript
+            // (`MessageStream.ts:576-577`) both write stop_reason and
+            // stop_sequence unconditionally on every message_delta,
+            // including overwriting an already-resolved value with null.
+            // This accumulator writes them only when the delta actually
+            // carries a value, so a stray later message_delta cannot clobber
+            // a resolved stop_reason or stop_sequence. This assumes the
+            // terminal delta is the one that carries these fields — a
+            // real server sending a later, empty message_delta after the
+            // resolving one is not something we have verified either way.
             StreamEvent::MessageDelta { delta, usage } => {
                 if let Some(snapshot) = self.snapshot.as_mut() {
                     if delta.stop_reason.is_some() {
@@ -220,6 +241,19 @@ impl MessageAccumulator {
     /// empty buffer is not an error: a zero-argument tool call produces no
     /// fragments beyond the empty one the API opens the block with, and the
     /// input the start event carried is already correct.
+    ///
+    /// A block that never receives a `content_block_stop` — a truncated
+    /// stream, or a caller reading the accumulator mid-flight — never
+    /// reaches this parse step, so its `input` stays at whatever the
+    /// `content_block_start` event carried (`{}`). Python's eager
+    /// per-delta parse (`jiter.from_json(json_buf, partial_mode=True)`,
+    /// `_messages.py:479-480`) and TypeScript's lazy parse-on-read
+    /// (`partialParse`, `internal/message-stream-utils.ts:21-27`) both
+    /// instead salvage whatever complete key-value pairs a truncated
+    /// buffer holds — `{"a": 1,` becomes `{"a": 1}` in both — and drop the
+    /// rest. This accumulator does not attempt that salvage: a block's
+    /// input is either the result of a full parse of its buffer at stop,
+    /// or exactly what the server first described in the start event.
     fn finish_block(&mut self, index: u32) -> Result<(), Error> {
         let idx = index as usize;
         let Some(buffer) = self.json_bufs.get_mut(idx) else {
@@ -347,6 +381,55 @@ mod tests {
                 assert_eq!(tu.input, serde_json::json!({"city": "Paris"}));
             }
             other => panic!("expected tool-use block, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn duplicate_message_start_replaces_the_snapshot_and_resets_json_bufs() {
+        // Parks an incomplete buffer at json_bufs[0] for the first
+        // message's tool block — deliberately never flushed by a
+        // content_block_stop, so it is still live when the second
+        // message_start arrives.
+        let mut acc = MessageAccumulator::new();
+        acc.accumulate(&message_start()).unwrap();
+        acc.accumulate(&event(&format!(
+            r#"{{"type":"content_block_start","index":0,"content_block":{TOOL_BLOCK}}}"#
+        )))
+        .unwrap();
+        acc.accumulate(&json_delta(0, r#"{"city":"#)).unwrap();
+
+        acc.accumulate(&event(
+            r#"{"type":"message_start","message":{
+                "id":"msg_02","type":"message","role":"assistant",
+                "model":"claude-sonnet-4-5","content":[],
+                "stop_reason":null,"stop_sequence":null,
+                "usage":{"input_tokens":9,"output_tokens":0}}}"#,
+        ))
+        .unwrap();
+        acc.accumulate(&event(&format!(
+            r#"{{"type":"content_block_start","index":0,"content_block":{TOOL_BLOCK_2}}}"#
+        )))
+        .unwrap();
+        // If json_bufs had not been reset, this fragment would land after
+        // the first message's leftover `{"city":`, producing malformed
+        // JSON and an Error::Serde here instead of a clean parse.
+        acc.accumulate(&json_delta(0, r#"{"zone":"UTC"}"#)).unwrap();
+        acc.accumulate(&block_stop(0)).unwrap();
+
+        let msg = acc.finish().unwrap();
+        assert_eq!(msg.id.as_str(), "msg_02");
+        assert_eq!(msg.usage.input_tokens, 9);
+        assert_eq!(
+            msg.content.len(),
+            1,
+            "the first message's blocks must not survive a second message_start"
+        );
+        match &msg.content[0] {
+            ContentBlock::ToolUse(tu) => {
+                assert_eq!(tu.id.as_str(), "toolu_02");
+                assert_eq!(tu.input, serde_json::json!({"zone": "UTC"}));
+            }
+            other => panic!("expected the second message's tool-use block, got {other:?}"),
         }
     }
 
@@ -596,6 +679,25 @@ mod tests {
     }
 
     #[test]
+    fn tool_block_never_stopped_keeps_the_start_events_input_on_finish() {
+        // `{"a": 1,` is the case where Python's eager partial parser
+        // (jiter, partial_mode=True) would salvage the complete leading
+        // pair and hand the caller `{"a": 1}` even though the block never
+        // closed. This accumulator never parses a buffer that has no
+        // matching content_block_stop, so `finish()` must return the
+        // tool block's start-event input (`{}`) untouched, not a partial
+        // parse and not an error.
+        let mut acc = started(&[TOOL_BLOCK]);
+        acc.accumulate(&json_delta(0, r#"{"a": 1,"#)).unwrap();
+
+        let msg = acc.finish().unwrap();
+        match &msg.content[0] {
+            ContentBlock::ToolUse(tu) => assert_eq!(tu.input, serde_json::json!({})),
+            other => panic!("expected tool-use block, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn malformed_accumulated_tool_json_is_a_serde_error_at_stop() {
         let mut acc = started(&[TOOL_BLOCK]);
         acc.accumulate(&json_delta(0, r#"{"city":"#)).unwrap();
@@ -714,7 +816,7 @@ mod tests {
         acc.accumulate(&message_start()).unwrap();
         acc.accumulate(&event(
             r#"{"type":"message_delta",
-                "delta":{"stop_reason":"end_turn","stop_sequence":null},
+                "delta":{"stop_reason":"end_turn","stop_sequence":"END"},
                 "usage":{"output_tokens":3}}"#,
         ))
         .unwrap();
@@ -727,6 +829,11 @@ mod tests {
 
         let msg = acc.finish().unwrap();
         assert_eq!(msg.stop_reason, Some(StopReason::EndTurn));
+        assert_eq!(
+            msg.stop_sequence.as_ref().map(StopSequence::as_str),
+            Some("END"),
+            "a later delta's null stop_sequence must not clobber the resolved value"
+        );
         assert_eq!(msg.usage.output_tokens, 7);
     }
 

@@ -11,7 +11,8 @@ product from the Claude Agent SDK covered in [`../agent-sdk/feature-parity.md`](
 the base SDK is a stateless `POST /v1/messages` client; the Agent SDK drives the `claude` CLI.
 `clauders` targets both, in separate modules.
 
-**As of:** 2026-07-20.
+**As of:** 2026-07-21 (WS A re-verification). The 2026-07-20 revision graded the decode path as
+defective; that work has since landed and been re-graded against the same pinned sources.
 
 **Method — read this before trusting a row.** The previous revision of this document scored parity by
 comparing *type surfaces* against prose documentation. That method produced false ✅s: a row can have
@@ -24,9 +25,10 @@ parity question. Three rows previously marked ✅ are ❌ or ⚠️ under that t
 
 | Side | Version |
 |---|---|
-| clauders | working tree, `crates/clauders/src/` @ 2026-07-20 (no changes to `src/messages/` since 2026-07-13) |
+| clauders | `crates/clauders/src/` @ the commit carrying this revision (2026-07-21). Decode-path work landed across `a155625`, `0cb629f`, `f0aab9d` and this commit; **`file:line` citations resolve against this commit's tree, not against `f0aab9d`** — the accumulator gained ~110 comment lines here. |
 | Python SDK | `anthropic-sdk-python` @ `3c8bdf14bc55377262f11d6c34b893834a02b3fc` (release 0.117.0, 2026-07-16) |
 | TypeScript SDK | `anthropic-sdk-typescript` @ `f84e8638fc74268d602d729747f7fd9fcbadbc71` (2026-07-17) |
+| Go SDK (tiebreaker only) | `anthropic-sdk-go` `messageutil.go` @ `0ce94bd583a556abfc18ccde1e132be5fd9e32f4` (branch `main`, **not** a pinned release) — consulted only where Python and TypeScript disagree, or where both blind-append |
 | REST reference | `platform.claude.com/docs/en/api/messages`, `.../build-with-claude/{streaming,vision,refusals-and-fallback,handling-stop-reasons}`, `.../api/models-list` — fetched 2026-07-20 |
 
 Paths in the Python column are relative to `src/anthropic/`; TypeScript to `src/`.
@@ -39,6 +41,7 @@ Paths in the Python column are relative to `src/anthropic/`; TypeScript to `src/
 |------|---------|
 | ✅ | Full parity — equivalent capability, equivalent runtime behavior |
 | ⚠️ | **Defect** — the capability is modelled but behaves incorrectly at runtime (silent data loss or hard failure) |
+| 🔶 | **Delivered, diverging** — the defect is fixed and the behavior is deliberate, but it does not match the pinned SDKs. A caller porting from Python or TypeScript will observe a difference. Used where the official SDKs disagree with each other and clauders had to choose. |
 | 🟡 | Partial — core exists, narrower than official |
 | ❌ | Absent in clauders |
 | — | Not applicable |
@@ -57,8 +60,8 @@ Paths in the Python column are relative to `src/anthropic/`; TypeScript to `src/
 | Prompt caching (per-block, TTL tiers, usage counters) | ✅ parity (minus top-level auto-place) |
 | JSON-schema structured output | ✅ parity (minus typed-parse helper) |
 | System prompt (string + segments + per-segment cache) | ✅ parity |
-| **Streaming accumulation** | ⚠️ **defect — drops 3 of 5 delta kinds** |
-| **Forward compatibility (every server-decoded enum)** | ⚠️ **defect — hard-fails where both official SDKs degrade; `StopReason`/`pause_turn` fails today** |
+| **Streaming accumulation** | ✅ parity on all five modelled delta kinds — with 5 recorded divergences (§12 rows 3, 18-21) and 2 gaps owned elsewhere: `citations_delta` (row 14), `server_tool_use` input gating (row 8) |
+| **Forward compatibility (every server-decoded enum)** | ✅ parity — payload-carrying unknown arm on all ten; `pause_turn` no longer fails |
 | **`thinking` / `output_config.effort`** | ❌ behind — blocks all current models |
 | Response content-block taxonomy (12 official response members) | 🟡 4 of 12 |
 | Request content-block taxonomy (17 official param members) | 🟡 4 of 17 — no vision, no PDF |
@@ -69,9 +72,10 @@ Paths in the Python column are relative to `src/anthropic/`; TypeScript to `src/
 | Files API / citations / context management / MCP connector | ❌ behind |
 
 **One-line summary:** clauders is at genuine parity on the *non-streaming, text-and-custom-tools core*
-— create, count-tokens, batches, caching, structured output, system prompts. It has **two runtime
-defects** (streaming accumulation, forward compatibility) that make previously-claimed parity rows
-false, and it cannot drive any current-generation model because the `thinking` surface is absent.
+— create, count-tokens, batches, caching, structured output, system prompts — **and now on streaming
+accumulation and forward compatibility**, the two runtime defects the prior revision found. What
+remains is capability breadth, not correctness: it still cannot drive any current-generation model
+because the `thinking` surface is absent, and the content-block taxonomy is 4 of 12 / 4 of 17.
 
 ---
 
@@ -80,7 +84,7 @@ false, and it cannot drive any current-generation model because the `thinking` s
 | Capability | Python | TS | clauders | Status |
 |---|---|---|---|---|
 | `POST /v1/messages` | ✅ | ✅ | `messages::MessagesResource::create` (resource.rs:82) | ✅ |
-| Streaming create (SSE) | ✅ | ✅ | `MessagesResource::stream` (resource.rs:172) | ✅ transport / ⚠️ accumulation — see §4 |
+| Streaming create (SSE) | ✅ | ✅ | `MessagesResource::stream` (resource.rs:172) | ✅ transport / ✅ accumulation (`MessageAccumulator`) — index policy follows Go, see §4.3 |
 | `POST /v1/messages/count_tokens` | ✅ | ✅ | `count_tokens` (resource.rs:287) | ✅ |
 | Message Batches — create/get/list/results/cancel/delete | ✅ | ✅ | `batches::BatchesResource` (all six) | ✅ |
 | `GET /v1/models`, `GET /v1/models/{id}` | ✅ | ✅ | `models::ModelsResource::{list,get}` | ✅ endpoints / ❌ payload — see §9 |
@@ -171,8 +175,8 @@ identical membership:
 
 | # | Official member | clauders | Status |
 |---|---|---|---|
-| 1 | `text` | `TextBlock` (content.rs:50) | ✅ — but no `citations` field |
-| 2 | `thinking` | `ThinkingBlock` (content.rs:103) | ✅ |
+| 1 | `text` | `TextBlock` (content.rs:65) | ✅ — but no `citations` field |
+| 2 | `thinking` | `ThinkingBlock` (content.rs:118) | ✅ |
 | 3 | `redacted_thinking` | ❌ | ❌ |
 | 4 | `tool_use` | `ToolUseBlock` (tools.rs:108) | ✅ |
 | 5 | `server_tool_use` | ❌ | ❌ |
@@ -219,7 +223,7 @@ tokens; standard tier 1568/1568. Automatic, no beta header.
 
 ### 3.3 clauders' single shared union
 
-`ContentBlock` (content.rs:28-39) is one enum of 4 used for **both** directions: `Text`, `Thinking`,
+`ContentBlock` (content.rs:28-53) is one enum of 4 used for **both** directions: `Text`, `Thinking`,
 `ToolUse`, `ToolResult`. That is a defensible Rust simplification (the API tolerates it, since
 `tool_result` is only ever sent and `thinking` is only ever received), but it means the response path
 accepts a block the API never returns and the request path accepts blocks it should not send. Parity
@@ -243,57 +247,44 @@ mid-session. Not representable in clauders.
 
 | Official | clauders | Status |
 |---|---|---|
-| `message_start` | `StreamEvent::MessageStart` (streaming.rs:57) | ✅ |
-| `content_block_start` | (streaming.rs:62) | ✅ |
-| `content_block_delta` | (streaming.rs:69) | ✅ |
-| `content_block_stop` | (streaming.rs:76) | ✅ |
-| `message_delta` | (streaming.rs:82) | ✅ |
-| `message_stop` | (streaming.rs:89) | ✅ |
+| `message_start` | `StreamEvent::MessageStart` (streaming.rs:87) | ✅ |
+| `content_block_start` | (streaming.rs:92) | ✅ |
+| `content_block_delta` | (streaming.rs:99) | ✅ |
+| `content_block_stop` | (streaming.rs:106) | ✅ |
+| `message_delta` | (streaming.rs:112) | ✅ |
+| `message_stop` | (streaming.rs:119) | ✅ |
 
 `ping` and `error` are **not** union members officially — both SDKs handle them in the transport layer
 (`_streaming.py:151` / `streaming.ts:51-142`: `ping` → skip, `error` → throw an `APIError`). clauders
-models them as `StreamEvent::Ping` / `StreamEvent::Error` (streaming.rs:91-96) and maps `Error` to
-`Error::Api` in `collect()` (streaming.rs:251-262). Equivalent behavior, different placement. ✅
+models them as `StreamEvent::Ping` / `StreamEvent::Error` (streaming.rs:121, 123-126) and maps `Error` to
+`Error::Api` in `collect()` (streaming.rs:260-271). Equivalent behavior, different placement. ✅
 
 `RawContentBlockDelta`, 5 members (`types/raw_content_block_delta.py`, `messages.ts:1338`):
 
 | Official | clauders | Status |
 |---|---|---|
-| `text_delta` | `ContentDelta::TextDelta` (streaming.rs:113) | ✅ |
-| `input_json_delta` | `InputJsonDelta` (streaming.rs:129) | ✅ modelled |
-| `thinking_delta` | `ThinkingDelta` (streaming.rs:118) | ✅ modelled |
-| `signature_delta` | `SignatureDelta` (streaming.rs:123) | ✅ modelled |
+| `text_delta` | `ContentDelta::TextDelta` (streaming.rs:151) | ✅ |
+| `input_json_delta` | `InputJsonDelta` (streaming.rs:167) | ✅ modelled |
+| `thinking_delta` | `ThinkingDelta` (streaming.rs:156) | ✅ modelled |
+| `signature_delta` | `SignatureDelta` (streaming.rs:161) | ✅ modelled |
 | **`citations_delta`** | ❌ | ❌ |
 
 > The prior revision listed `redacted_thinking_delta` as an official delta type that clauders was
 > missing. **No such delta exists** in either SDK. That row was wrong and has been removed.
 
-### 4.2 ⚠️ Accumulation — `MessageStream::collect()` drops 3 of 5 delta kinds
+### 4.2 ✅ Accumulation — delivered
 
-This is the most severe defect in the crate. `collect()` (streaming.rs:197-270) handles exactly one
-delta kind (streaming.rs:224-233):
+**Status: fixed.** Assembly moved out of `collect()` into `MessageAccumulator`
+(`messages/accumulator.rs`); `collect()` is now a thin wrapper over it (streaming.rs:249-277).
+All five delta kinds that clauders models are handled, and the observable end state matches the
+official SDKs. Verified against pinned SDK source, not against prose — see the per-rule table at the
+end of this section.
 
-```rust
-StreamEvent::ContentBlockDelta { index, delta } => {
-    if let Some(ref mut m) = accumulated {
-        let idx = index as usize;
-        if let (Some(ContentBlock::Text(tb)), ContentDelta::TextDelta { text }) =
-            (m.content.get_mut(idx), delta)
-        {
-            tb.text.push_str(&text);
-        }
-    }
-}
-```
-
-`InputJsonDelta`, `ThinkingDelta`, and `SignatureDelta` fall through the `if let` and are discarded.
-No error, no warning. Consequences:
-
-- **Streaming tool use returns empty arguments.** `content_block_start` carries `"input": {}`; every
-  `input_json_delta` is dropped; the assembled `ToolUseBlock.input` stays `{}`. A caller dispatches
-  the tool with no arguments and cannot tell that anything went wrong.
-- **Streaming extended thinking returns empty text**, and the `signature` is lost. The signature must
-  round-trip verbatim on the next turn or the API rejects the request.
+The defect this section previously recorded, kept for the record: `collect()` handled exactly one
+delta kind, so `InputJsonDelta`, `ThinkingDelta`, and `SignatureDelta` fell through an `if let` and
+were discarded. Streaming tool use returned empty arguments (`"input": {}` from
+`content_block_start`, every fragment dropped) and streaming extended thinking returned empty text
+with a lost `signature` — which must round-trip verbatim or the API rejects the next turn.
 
 **Reference behavior — both official SDKs buffer the partial JSON and parse it tolerantly.**
 
@@ -322,6 +313,20 @@ if (snapshotContent && tracksToolInput(snapshotContent)) {
 Both gate on `tool_use` **or** `server_tool_use` (`TRACKS_TOOL_INPUT` / `tracksToolInput`), so
 server-tool inputs accumulate too.
 
+**Correction to the prior revision's framing.** "Both SDKs buffer and parse tolerantly" is true but
+hides that the two parse at *different times*, and that neither parses where clauders does:
+
+| SDK | When the buffer is parsed |
+|---|---|
+| Python | **Eagerly, on every delta** — `from_json(json_buf, partial_mode=True)` re-parses the whole buffer per fragment (`_messages.py:479-480`). `content_block_stop` does **not** re-parse (`:499-502`), so the final `input` is simply the last partial parse. |
+| TypeScript | **Lazily and memoized** — `withLazyInput` installs a getter that parses on first read of `.input` (`internal/message-stream-utils.ts:21-27`). In practice that fires at `content_block_stop`, because line `MessageStream.ts:661` reads the property to freeze it. |
+| Go | **Never** — `cb.Input` is left as raw `json.RawMessage` for the caller to unmarshal (`messageutil.go:67-74`). |
+| clauders | **Once, strictly, at `content_block_stop`** (`accumulator.rs:257-278`). |
+
+No SDK parses "once at `content_block_stop`". For a block that receives its stop event the end state
+is identical across all four, which is what parity is graded on; the divergence is confined to
+truncated streams (see the delivered-state table below).
+
 Per-delta semantics, identical across both SDKs — the contract clauders must meet:
 
 | Delta | Operation on the snapshot block |
@@ -338,9 +343,29 @@ of the accumulator, while `BetaMessageStream.ts:684-702` catches it, substitutes
 emits a `#toolInputParseError`. Python does not have the recovery path either. So "throw on malformed
 tool JSON" is acceptable parity for the non-beta surface.
 
-### 4.3 ⚠️ Index handling
+**Delivered state, rule by rule** (clauders column read from `accumulator.rs`; official column from
+pinned source):
 
-clauders pads with placeholder text blocks when `index` exceeds the current length (streaming.rs:216-222):
+| Rule | Python / TypeScript | clauders | |
+|---|---|---|---|
+| `text_delta` | concat | concat (accumulator.rs:216-220) | ✅ |
+| `thinking_delta` | concat | concat (accumulator.rs:221-225) | ✅ |
+| `signature_delta` | **replace** (`_messages.py:494`, `MessageStream.ts:646`); Go concats | replace (accumulator.rs:226-233) | ✅ follows the two pinned SDKs |
+| `input_json_delta` | buffer + tolerant parse | buffer + strict parse at stop (accumulator.rs:193-207, 257-278) | ✅ same end state |
+| delta index out of range | Python **raises `IndexError`** (`_messages.py:465`); TS silent no-op (`.at()` → `undefined`) | silent no-op (accumulator.rs:212-214) | 🔶 follows TS, diverges from Python — §12 row 18 |
+| delta kind ≠ block kind | silent drop | silent drop (accumulator.rs:215-235) | ✅ |
+| empty tool buffer | Python leaves the start-event `input`; TS substitutes `{}` | leaves the start-event `input` (accumulator.rs:262-264) | ✅ follows Python; identical in practice, the API opens the block with `"input": {}` |
+| malformed tool JSON | both raise (non-beta) | `Error::Serde` (accumulator.rs:265-269) | ✅ |
+| `citations_delta` | accumulate onto `TextBlock.citations` | no-op (accumulator.rs:234) | ❌ §12 row 14 |
+| gating of `input_json_delta` | `tool_use` **or** `server_tool_use` | `ContentBlock::ToolUse` only (accumulator.rs:197-200) | ❌ §12 row 8 — `server_tool_use` is unmodelled, so its arguments are dropped |
+| truncated buffer, no `content_block_stop` | Python's last eager parse salvages **complete** key/value pairs (`{"a": 1,` → `{"a": 1}`); TS same on `.input` read, though `finalMessage()` throws first | never parsed, `input` stays at the start-event value | 🔶 §12 row 19 — reachable only on an already-broken stream |
+
+### 4.3 ⚠️→🔶 Index handling — fixed, by deliberate divergence
+
+**Read this row carefully: it is closed, but NOT by matching the pinned SDKs.**
+
+The original defect is gone. clauders used to pad with placeholder text blocks when `index` exceeded
+the current length (`streaming.rs:216-222` at the time):
 
 ```rust
 while m.content.len() <= idx {
@@ -349,14 +374,39 @@ while m.content.len() <= idx {
 m.content[idx] = content_block;
 ```
 
-Both official SDKs instead **append and ignore `index` on `content_block_start`** (Python
-`_messages.py:456-463` with a literal `# TODO: check index`; TS `MessageStream.ts:601`
-`snapshot.content.push({ ...event.content_block })`), then index into the array on delta. clauders'
-padding leaves fabricated empty text blocks in `Message.content` for any gapped or out-of-order index.
+which left fabricated empty text blocks in `Message.content` for any gapped or out-of-order index.
+It now asserts instead (`accumulator.rs:167-181`): `index != content.len()` returns
+`Error::Stream` and pushes nothing.
+
+The three official SDKs do not agree on this rule, so there is no single behavior to port:
+
+| SDK | `content_block_start` policy |
+|---|---|
+| Python | **Blind append, `index` never read** — ships a literal `# TODO: check index` (`_messages.py:456-463`) |
+| TypeScript | **Blind append** — `snapshot.content.push({ ...event.content_block })` (`MessageStream.ts:601-603`) |
+| Go | **Hard error** unless `event.Index == len(acc.Content)` (`messageutil.go:47-58`) |
+| clauders | **Hard error**, following Go |
+
+So clauders follows the one SDK out of three that checks, and diverges from both SDKs this document
+pins. The reasoning: Python and TS are permissive-and-silently-corrupting — a gapped or out-of-order
+start misaligns the content list, and every subsequent index-addressed delta then lands on the wrong
+block with no signal. Go's in-source comment is also the strongest available evidence about the actual
+wire contract: *"Content blocks start in index order with no gaps: a start event always addresses the
+slot right after the previous block, even when deltas and stops for still-open blocks interleave after
+it."* Against a conforming server the three behaviors are indistinguishable; they differ only on a
+malformed stream, where clauders reports and Python/TS corrupt.
+
+Graded 🔶 rather than ✅ because a caller porting from Python or TypeScript **will** see different
+behavior on a malformed stream: an `Error::Stream` where the official SDKs return a misaligned message.
+Recorded as §12 row 3, which carries both the original defect and the divergence that replaced it.
+
+Delta and stop events are a separate question, and there clauders follows TypeScript: an out-of-range
+index is a silent no-op (`accumulator.rs:212-214`), where Python raises `IndexError` and Go returns an
+error. Also 🔶, by the same standard — §12 row 18.
 
 ### 4.4 🟡 `message_delta` usage merge
 
-`UsageDelta` (streaming.rs:151-155) models `output_tokens` only, and `collect()` (streaming.rs:242-248)
+`UsageDelta` (streaming.rs:198) models `output_tokens` only, and `collect()` (streaming.rs:249-277)
 preserves `message_start`'s input-side counts.
 
 Official `MessageDeltaUsage` carries `input_tokens`, `cache_creation_input_tokens`,
@@ -367,23 +417,72 @@ Official `MessageDeltaUsage` carries `input_tokens`, `cache_creation_input_token
 omissions in clauders are *not* parity gaps; the missing input/cache/server-tool merge is.
 
 `RawMessageDeltaEvent.Delta` also carries `container` and `stop_details` officially; clauders'
-`MessageMetaDelta` (streaming.rs:139-145) has `stop_reason` + `stop_sequence` only.
+`MessageMetaDelta` (streaming.rs:186) has `stop_reason` + `stop_sequence` only.
+
+The usage-merge gap is **unchanged** by the accumulator work — `MessageAccumulator` folds
+`usage.output_tokens` only (`accumulator.rs:145`). Row 13 stays open, and the official policy is
+unanimous across Python, TypeScript, **and** Go, so there is no design question here, only work.
+
+One new divergence introduced by the accumulator, small but real (§12 row 21): clauders writes
+`stop_reason` and `stop_sequence` **only when the delta carries them** (`accumulator.rs:139-144`),
+whereas all three SDKs assign unconditionally — including overwriting a resolved value with `null`
+(`_messages.py:504-505`, `MessageStream.ts:576-577`). Kept deliberately: it makes a stray later
+`message_delta` unable to clobber a resolved `stop_reason`. The difference is observable only if the
+API sends a `null` after a non-null value — which we **assume** it does not, since the terminal delta
+is the one that carries these fields. That assumption is not evidenced by either SDK's source; neither
+guards, because neither needed to.
+
+### 4.5 🔶 Stream-completeness and duplicate `message_start`
+
+Two edge behaviors where the official SDKs disagree with each other, recorded so they are not
+re-litigated. Both are pinned by tests in `accumulator.rs`, and both carry §12 rows — truncation is
+row 19, duplicate `message_start` is row 20.
+
+**Truncated stream — no `message_stop`, no error.** clauders returns `Ok(partial_message)`; the caller
+sees a `Message` whose `stop_reason` is `None`. This matches **Python and Go**, and diverges from
+TypeScript:
+
+| SDK | Behavior |
+|---|---|
+| Python | **Returns the partial snapshot, no raise.** There is no completeness check on the path at all: `get_final_message()` → `until_done()` → `consume_sync_iterator` (`_utils/_streams.py:5-7`, literally `for _ in iterator: ...`), and `__final_message_snapshot` is rewritten on every event (`_messages.py:130`), so the `assert` at `:94` passes. A truncated response is indistinguishable from a complete one except by inspecting `stop_reason is None`. |
+| Go | Same — `Accumulate` has no end-of-stream hook (`messageutil.go:11-19`); the caller keeps whatever accumulated. |
+| TypeScript | **Throws** `AnthropicError('stream ended without producing a Message with role=assistant')` (`MessageStream.ts:329-333`), because `receivedMessages` is only populated by `message_stop`. |
+| clauders | `Ok(partial)` — follows Python/Go. `Error::Stream` is returned only when the stream ends before `message_start` (`accumulator.rs:286-289`). |
+
+**Duplicate `message_start`.** All three official SDKs behave differently, so no porting answer exists:
+
+| SDK | Behavior |
+|---|---|
+| Python | **Ignores the second entirely.** `message_start` is handled only inside `if current_snapshot is None:` (`_messages.py:450-452`), which returns early; the second `if/elif` chain has no `message_start` branch. The second message's `id`/`model`/`usage` are discarded and its content blocks are **appended onto the first message's content list**, interleaving two messages into one snapshot with no error and no id-mismatch check. |
+| TypeScript | **Throws** `Unexpected event order, got message_start before receiving "message_stop"` (`MessageStream.ts:562-564`). |
+| Go | **Replaces** the whole message, discarding everything accumulated (`messageutil.go:26-27`). |
+| clauders | **Replaces** the snapshot and resets the JSON buffers (`accumulator.rs:113-117`) — follows Go. Python's interleaving is the one behavior worth avoiding outright. |
 
 ---
 
-## 5. Forward compatibility — ⚠️ defect
+## 5. Forward compatibility — ✅ delivered
+
+> **Status 2026-07-21.** This section is kept in its original diagnostic voice because §5.1's policy
+> discussion is still the reference for *why* the arms are shaped the way they are. The defect it
+> describes is **fixed**: all ten server-decoded enums carry a payload-carrying unknown arm plus
+> `#[non_exhaustive]`, and `pause_turn` no longer fails. Read the present tense below as "before this
+> was fixed", except in §5.1 from **Policy:** onward, which describes what shipped.
 
 **This is a behavioral contract, not a nice-to-have.** The Anthropic versioning policy states new
 content-block types and new SSE event types may be added within `anthropic-version: 2023-06-01`, and
 the streaming guide says verbatim: *"new event types may be added, and your code should handle unknown
 event types gracefully."* Both official SDKs implement that. clauders implements the opposite.
 
-| Scenario | Python | TypeScript | clauders |
-|---|---|---|---|
-| Unknown `type` on a content block | Coerced into the **first union variant** (`TextBlock`), unknown keys retained on `__pydantic_extra__`; `.type` preserved verbatim (`_models.py:578 construct_type`, fallback loop `:638-642`) | **No validation at all** — `defaultParseResponse` (`internal/parse.ts:18`) returns raw parsed JSON; the object arrives intact and simply fails to narrow (`messages.ts:847`) | **`Error::Serde`, whole `Message` lost** (content.rs:28-39 closed `#[serde(tag = "type")]`) |
-| Unknown `type` on a content-block delta | Coerced to `TextDelta`; accumulator no-ops on it | Passed through untouched; accumulator `default: checkNever(...)` no-ops (`MessageStream.ts:651`) | **`Error::Serde`, stream terminated** (streaming.rs:109-133, 293-304) |
-| Unknown SSE `event:` name | **Silently skipped** — allowlist chain in `_streaming.py:86`, no branch matches, nothing yielded | **Silently skipped** — same allowlist shape in `core/streaming.ts:51-142` | **`Error::Serde`, stream terminated** (streaming.rs:309-314) |
-| Unknown field on a known object | Retained (`model_config = ConfigDict(extra="allow")`, `_models.py:107`) | Retained (no stripping) | Ignored — serde default. ✅ |
+The clauders column below is **historical** — it records the pre-fix behavior at `afd1ab8`, and its
+`file:line` citations resolve against that commit, not against the pinned `f0aab9d`. The delivered
+behavior is the row beneath each one, added 2026-07-21.
+
+| Scenario | Python | TypeScript | clauders (pre-fix, `afd1ab8`) | clauders now (`f0aab9d`) |
+|---|---|---|---|---|
+| Unknown `type` on a content block | Coerced into the **first union variant** (`TextBlock`), unknown keys retained on `__pydantic_extra__`; `.type` preserved verbatim (`_models.py:578 construct_type`, fallback loop `:638-642`) | **No validation at all** — `defaultParseResponse` (`internal/parse.ts:18`) returns raw parsed JSON; the object arrives intact and simply fails to narrow (`messages.ts:847`) | **`Error::Serde`, whole `Message` lost** (content.rs:28-39 closed `#[serde(tag = "type")]`) | ✅ `ContentBlock::Unknown(Value)` + `#[serde(skip_serializing)]` (content.rs:51-52) — payload retained, echo-back refused |
+| Unknown `type` on a content-block delta | Coerced to `TextDelta`; accumulator no-ops on it | Passed through untouched; accumulator `default: checkNever(...)` no-ops (`MessageStream.ts:651`) | **`Error::Serde`, stream terminated** (streaming.rs:109-133, 293-304) | ✅ `ContentDelta::Unknown(Value)`, accumulator no-ops (streaming.rs:146-179, accumulator.rs:234) |
+| Unknown SSE `event:` name | **Silently skipped** — allowlist chain in `_streaming.py:86`, no branch matches, nothing yielded | **Silently skipped** — same allowlist shape in `core/streaming.ts:51-142` | **`Error::Serde`, stream terminated** (streaming.rs:309-314) | ✅ `StreamEvent::Unknown(Value)`, yielded not dropped (streaming.rs:340-378) — clauders dispatches on `data.type`, not the `event:` name |
+| Unknown field on a known object | Retained (`model_config = ConfigDict(extra="allow")`, `_models.py:107`) | Retained (no stripping) | Ignored — serde default. ✅ | unchanged ✅ |
 
 Python's behavior is asserted by the SDK's own test, `tests/test_models.py:691
 test_discriminated_unions_unknown_variant`, whose inline comment reads `# just chooses the first
@@ -396,8 +495,10 @@ assert m.data == None
 assert m.new_thing == "bar"
 ```
 
-clauders has the mirror-image test, `parse_unknown_type_returns_serde_error` (streaming.rs:411),
-asserting the *failure* as intended behavior. That test encodes the defect.
+clauders used to carry the mirror-image test, `parse_unknown_type_returns_serde_error`, asserting the
+*failure* as intended behavior — a test that encoded the defect. It has been **inverted**: the test is
+now `parse_unknown_type_yields_unknown_event_with_payload` (streaming.rs:498), asserting that the
+payload survives.
 
 Concrete blast radius today, before any future API change: a response containing `server_tool_use`,
 `redacted_thinking`, `web_search_tool_result`, `container_upload`, `fallback`, or `connector_text`
@@ -412,11 +513,11 @@ but not the only one:
 
 | Enum | Site | Exposure |
 |---|---|---|
-| **`StopReason`** | response.rs:61 | **Live failure.** `pause_turn` is missing (§8.1) and the API returns it on every server-tool turn that hits the 10-iteration limit. An unrecognized value fails the entire `Message`, so both `create()` and `collect()` return `Error::Serde`. |
+| **`StopReason`** | response.rs:64-87 | **Live failure.** `pause_turn` is missing (§8.1) and the API returns it on every server-tool turn that hits the 10-iteration limit. An unrecognized value fails the entire `Message`, so both `create()` and `collect()` return `Error::Serde`. |
 | `ErrorType` | error.rs:70 | Already tolerant — a presence-only `#[serde(other)]` unit arm meant it never hard-failed. Its gap was payload retention, not decode failure. |
-| `BatchStatus` | batches/types.rs:135 | Plausible. Batch lifecycle states have grown before. |
+| `BatchStatus` | batches/types.rs:140-152 | Plausible. Batch lifecycle states have grown before. |
 | `MessageKind` | response.rs:53 | Latent — single-valued, stable. |
-| `BatchKind` / `DeletedBatchKind` | batches/types.rs:127 / :219 | Latent — single-valued. |
+| `BatchKind` / `DeletedBatchKind` | batches/types.rs:127 / :230-237 | Latent — single-valued. |
 | `ModelInfoKind` | models/types.rs:31 | Latent — single-valued. |
 
 `StopReason` is the one that fails today; the rest are latent. The distinction is timing, not kind.
@@ -485,9 +586,9 @@ The official `ToolUnion` is 19 members (`messages.ts:2277`), versioned by date s
 |---|---|---|---|---|
 | `cache_control: ephemeral` on content blocks | ✅ | ✅ | `CacheControl::ephemeral` (types/caching.rs:73-85) | ✅ |
 | 5-minute / 1-hour TTL tiers | ✅ `'5m' \| '1h'` | ✅ same | `CacheTtl::{FiveMinutes,OneHour}` (types/caching.rs:33-40) | ✅ |
-| Carriers: system segment / text / tool / tool_use / tool_result | ✅ | ✅ | system.rs:149, content.rs:58, tools.rs:57/118/152 | ✅ |
-| Cache-aware usage counters | ✅ | ✅ | `Usage.cache_creation/read` (response.rs:107-113) | ✅ |
-| `cache_creation` per-tier breakdown | ✅ | ✅ | `CacheCreation` (response.rs:78-84) | ✅ |
+| Carriers: system segment / text / tool / tool_use / tool_result | ✅ | ✅ | system.rs:149, content.rs:72, tools.rs:57/118/152 | ✅ |
+| Cache-aware usage counters | ✅ | ✅ | `Usage.cache_creation/read` (response.rs:122-125) | ✅ |
+| `cache_creation` per-tier breakdown | ✅ | ✅ | `CacheCreation` (response.rs:94-100) | ✅ |
 | Top-level `cache_control` (auto-place on last cacheable block) | ✅ | ✅ | ❌ | ❌ |
 
 Explicit per-block caching is at genuine parity, including both TTL tiers and the tier-split accounting.
@@ -503,10 +604,10 @@ Official `Message` — 10 fields, identical in both SDKs (`types/message.py`, `m
 | Field | clauders | Status |
 |---|---|---|
 | `id` / `type` / `role` / `model` / `content` / `stop_sequence` | `Message` (response.rs:26-45) | ✅ |
-| `stop_reason` | `StopReason` (response.rs:61-72) | 🟡 — 5 of 6, see below |
+| `stop_reason` | `StopReason` (response.rs:63-87) | 🟡 — 5 of 6 **typed**; the 6th (`pause_turn`) decodes to `Unknown("pause_turn")` rather than failing, see §8.1 |
 | **`stop_details`** | ❌ | ❌ |
 | **`container`** | ❌ | ❌ |
-| `usage` | `Usage` (response.rs:99-114) | 🟡 — see below |
+| `usage` | `Usage` (response.rs:115-130) | 🟡 — see below |
 
 ### 8.1 `stop_reason` — non-beta is exactly 6 values
 
@@ -514,13 +615,19 @@ Official `Message` — 10 fields, identical in both SDKs (`types/message.py`, `m
 
 `end_turn` · `max_tokens` · `stop_sequence` · `tool_use` · **`pause_turn`** · `refusal`
 
-clauders has five (response.rs:61-72), missing **`pause_turn`** — which the API returns whenever a
+clauders types five of them, still missing **`pause_turn`** — which the API returns whenever a
 server-tool loop hits its 10-iteration limit, i.e. on every long server-tool turn.
 
-**This is a decode failure, not a missing field.** `StopReason` is a closed enum, so an unrecognized
-value fails the enclosing `Message`, and both `create()` and `collect()` return `Error::Serde` for the
-whole response. It therefore appears twice in §12: as part of row 2 (add the unknown arm, stop the hard
-failure) and as row 10 (add the typed `PauseTurn` variant so a caller can act on it). See §5.1.
+**Status 2026-07-21 — the decode failure is fixed; the typed variant is still absent.** This used to be
+a decode failure rather than a missing field: `StopReason` was closed, so `pause_turn` failed the
+enclosing `Message` and both `create()` and `collect()` returned `Error::Serde` for the whole response.
+Since `a155625` the enum carries `Unknown(String)` (response.rs:86) and `pause_turn` decodes as
+`StopReason::Unknown("pause_turn")` — pinned by a passing test at response.rs:248-251. Nothing
+hard-fails.
+
+What remains is ergonomics, not correctness: a caller must match on `Unknown("pause_turn")` rather than
+a typed `StopReason::PauseTurn`, so they cannot act on a paused server-tool turn through the type
+system. That is §12 row 10 (WS C). Row 2, the decode half, is delivered. See §5.1.
 
 > **Correction to the prior revision.** That revision listed `model_context_window_exceeded` as a
 > missing official stop reason. It is real, but it is **not** in the non-beta union — both SDKs type it
@@ -550,16 +657,16 @@ Official (`types/usage.py`, `messages.ts:2345`):
 
 | Field | clauders | Status |
 |---|---|---|
-| `input_tokens` / `output_tokens` | ✅ (response.rs:102-104) | ✅ |
-| `cache_creation_input_tokens` / `cache_read_input_tokens` | ✅ (response.rs:107-110) | ✅ |
-| `cache_creation.{ephemeral_5m,ephemeral_1h}_input_tokens` | ✅ (response.rs:78-84) | ✅ |
+| `input_tokens` / `output_tokens` | ✅ (response.rs:117-119) | ✅ |
+| `cache_creation_input_tokens` / `cache_read_input_tokens` | ✅ (response.rs:122, :125) | ✅ |
+| `cache_creation.{ephemeral_5m,ephemeral_1h}_input_tokens` | ✅ (response.rs:94-100) | ✅ |
 | **`output_tokens_details.thinking_tokens`** | ❌ | ❌ |
 | **`server_tool_use.{web_search_requests,web_fetch_requests}`** | ❌ | ❌ |
 | **`service_tier`** (`standard` \| `priority` \| `batch`) | ❌ | ❌ |
 | **`inference_geo`** | ❌ | ❌ |
 | `iterations[]` (beta, server-side fallback) | ❌ | — beta |
 
-`Usage::total_input_tokens` (response.rs:135-139) is a clauders-only convenience with no official
+`Usage::total_input_tokens` (response.rs:150-154) is a clauders-only convenience with no official
 counterpart. Harmless, keep.
 
 ### 8.4 Typed parse helper
@@ -576,7 +683,7 @@ first text block by hand. 🟡
 Official `ModelInfo` — `types/model_info.py`, `resources/models.ts:177`, confirmed against
 `GET /v1/models`:
 
-| Field | clauders (`models/types.rs:53-64`) | Status |
+| Field | clauders (`models/types.rs:58-66`) | Status |
 |---|---|---|
 | `id` | ✅ | ✅ |
 | `display_name` | ✅ | ✅ |
@@ -639,20 +746,28 @@ feature fails loudly at the call site while a defect corrupts data silently.
 
 Every row cites the body section that establishes it. **Every body section that records a gap has a row
 here** — that invariant is the point of this table, since implementation plans are built from it and a
-finding that exists only in the prose gets dropped.
+finding that exists only in the prose gets dropped. As of 2026-07-21 the invariant extends to
+**deliberate divergences** as well (row 3 and rows 18-21): a body section that records a chosen difference from
+the official SDKs is just as easy to lose in prose as a gap, and losing it is worse — the next reader
+"fixes" it.
 
-**Status:** rows 2 and 4 are **delivered** — every server-decoded enum now carries a payload-carrying
-unknown arm (§5.1). Rows 1 and 3 remain open: they are accumulator work, and the accumulator has not
-been built yet. The rows are kept here rather than deleted so the ranking stays legible.
+**Status: WS A is complete — rows 1, 2, 3, and 4 are all delivered.** Rows 2 and 4 landed first (every
+server-decoded enum carries a payload-carrying unknown arm, §5.1); rows 1 and 3 landed with
+`MessageAccumulator` (§4.2, §4.3). Verified 2026-07-21 against pinned SDK source rather than against
+this document's own prose. The rows are kept rather than deleted so the ranking stays legible.
+
+**One qualification, which is the point of grading on behavior:** row 3 is closed by a *deliberate
+divergence*, not by matching the pinned SDKs. clauders asserts the content-block index (Go's rule);
+Python and TypeScript blind-append and ignore `index`. See §4.3 — it is graded 🔶, not ✅.
 
 ### Defects — incorrect runtime behavior
 
 | # | Item | Class | Why here |
 |---|---|---|---|
-| 1 | Streaming accumulator: buffer `input_json_delta`, concat `thinking_delta`, replace on `signature_delta` (§4.2) | ⚠️ defect | Silent wrong data. Streaming tool use is unusable and gives no signal that it failed. |
-| 2 | Unknown-variant tolerance on `ContentBlock` / `ContentDelta` / `StreamEvent` / **`StopReason`**; skip or surface — never error on — unknown SSE event names (§5, §5.1) | ⚠️ defect | Hard decode failure on values the API emits **today**; violates the documented versioning contract. Both official SDKs degrade instead. `StopReason` is the live one: `pause_turn` fails the entire `Message`. |
-| 3 | Index handling: append on `content_block_start` and ignore `index`, instead of padding with fabricated `TextBlock::new("")` (§4.3) | ⚠️ defect | Gapped or out-of-order indices leave placeholder blocks in `Message.content`. Both official SDKs append and ignore the index. |
-| 4 | Unknown arms on the remaining server-decoded enums: `BatchStatus`, `MessageKind`, `BatchKind`, `DeletedBatchKind`, `ModelInfoKind`, and payload retention on `ErrorType` (§5.1) | ⚠️ latent defect | Same failure mode as #2, not yet triggered. `BatchStatus` is the plausible grower; the rest are single-valued today. `ErrorType` is the exception — a presence-only `#[serde(other)]` arm already kept it from hard-failing, so its gap is payload retention only. `SystemSegmentKind` is **not** in scope: it is `Serialize`-only, so an unknown arm there is unreachable in both directions. Applying the §5.1 policy uniformly is cheaper than re-deciding per enum. |
+| 1 | Streaming accumulator: buffer `input_json_delta`, concat `thinking_delta`, replace on `signature_delta` (§4.2) | ✅ **delivered** | Was: silent wrong data, streaming tool use unusable with no signal of failure. Now handled in `MessageAccumulator`; end state matches Python/TS per-rule (§4.2 delivered-state table). Four rows in §4.2's delivered-state table are not ✅: two gaps assigned elsewhere — `citations_delta` (row 14) and `server_tool_use` input gating (row 8) — and two recorded divergences, rows 18 and 19. |
+| 2 | Unknown-variant tolerance on `ContentBlock` / `ContentDelta` / `StreamEvent` / **`StopReason`**; skip or surface — never error on — unknown SSE event names (§5, §5.1) | ✅ **delivered** | Was: hard decode failure on values the API emits **today**, violating the documented versioning contract, with `pause_turn` failing the entire `Message`. Now every one carries a payload-carrying `Unknown` arm + `#[non_exhaustive]`; `pause_turn` decodes as `StopReason::Unknown("pause_turn")` (§8.1). Payload fidelity matches TypeScript and exceeds Python, which mis-types the container (§5.1). |
+| 3 | Index handling on `content_block_start`, instead of padding with fabricated `TextBlock::new("")` (§4.3) | 🔶 **delivered, diverging** | The fabricated-placeholder defect is gone. But clauders **asserts** `index == content.len()` and returns `Error::Stream`, following Go; Python and TypeScript blind-append and never read `index`. Against a conforming server the behaviors are indistinguishable; on a malformed stream clauders reports where the pinned SDKs silently misalign. Deliberate — see §4.3 for the full three-way comparison. |
+| 4 | Unknown arms on the remaining server-decoded enums: `BatchStatus`, `MessageKind`, `BatchKind`, `DeletedBatchKind`, `ModelInfoKind`, and payload retention on `ErrorType` (§5.1) | ✅ **delivered** | Was the same failure mode as #2, not yet triggered. `BatchStatus` is the plausible grower; the rest are single-valued today. `ErrorType` is the exception — a presence-only `#[serde(other)]` arm already kept it from hard-failing, so its gap is payload retention only. `SystemSegmentKind` is **not** in scope: it is `Serialize`-only, so an unknown arm there is unreachable in both directions. Applying the §5.1 policy uniformly is cheaper than re-deciding per enum. |
 
 ### Blocks current-generation models
 
@@ -687,6 +802,22 @@ been built yet. The rows are kept here rather than deleted so the ranking stays 
 |---|---|---|---|
 | 17 | Files API; server-side & Anthropic-defined tools; context management; MCP connector; typed parse helper (§1, §6, §8.4) | ❌ large | Evaluate as demand appears. Each is its own multi-cycle surface. |
 
+### Accepted divergences — deliberate, recorded so they are not re-litigated
+
+These carry the §12 invariant for body sections that record a *difference* rather than a *gap*: the
+behavior is chosen, tested, and will not change without a decision. Listed because §4.2, §4.4 and §4.5
+would otherwise be body-section findings with no row.
+
+§4.3's `content_block_start` divergence is deliberately **not** repeated here: row 3 above already
+carries it, because that row also carries the defect it replaced. Row 3 is 🔶 for exactly this reason.
+
+| # | Item | Class | Why here |
+|---|---|---|---|
+| 18 | Delta/stop events with an out-of-range `index` are a silent no-op (§4.2, §4.3) | 🔶 divergence | Follows TypeScript (`.at()` → `undefined`); **Python raises `IndexError`** and Go returns an error. Same porting-surprise class as row 3's `content_block_start` policy, and graded the same way for consistency. |
+| 19 | A stream ending without `message_stop` yields `Ok(partial)`; a tool-JSON buffer never closed by `content_block_stop` is never parsed (§4.5, §4.2) | 🔶 divergence | Follows Python and Go, which have no completeness check at all; TypeScript throws. The unclosed-buffer half is strictly *less* salvaging than Python, whose eager per-delta parse recovers complete key/value pairs (`{"a": 1,` → `{"a": 1}`). Reachable only on an already-broken stream. |
+| 20 | A duplicate `message_start` replaces the snapshot and resets the JSON buffers (§4.5) | 🔶 divergence | All three official SDKs differ — TypeScript throws, Python ignores the second event and interleaves its blocks into the first message, Go replaces. clauders follows Go; Python's interleaving is the outcome worth avoiding outright. |
+| 21 | `message_delta` writes `stop_reason`/`stop_sequence` only when present (§4.4) | 🔶 divergence | Python, TypeScript and Go all assign unconditionally, including overwriting a resolved value with `null`. The guard prevents a stray later delta from clobbering a resolved `stop_reason`. |
+
 ---
 
 ## 13. Workstreams
@@ -697,10 +828,13 @@ parity rows; re-derive it rather than trusting it after any §12 revision.
 
 | WS | §12 rows | Primary files | Depends on |
 |---|---|---|---|
-| **A — decode-path correctness** | 1, 2, 3, 4 | `messages/streaming.rs`, `messages/content.rs`, `messages/response.rs`, plus one-line arms in `messages/batches/types.rs`, `models/types.rs`, `error.rs` | — |
+| ~~**A — decode-path correctness**~~ ✅ **DONE 2026-07-21** | 1, 2, 3, 4 | `messages/accumulator.rs` (new), `messages/streaming.rs`, `messages/content.rs`, `messages/response.rs`, plus one-line arms in `messages/batches/types.rs`, `models/types.rs`, `error.rs` | — |
 | **B — current-model request surface** | 5, 6 | `messages/request.rs`, `messages/structured_outputs.rs`, `types/numeric.rs` | — |
 | **C — response diagnostics & discovery** | 10, 11, 12, 13, 16 | `messages/response.rs`, `models/types.rs`, `messages/request.rs` | — |
 | **D — content-block taxonomy** | 7, 8, 9, 14, 15 | `messages/content.rs`, `messages/tools.rs` | **A** |
+
+**A is delivered, so D is unblocked.** `ContentBlock::Unknown` exists, which is exactly the arm that
+turns D from blocking work into progressive work. Recommended order for what remains: **B → C → D**.
 
 **The one hard dependency is A → D.** Row 2 adds an unknown-variant arm to `ContentBlock`; that arm is
 what turns D from blocking work into progressive work, because unknown blocks stop being fatal and the
@@ -727,9 +861,11 @@ model; C and D are additive from there.
 - **clauders side** — read from source at 2026-07-20 (`crates/clauders/src/messages/`:
   `request.rs`, `response.rs`, `content.rs`, `tools.rs`, `streaming.rs`, `token_counting.rs`,
   `structured_outputs.rs`, `resource.rs`, `batches/`; `models/types.rs`; `types/{caching,model_id,
-  system,numeric,version}.rs`). Authoritative. `src/messages/` is unchanged since the prior revision,
-  so every difference between the two revisions of this document is a correction to the *official*
-  column or to the *method*, never a change in clauders.
+  system,numeric,version}.rs`). Authoritative. **Changed for the 2026-07-21 revision:** unlike the
+  2026-07-20 revision — where `src/messages/` was unchanged and every delta was a correction to the
+  *official* column or the *method* — this revision reflects real changes in clauders (`accumulator.rs`
+  is new; `streaming.rs`, `content.rs`, `response.rs`, `error.rs`, `batches/types.rs`,
+  `models/types.rs` all changed). Rows 1-4 of §12 moved because the code moved.
 - **Official side** — read from pinned SDK source (commits in the header), cross-checked against the
   REST reference. Where the SDKs and the prose docs disagreed, **the SDK source wins** and the
   disagreement is noted inline (see §8.1 on `model_context_window_exceeded`).
