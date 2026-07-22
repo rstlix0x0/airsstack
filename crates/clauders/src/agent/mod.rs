@@ -7,6 +7,7 @@
 //! content frames, the capability manifest, `Options`, and the control-protocol
 //! codec. The async `Runtime`/`Client` layer is a separate module.
 
+pub mod cancel;
 pub mod capabilities;
 pub mod client;
 pub mod content;
@@ -25,6 +26,7 @@ pub mod subagents;
 pub mod system_prompt;
 pub mod types;
 
+pub use cancel::CancelSignal;
 pub use capabilities::{Capabilities, HookEvent};
 pub use client::{AgentClientBuilder, Client, query};
 pub use content::ContentBlock;
@@ -42,8 +44,8 @@ pub use message::{
 };
 pub use options::{Options, OptionsBuilder};
 pub use permissions::{
-    PermissionBehavior, PermissionContext, PermissionDecision, PermissionMode, PermissionPolicy,
-    PermissionScope, PermissionUpdate,
+    MatchedAskRule, PermissionBehavior, PermissionContext, PermissionDecision, PermissionMode,
+    PermissionPolicy, PermissionRuleValue, PermissionUpdate, PermissionUpdateDestination,
 };
 pub use runtime::Runtime;
 pub use runtime::cli::CliRuntime;

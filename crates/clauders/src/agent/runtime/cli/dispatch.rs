@@ -61,6 +61,8 @@ impl Dispatcher {
                 title,
                 display_name,
                 description,
+                permission_suggestions,
+                matched_ask_rule,
             } => {
                 let ctx = PermissionContext {
                     tool_use_id,
@@ -70,6 +72,9 @@ impl Dispatcher {
                     title,
                     display_name,
                     description,
+                    suggestions: permission_suggestions,
+                    matched_ask_rule,
+                    request_id: request_id.clone(),
                 };
                 self.permission_outcome(&tool_name, input, ctx).await
             }
@@ -129,11 +134,15 @@ impl Dispatcher {
     ) -> Result<serde_json::Value, String> {
         match &self.policy {
             Some(policy) => match policy.can_use_tool(tool, &input, ctx).await {
-                Ok(decision) => Ok(decision.into_response_value(&input)),
+                Ok(decision) => decision
+                    .into_response_value(&input)
+                    .map_err(|e| e.to_string()),
                 Err(err) => Err(err.to_string()),
             },
             // No policy registered: allow, echoing the original input.
-            None => Ok(PermissionDecision::allow().into_response_value(&input)),
+            None => PermissionDecision::allow()
+                .into_response_value(&input)
+                .map_err(|e| e.to_string()),
         }
     }
 
@@ -517,7 +526,7 @@ mod tests {
     }
 
     fn elicitation_request() -> crate::agent::protocol::InboundControlRequest {
-        let line = r#"{"type":"control_request","request_id":"srv_20","request":{"subtype":"elicitation","elicitation_id":"elic_1","message":"Pick","mode":"form","requested_schema":{"type":"object"}}}"#;
+        let line = r#"{"type":"control_request","request_id":"srv_20","request":{"subtype":"elicitation","elicitation_id":"elic_1","message":"Pick","mode":"form","requested_schema":{"type":"object"},"mcp_server_name":"git"}}"#;
         match decode_inbound(line).expect("decode") {
             crate::agent::protocol::InboundFrame::ControlRequest(req) => req,
             _ => unreachable!("decoded a control request"),
@@ -579,7 +588,7 @@ mod tests {
 
     #[tokio::test]
     async fn malformed_control_request_becomes_error_response_naming_subtype() {
-        // Missing the required `elicitation_id` field: recognized subtype,
+        // Missing the required `mcp_server_name` field: recognized subtype,
         // malformed body.
         let line = r#"{"type":"control_request","request_id":"srv_22","request":{"subtype":"elicitation","message":"Pick","mode":"form"}}"#;
         let crate::agent::protocol::InboundFrame::ControlRequest(req) =

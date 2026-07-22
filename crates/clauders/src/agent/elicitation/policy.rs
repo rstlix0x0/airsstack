@@ -47,12 +47,12 @@ mod tests {
 
     fn request() -> ElicitationRequest {
         ElicitationRequest {
-            elicitation_id: "elic_1".to_string(),
+            elicitation_id: Some("elic_1".to_string()),
             message: "Pick".to_string(),
-            mode: ElicitationMode::Form,
+            mode: Some(ElicitationMode::Form),
             requested_schema: None,
             url: None,
-            mcp_server_name: None,
+            mcp_server_name: "srv".to_string(),
             title: None,
             display_name: None,
             description: None,

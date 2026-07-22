@@ -152,6 +152,12 @@ pub enum InboundRequestBody {
         /// Longer human description.
         #[serde(default)]
         description: Option<String>,
+        /// Rule updates the binary suggests the policy may apply.
+        #[serde(default)]
+        permission_suggestions: Vec<crate::agent::permissions::PermissionUpdate>,
+        /// The user-configured ask rule that forced this prompt.
+        #[serde(default)]
+        matched_ask_rule: Option<crate::agent::permissions::MatchedAskRule>,
     },
     /// The binary invokes a registered hook.
     HookCallback {
@@ -176,21 +182,22 @@ pub enum InboundRequestBody {
     /// An MCP server requests structured input mid-tool-call.
     Elicitation {
         /// Correlation id the binary assigned this elicitation.
-        elicitation_id: String,
+        #[serde(default)]
+        elicitation_id: Option<String>,
         /// Human-readable prompt.
         #[serde(default)]
         message: String,
-        /// Form-mode or url-mode.
-        mode: ElicitationMode,
+        /// Form-mode or url-mode. Absent on requests that do not say.
+        #[serde(default)]
+        mode: Option<ElicitationMode>,
         /// The requested MCP JSON Schema (form mode).
         #[serde(default)]
         requested_schema: Option<serde_json::Value>,
         /// The URL to visit (url mode).
         #[serde(default)]
         url: Option<String>,
-        /// The MCP server that raised the elicitation.
-        #[serde(default)]
-        mcp_server_name: Option<String>,
+        /// The MCP server that raised the elicitation. Required on the wire.
+        mcp_server_name: String,
         /// Short human title.
         #[serde(default)]
         title: Option<String>,
@@ -463,11 +470,11 @@ mod tests {
         else {
             unreachable!("decoded an elicitation request")
         };
-        assert_eq!(elicitation_id, "elic_1");
+        assert_eq!(elicitation_id.as_deref(), Some("elic_1"));
         assert_eq!(message, "Pick a branch");
-        assert_eq!(mode, crate::agent::elicitation::ElicitationMode::Form);
+        assert_eq!(mode, Some(crate::agent::elicitation::ElicitationMode::Form));
         assert_eq!(requested_schema.expect("schema")["type"], "object");
-        assert_eq!(mcp_server_name.as_deref(), Some("git"));
+        assert_eq!(mcp_server_name, "git");
         assert_eq!(display_name.as_deref(), Some("Git"));
     }
 
@@ -476,7 +483,7 @@ mod tests {
         use super::InboundRequestBody;
         use crate::agent::protocol::decode_inbound;
 
-        let line = r#"{"type":"control_request","request_id":"srv_12","request":{"subtype":"elicitation","elicitation_id":"elic_2","message":"Authorize","mode":"url","url":"https://example.test/auth"}}"#;
+        let line = r#"{"type":"control_request","request_id":"srv_12","request":{"subtype":"elicitation","elicitation_id":"elic_2","message":"Authorize","mode":"url","url":"https://example.test/auth","mcp_server_name":"oauth"}}"#;
         let frame = decode_inbound(line).expect("decode");
         let InboundFrame::ControlRequest(req) = frame else {
             unreachable!("decoded a control request")
@@ -484,7 +491,7 @@ mod tests {
         let InboundRequestBody::Elicitation { mode, url, .. } = req.request else {
             unreachable!("decoded an elicitation request")
         };
-        assert_eq!(mode, crate::agent::elicitation::ElicitationMode::Url);
+        assert_eq!(mode, Some(crate::agent::elicitation::ElicitationMode::Url));
         assert_eq!(url.as_deref(), Some("https://example.test/auth"));
     }
 
@@ -493,7 +500,7 @@ mod tests {
         use super::InboundRequestBody;
         use crate::agent::protocol::decode_inbound;
 
-        let line = r#"{"type":"control_request","request_id":"srv_14","request":{"subtype":"elicitation","elicitation_id":"elic_3","message":"Confirm?","mode":"confirm"}}"#;
+        let line = r#"{"type":"control_request","request_id":"srv_14","request":{"subtype":"elicitation","elicitation_id":"elic_3","message":"Confirm?","mode":"confirm","mcp_server_name":"srv"}}"#;
         let frame = decode_inbound(line).expect("decode must not fail");
         let InboundFrame::ControlRequest(req) = frame else {
             unreachable!("decoded a control request")
@@ -501,7 +508,72 @@ mod tests {
         let InboundRequestBody::Elicitation { mode, .. } = req.request else {
             unreachable!("decoded an elicitation request")
         };
-        assert_eq!(mode, crate::agent::elicitation::ElicitationMode::Unknown);
+        assert_eq!(
+            mode,
+            Some(crate::agent::elicitation::ElicitationMode::Unknown)
+        );
+    }
+
+    #[test]
+    fn can_use_tool_carries_suggestions_and_matched_ask_rule() {
+        // Field names from sdk.d.ts:3563 and :3584-3588.
+        use super::InboundRequestBody;
+        let line = r#"{"type":"control_request","request_id":"r7","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{},"tool_use_id":"tu1","permission_suggestions":[{"type":"addRules","rules":[{"toolName":"Bash"}],"behavior":"allow","destination":"session"}],"matched_ask_rule":{"source":"projectSettings","tool_name":"Bash","rule_content":"rm:*"}}}"#;
+        let frame = crate::agent::protocol::decode_inbound(line).expect("decode");
+        let crate::agent::protocol::InboundFrame::ControlRequest(req) = frame else {
+            panic!("expected a control request");
+        };
+        assert_eq!(req.request_id, "r7");
+        let InboundRequestBody::CanUseTool {
+            permission_suggestions,
+            matched_ask_rule,
+            ..
+        } = req.request
+        else {
+            panic!("expected a can_use_tool body");
+        };
+        assert!(
+            !permission_suggestions.is_empty(),
+            "suggestions must survive"
+        );
+        let rule = matched_ask_rule.expect("matched_ask_rule must survive");
+        assert_eq!(rule.source, "projectSettings");
+        assert_eq!(rule.tool_name, "Bash");
+        assert_eq!(rule.rule_content.as_deref(), Some("rm:*"));
+    }
+
+    #[test]
+    fn can_use_tool_absorbs_an_unknown_suggestion_type() {
+        // One recognized `addRules` suggestion and one suggestion whose
+        // `type` this release does not model. Before the `Unknown` arm
+        // existed, the unrecognized entry failed the whole
+        // `permission_suggestions` array, which failed the whole
+        // `can_use_tool` body, which rescued to `Malformed` and denied the
+        // tool call over a suggestion unrelated to the tool itself.
+        use super::InboundRequestBody;
+        use crate::agent::permissions::PermissionUpdate;
+
+        let line = r#"{"type":"control_request","request_id":"r20","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{},"permission_suggestions":[{"type":"addRules","rules":[{"toolName":"Bash"}],"behavior":"allow","destination":"session"},{"type":"someFutureUpdate","foo":"bar"}]}}"#;
+        let frame = crate::agent::protocol::decode_inbound(line).expect("decode must not fail");
+        let InboundFrame::ControlRequest(req) = frame else {
+            panic!("expected a control request, not Malformed");
+        };
+        let InboundRequestBody::CanUseTool {
+            permission_suggestions,
+            ..
+        } = req.request
+        else {
+            panic!("expected a can_use_tool body, not Malformed");
+        };
+        assert_eq!(permission_suggestions.len(), 2, "both entries must survive");
+        assert!(matches!(
+            permission_suggestions[0],
+            PermissionUpdate::AddRules { .. }
+        ));
+        assert!(matches!(
+            permission_suggestions[1],
+            PermissionUpdate::Unknown(_)
+        ));
     }
 
     #[test]
@@ -518,21 +590,59 @@ mod tests {
     }
 
     #[test]
-    fn elicitation_missing_mode_rescues_to_malformed() {
+    fn elicitation_without_mode_reaches_the_policy() {
+        // `mode?` is optional (sdk.d.ts:2991). Requiring it rejected valid
+        // requests, which were then answered with an error.
         use super::InboundRequestBody;
-        use crate::agent::protocol::decode_inbound;
-
-        let line = r#"{"type":"control_request","request_id":"srv_15","request":{"subtype":"elicitation","elicitation_id":"elic_4","message":"Pick"}}"#;
-        let frame = decode_inbound(line).expect("decode must not fail");
-        let InboundFrame::ControlRequest(req) = frame else {
-            unreachable!("decoded a control request")
+        let line = r#"{"type":"control_request","request_id":"r1","request":{"subtype":"elicitation","mcp_server_name":"srv","message":"Pick one","elicitation_id":"e1"}}"#;
+        let frame = crate::agent::protocol::decode_inbound(line).expect("decode");
+        let crate::agent::protocol::InboundFrame::ControlRequest(req) = frame else {
+            panic!("expected a control request");
         };
-        assert!(matches!(
-            req.request,
-            InboundRequestBody::Malformed {
-                subtype: Some(ref s)
-            } if s == "elicitation"
-        ));
+        let InboundRequestBody::Elicitation {
+            mode,
+            elicitation_id,
+            ..
+        } = req.request
+        else {
+            panic!("expected an elicitation body");
+        };
+        assert!(mode.is_none());
+        assert_eq!(elicitation_id.as_deref(), Some("e1"));
+    }
+
+    #[test]
+    fn elicitation_without_elicitation_id_reaches_the_policy() {
+        // `elicitation_id?` is optional (sdk.d.ts:2993).
+        use super::InboundRequestBody;
+        let line = r#"{"type":"control_request","request_id":"r1","request":{"subtype":"elicitation","mcp_server_name":"srv","message":"Pick one","mode":"form"}}"#;
+        let frame = crate::agent::protocol::decode_inbound(line).expect("decode");
+        let crate::agent::protocol::InboundFrame::ControlRequest(req) = frame else {
+            panic!("expected a control request");
+        };
+        let InboundRequestBody::Elicitation {
+            elicitation_id,
+            mode,
+            ..
+        } = req.request
+        else {
+            panic!("expected an elicitation body");
+        };
+        assert!(elicitation_id.is_none());
+        assert_eq!(mode, Some(crate::agent::elicitation::ElicitationMode::Form));
+    }
+
+    #[test]
+    fn elicitation_without_server_name_is_malformed() {
+        // `mcp_server_name: string` is REQUIRED (sdk.d.ts:2989) — the crate
+        // previously defaulted it, which is the mirror-image mistake.
+        use super::InboundRequestBody;
+        let line = r#"{"type":"control_request","request_id":"r1","request":{"subtype":"elicitation","message":"Pick one","mode":"form"}}"#;
+        let frame = crate::agent::protocol::decode_inbound(line).expect("decode");
+        let crate::agent::protocol::InboundFrame::ControlRequest(req) = frame else {
+            panic!("expected a control request");
+        };
+        assert!(matches!(req.request, InboundRequestBody::Malformed { .. }));
     }
 
     #[test]
@@ -541,24 +651,6 @@ mod tests {
         use crate::agent::protocol::decode_inbound;
 
         let line = r#"{"type":"control_request","request_id":"srv_16","request":{"subtype":"elicitation","elicitation_id":"elic_5","message":"Pick","mode":42}}"#;
-        let frame = decode_inbound(line).expect("decode must not fail");
-        let InboundFrame::ControlRequest(req) = frame else {
-            unreachable!("decoded a control request")
-        };
-        assert!(matches!(
-            req.request,
-            InboundRequestBody::Malformed {
-                subtype: Some(ref s)
-            } if s == "elicitation"
-        ));
-    }
-
-    #[test]
-    fn elicitation_missing_elicitation_id_rescues_to_malformed() {
-        use super::InboundRequestBody;
-        use crate::agent::protocol::decode_inbound;
-
-        let line = r#"{"type":"control_request","request_id":"srv_17","request":{"subtype":"elicitation","message":"Pick","mode":"form"}}"#;
         let frame = decode_inbound(line).expect("decode must not fail");
         let InboundFrame::ControlRequest(req) = frame else {
             unreachable!("decoded a control request")
