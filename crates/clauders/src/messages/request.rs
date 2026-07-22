@@ -216,7 +216,8 @@ struct MessageRequestFields {
     metadata: Option<Metadata>,
     tools: Vec<crate::messages::tools::Tool>,
     tool_choice: Option<crate::messages::tools::ToolChoice>,
-    output_config: Option<crate::messages::structured_outputs::OutputConfig>,
+    output_format: Option<crate::messages::structured_outputs::OutputFormat>,
+    effort: Option<crate::types::EffortLevel>,
     thinking: Option<crate::messages::thinking::ThinkingConfig>,
 }
 
@@ -234,7 +235,8 @@ impl MessageRequestFields {
             metadata: None,
             tools: Vec::new(),
             tool_choice: None,
-            output_config: None,
+            output_format: None,
+            effort: None,
             thinking: None,
         }
     }
@@ -386,10 +388,50 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
         self
     }
 
-    /// Constrain the response to a JSON Schema.
+    /// Set the output configuration.
+    ///
+    /// This setter names **both** slots the configuration carries, so it
+    /// assigns both — including clearing `effort` when the supplied value
+    /// does not set it. Every setter on this builder assigns exactly the
+    /// slots it names, so ordering is predictable:
+    ///
+    /// ```
+    /// use clauders::messages::{MessageRequest, structured_outputs::OutputConfig};
+    /// use clauders::types::{EffortLevel, MaxTokens, ModelId};
+    ///
+    /// // output_config() last: it assigns both slots, so effort is cleared.
+    /// let req = MessageRequest::builder()
+    ///     .model(ModelId::claude_sonnet_4_5())
+    ///     .max_tokens(MaxTokens::new(64).unwrap())
+    ///     .effort(EffortLevel::High)
+    ///     .output_config(OutputConfig::json_schema(serde_json::json!({"type": "object"})))
+    ///     .build();
+    /// let j = serde_json::to_value(&req).unwrap();
+    /// assert!(j["output_config"].get("effort").is_none());
+    ///
+    /// // effort() last: it names only its own slot, so both survive.
+    /// let req = MessageRequest::builder()
+    ///     .model(ModelId::claude_sonnet_4_5())
+    ///     .max_tokens(MaxTokens::new(64).unwrap())
+    ///     .output_config(OutputConfig::json_schema(serde_json::json!({"type": "object"})))
+    ///     .effort(EffortLevel::High)
+    ///     .build();
+    /// let j = serde_json::to_value(&req).unwrap();
+    /// assert_eq!(j["output_config"]["effort"], "high");
+    /// ```
     #[must_use]
     pub fn output_config(mut self, c: crate::messages::structured_outputs::OutputConfig) -> Self {
-        self.fields.output_config = Some(c);
+        self.fields.output_format = c.format;
+        self.fields.effort = c.effort;
+        self
+    }
+
+    /// Set how much reasoning effort the model should spend.
+    ///
+    /// Assigns only the effort slot, leaving any output format untouched.
+    #[must_use]
+    pub const fn effort(mut self, effort: crate::types::EffortLevel) -> Self {
+        self.fields.effort = Some(effort);
         self
     }
 
@@ -429,6 +471,13 @@ impl MessageRequestBuilder<Present, Present> {
             .max_tokens
             .expect("invariant: type-state Present guarantees max_tokens is set");
 
+        let output_config = match (self.fields.output_format, self.fields.effort) {
+            (None, None) => None,
+            (format, effort) => {
+                Some(crate::messages::structured_outputs::OutputConfig { format, effort })
+            }
+        };
+
         MessageRequest {
             model,
             max_tokens,
@@ -441,7 +490,7 @@ impl MessageRequestBuilder<Present, Present> {
             metadata: self.fields.metadata,
             tools: self.fields.tools,
             tool_choice: self.fields.tool_choice,
-            output_config: self.fields.output_config,
+            output_config,
             thinking: self.fields.thinking,
             stream: false,
         }
@@ -457,9 +506,11 @@ mod tests {
 
     use super::*;
     use crate::messages::content::{ContentBlock, TextBlock};
+    use crate::messages::structured_outputs::OutputConfig;
     use crate::messages::thinking::{ThinkingConfig, ThinkingDisplay};
     use crate::types::{
-        MaxTokens, ModelId, StopSequence, SystemPrompt, Temperature, TopK, TopP, UserId,
+        EffortLevel, MaxTokens, ModelId, StopSequence, SystemPrompt, Temperature, TopK, TopP,
+        UserId,
     };
 
     #[test]
@@ -630,6 +681,88 @@ mod tests {
             j["output_config"]["format"]["schema"], schema,
             "output_config schema must survive transitions unchanged"
         );
+    }
+
+    #[test]
+    fn effort_alone_produces_an_output_config() {
+        let req = MessageRequest::builder()
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(MaxTokens::new(64).unwrap())
+            .effort(EffortLevel::High)
+            .add_user_text("Hi")
+            .build();
+
+        let j = serde_json::to_value(&req).unwrap();
+        assert_eq!(j["output_config"], serde_json::json!({"effort": "high"}));
+    }
+
+    #[test]
+    fn output_config_is_absent_when_neither_slot_is_set() {
+        let req = MessageRequest::builder()
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(MaxTokens::new(64).unwrap())
+            .add_user_text("Hi")
+            .build();
+
+        let j = serde_json::to_value(&req).unwrap();
+        assert!(
+            j.get("output_config").is_none(),
+            "an empty output_config must be omitted, never sent as {{}}"
+        );
+    }
+
+    #[test]
+    fn output_config_after_effort_assigns_both_slots_and_clears_effort() {
+        let req = MessageRequest::builder()
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(MaxTokens::new(64).unwrap())
+            .effort(EffortLevel::High)
+            .output_config(OutputConfig::json_schema(
+                serde_json::json!({"type": "object"}),
+            ))
+            .add_user_text("Hi")
+            .build();
+
+        let j = serde_json::to_value(&req).unwrap();
+        assert_eq!(j["output_config"]["format"]["type"], "json_schema");
+        assert!(
+            j["output_config"].get("effort").is_none(),
+            "output_config() names both slots, so it assigns both: effort is cleared"
+        );
+    }
+
+    #[test]
+    fn effort_after_output_config_keeps_both() {
+        let req = MessageRequest::builder()
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(MaxTokens::new(64).unwrap())
+            .output_config(OutputConfig::json_schema(
+                serde_json::json!({"type": "object"}),
+            ))
+            .effort(EffortLevel::High)
+            .add_user_text("Hi")
+            .build();
+
+        let j = serde_json::to_value(&req).unwrap();
+        assert_eq!(j["output_config"]["format"]["type"], "json_schema");
+        assert_eq!(j["output_config"]["effort"], "high");
+    }
+
+    #[test]
+    fn output_config_carrying_both_halves_survives_intact() {
+        let req = MessageRequest::builder()
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(MaxTokens::new(64).unwrap())
+            .output_config(
+                OutputConfig::json_schema(serde_json::json!({"type": "object"}))
+                    .with_effort(EffortLevel::Max),
+            )
+            .add_user_text("Hi")
+            .build();
+
+        let j = serde_json::to_value(&req).unwrap();
+        assert_eq!(j["output_config"]["format"]["type"], "json_schema");
+        assert_eq!(j["output_config"]["effort"], "max");
     }
 
     #[test]
