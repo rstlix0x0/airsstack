@@ -542,6 +542,14 @@ mod tests {
         UserId,
     };
 
+    /// A builder with the two required slots (model + `max_tokens`) filled,
+    /// for the many tests that only vary the optional fields.
+    fn base_builder() -> MessageRequestBuilder<Present, Present> {
+        MessageRequest::builder()
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(MaxTokens::new(64))
+    }
+
     #[test]
     fn builder_round_trips_minimal_request() {
         let req = MessageRequest::builder()
@@ -618,11 +626,7 @@ mod tests {
 
     #[test]
     fn serializes_minimal_request_omits_all_optional_fields() {
-        let req = MessageRequest::builder()
-            .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64))
-            .add_user_text("Hi")
-            .build();
+        let req = base_builder().add_user_text("Hi").build();
 
         let j: serde_json::Value = serde_json::to_value(&req).unwrap();
 
@@ -641,9 +645,7 @@ mod tests {
     fn stop_sequences_accepts_array_literal() {
         // Verify that an array (not Vec) is accepted by the setter.
         // This compiles only if the setter takes impl IntoIterator.
-        let req = MessageRequest::builder()
-            .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64))
+        let req = base_builder()
             .stop_sequences([StopSequence::new("STOP").unwrap()])
             .add_user_text("Hi")
             .build();
@@ -657,9 +659,7 @@ mod tests {
         use crate::messages::structured_outputs::OutputConfig;
 
         let schema = serde_json::json!({"type": "object"});
-        let req = MessageRequest::builder()
-            .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64))
+        let req = base_builder()
             .output_config(OutputConfig::json_schema(schema.clone()))
             .add_user_text("Hi")
             .build();
@@ -677,11 +677,7 @@ mod tests {
 
     #[test]
     fn output_config_omitted_when_unset() {
-        let req = MessageRequest::builder()
-            .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64))
-            .add_user_text("Hi")
-            .build();
+        let req = base_builder().add_user_text("Hi").build();
 
         let j: serde_json::Value = serde_json::to_value(&req).unwrap();
         assert!(
@@ -718,9 +714,7 @@ mod tests {
 
     #[test]
     fn effort_alone_produces_an_output_config() {
-        let req = MessageRequest::builder()
-            .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64))
+        let req = base_builder()
             .effort(EffortLevel::High)
             .add_user_text("Hi")
             .build();
@@ -731,11 +725,7 @@ mod tests {
 
     #[test]
     fn output_config_is_absent_when_neither_slot_is_set() {
-        let req = MessageRequest::builder()
-            .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64))
-            .add_user_text("Hi")
-            .build();
+        let req = base_builder().add_user_text("Hi").build();
 
         let j = serde_json::to_value(&req).unwrap();
         assert!(
@@ -746,9 +736,7 @@ mod tests {
 
     #[test]
     fn output_config_after_effort_assigns_both_slots_and_clears_effort() {
-        let req = MessageRequest::builder()
-            .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64))
+        let req = base_builder()
             .effort(EffortLevel::High)
             .output_config(OutputConfig::json_schema(
                 serde_json::json!({"type": "object"}),
@@ -766,9 +754,7 @@ mod tests {
 
     #[test]
     fn effort_after_output_config_keeps_both() {
-        let req = MessageRequest::builder()
-            .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64))
+        let req = base_builder()
             .output_config(OutputConfig::json_schema(
                 serde_json::json!({"type": "object"}),
             ))
@@ -783,9 +769,7 @@ mod tests {
 
     #[test]
     fn output_config_carrying_both_halves_survives_intact() {
-        let req = MessageRequest::builder()
-            .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64))
+        let req = base_builder()
             .output_config(
                 OutputConfig::json_schema(serde_json::json!({"type": "object"}))
                     .with_effort(EffortLevel::Max),
@@ -800,11 +784,7 @@ mod tests {
 
     #[test]
     fn thinking_is_absent_when_unset() {
-        let req = MessageRequest::builder()
-            .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64))
-            .add_user_text("Hi")
-            .build();
+        let req = base_builder().add_user_text("Hi").build();
 
         let j = serde_json::to_value(&req).unwrap();
         assert!(
@@ -861,9 +841,7 @@ mod tests {
 
     #[test]
     fn message_content_blocks_serializes_as_json_array() {
-        let req = MessageRequest::builder()
-            .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64))
+        let req = base_builder()
             .add_message(
                 Role::User,
                 MessageContent::Blocks(vec![ContentBlock::Text(TextBlock::new("x"))]),
