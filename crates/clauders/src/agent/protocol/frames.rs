@@ -41,8 +41,46 @@ pub enum InboundFrame {
     ControlResponse(ControlResponse),
     /// A control request issued to us by the binary.
     ControlRequest(InboundControlRequest),
+    /// The binary withdrawing a control request it already sent.
+    ControlCancelRequest(ControlCancelRequest),
+    /// A liveness frame, dropped before it reaches the caller.
+    KeepAlive(KeepAlive),
     /// A model-output message frame.
     Message(Message),
+}
+
+/// A liveness frame the binary emits between turns.
+///
+/// Carries no payload and is never forwarded to the caller.
+#[derive(Debug, Deserialize)]
+pub struct KeepAlive {
+    /// Pins the frame's `type` so the untagged match cannot accept a frame
+    /// of any other shape. A fieldless struct would match every object on
+    /// the wire.
+    #[serde(rename = "type")]
+    _kind: KeepAliveTag,
+}
+
+#[derive(Debug, Deserialize)]
+enum KeepAliveTag {
+    #[serde(rename = "keep_alive")]
+    KeepAlive,
+}
+
+/// The binary withdrawing a control request it already sent.
+#[derive(Debug, Deserialize)]
+pub struct ControlCancelRequest {
+    /// Pins the frame's `type`; see [`KeepAlive`].
+    #[serde(rename = "type")]
+    _kind: ControlCancelTag,
+    /// The request being withdrawn.
+    pub request_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+enum ControlCancelTag {
+    #[serde(rename = "control_cancel_request")]
+    ControlCancelRequest,
 }
 
 /// Wrapper for an inbound `control_response` frame.
@@ -679,6 +717,46 @@ mod tests {
             InboundRequestBody::Malformed {
                 subtype: Some(ref s)
             } if s == "can_use_tool"
+        ));
+    }
+
+    #[test]
+    fn keep_alive_frame_is_typed() {
+        // SDKKeepAliveMessage, sdk.d.ts:3927-3929.
+        let frame =
+            crate::agent::protocol::decode_inbound(r#"{"type":"keep_alive"}"#).expect("decode");
+        assert!(matches!(
+            frame,
+            crate::agent::protocol::InboundFrame::KeepAlive(_)
+        ));
+    }
+
+    #[test]
+    fn cancel_frame_is_typed() {
+        // SDKControlCancelRequest, sdk.d.ts:2979-2982.
+        let frame = crate::agent::protocol::decode_inbound(
+            r#"{"type":"control_cancel_request","request_id":"r1"}"#,
+        )
+        .expect("decode");
+        let crate::agent::protocol::InboundFrame::ControlCancelRequest(cancel) = frame else {
+            panic!("expected a cancel frame");
+        };
+        assert_eq!(cancel.request_id, "r1");
+    }
+
+    #[test]
+    fn message_frames_are_not_swallowed_by_the_new_variants() {
+        // Both new variants are `untagged` and listed before `Message`. A
+        // fieldless `KeepAlive` struct matches EVERY object on the wire, so
+        // without this assertion the two tests above pass while the caller's
+        // message stream goes silent.
+        let frame = crate::agent::protocol::decode_inbound(
+            r#"{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}"#,
+        )
+        .expect("decode");
+        assert!(matches!(
+            frame,
+            crate::agent::protocol::InboundFrame::Message(_)
         ));
     }
 

@@ -11,6 +11,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde::Serialize;
 
+use crate::agent::cancel::CancelSignal;
 use crate::agent::capabilities::HookEvent;
 use crate::agent::error::AgentError;
 
@@ -61,10 +62,14 @@ pub struct HookInput {
 pub trait Hook: Send + Sync {
     /// Handle the fired event and return the control payload.
     ///
+    /// `cancel` observes whether the binary withdrew the request while this
+    /// call is in flight; a hook may check it and bail out early, or ignore
+    /// it and run to completion.
+    ///
     /// # Errors
     /// Returns an [`AgentError`] if the hook fails; the runtime surfaces it to
     /// the binary as an error control response.
-    async fn call(&self, input: HookInput) -> Result<HookOutput, AgentError>;
+    async fn call(&self, input: HookInput, cancel: CancelSignal) -> Result<HookOutput, AgentError>;
 }
 
 /// One registered hook: its event, optional matcher, minted callback id, and
@@ -195,7 +200,11 @@ mod tests {
 
     #[async_trait::async_trait]
     impl Hook for NoopHook {
-        async fn call(&self, _input: HookInput) -> Result<HookOutput, AgentError> {
+        async fn call(
+            &self,
+            _input: HookInput,
+            _cancel: crate::agent::cancel::CancelSignal,
+        ) -> Result<HookOutput, AgentError> {
             Ok(HookOutput::default())
         }
     }

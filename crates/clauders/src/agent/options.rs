@@ -640,6 +640,7 @@ mod tests {
         async fn call(
             &self,
             _input: HookInput,
+            _cancel: crate::agent::cancel::CancelSignal,
         ) -> Result<HookOutput, crate::agent::error::AgentError> {
             Ok(HookOutput::default())
         }
@@ -654,6 +655,7 @@ mod tests {
             _tool: &str,
             _input: &serde_json::Value,
             _ctx: PermissionContext,
+            _cancel: crate::agent::cancel::CancelSignal,
         ) -> Result<PermissionDecision, crate::agent::error::AgentError> {
             Ok(PermissionDecision::allow())
         }
@@ -992,6 +994,7 @@ mod tests {
             async fn elicit(
                 &self,
                 _r: ElicitationRequest,
+                _cancel: crate::agent::cancel::CancelSignal,
             ) -> Result<ElicitationResponse, AgentError> {
                 Ok(ElicitationResponse::Decline)
             }

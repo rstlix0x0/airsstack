@@ -66,6 +66,7 @@ mod tests {
             async fn call(
                 &self,
                 _i: HookInput,
+                _cancel: crate::agent::cancel::CancelSignal,
             ) -> Result<HookOutput, crate::agent::error::AgentError> {
                 Ok(HookOutput::default())
             }

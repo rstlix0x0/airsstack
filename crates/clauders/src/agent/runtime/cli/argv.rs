@@ -279,6 +279,7 @@ mod tests {
                 _t: &str,
                 _i: &serde_json::Value,
                 _c: PermissionContext,
+                _cancel: crate::agent::cancel::CancelSignal,
             ) -> Result<PermissionDecision, AgentError> {
                 Ok(PermissionDecision::allow())
             }
@@ -530,6 +531,7 @@ mod tests {
                 _t: &str,
                 _i: &serde_json::Value,
                 _c: PermissionContext,
+                _cancel: crate::agent::cancel::CancelSignal,
             ) -> Result<PermissionDecision, AgentError> {
                 Ok(PermissionDecision::allow())
             }

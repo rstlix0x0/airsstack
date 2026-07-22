@@ -42,13 +42,6 @@ impl CancelSignal {
     }
 
     /// Requests cancellation, waking every clone's [`cancelled`](Self::cancelled) future.
-    #[cfg_attr(
-        not(test),
-        expect(
-            dead_code,
-            reason = "no caller outside this module's tests yet; the type ships now so the handler traits can reference it"
-        )
-    )]
     pub(crate) fn cancel(&self) {
         self.0.cancel();
     }

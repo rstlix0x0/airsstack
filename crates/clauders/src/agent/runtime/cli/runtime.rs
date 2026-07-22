@@ -425,8 +425,17 @@ async fn reader_loop(
             Ok(Some(text)) => match decode_inbound(&text) {
                 Ok(crate::agent::protocol::InboundFrame::ControlRequest(req)) => {
                     // Spawn so a slow handler never stalls the reader.
+                    let Some(cancel) = dispatcher.begin(&req.request_id) else {
+                        continue;
+                    };
                     let dispatcher = Arc::clone(&dispatcher);
-                    tokio::spawn(async move { dispatcher.handle(req).await });
+                    tokio::spawn(async move { dispatcher.handle(req, cancel).await });
+                }
+                Ok(crate::agent::protocol::InboundFrame::KeepAlive(_)) => {
+                    // Liveness only; the official SDK skips it too.
+                }
+                Ok(crate::agent::protocol::InboundFrame::ControlCancelRequest(frame)) => {
+                    dispatcher.cancel(&frame.request_id);
                 }
                 Ok(frame) => {
                     if let Some(caps) = capabilities_from_frame(&frame) {

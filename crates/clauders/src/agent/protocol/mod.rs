@@ -9,6 +9,7 @@ mod frames;
 
 pub use codec::{RequestId, RequestIdGen, decode_inbound, encode_line};
 pub use frames::{
-    ControlResponse, ControlResponseBody, InboundControlRequest, InboundFrame, InboundRequestBody,
-    OutboundControlRequest, OutboundControlResponse, OutboundRequestBody, OutboundResponseBody,
+    ControlCancelRequest, ControlResponse, ControlResponseBody, InboundControlRequest,
+    InboundFrame, InboundRequestBody, KeepAlive, OutboundControlRequest, OutboundControlResponse,
+    OutboundRequestBody, OutboundResponseBody,
 };
