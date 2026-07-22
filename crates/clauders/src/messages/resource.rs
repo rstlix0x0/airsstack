@@ -37,6 +37,36 @@ use super::response::Message;
 /// segment-resolution semantics documented on that method).
 const MESSAGES_PATH: &str = "v1/messages";
 
+/// Models for which `thinking.type = "enabled"` is deprecated in favour of
+/// `"adaptive"`. Matches the list both official SDKs carry.
+const MODELS_TO_WARN_WITH_THINKING_ENABLED: [&str; 2] =
+    ["claude-opus-4-6", "claude-mythos-preview"];
+
+/// Whether this request pairs a listed model with `thinking.type = "enabled"`.
+///
+/// Split from the emitter so the condition is unit-testable without
+/// capturing log output.
+fn should_warn_deprecated_thinking(req: &MessageRequest) -> bool {
+    MODELS_TO_WARN_WITH_THINKING_ENABLED.contains(&req.model.as_str())
+        && matches!(
+            req.thinking,
+            Some(crate::messages::thinking::ThinkingConfig::Enabled { .. })
+        )
+}
+
+/// Emit the deprecation warning when [`should_warn_deprecated_thinking`] holds.
+fn warn_if_deprecated_thinking(req: &MessageRequest) {
+    if should_warn_deprecated_thinking(req) {
+        tracing::warn!(
+            model = req.model.as_str(),
+            "Using Claude with this model and 'thinking.type=enabled' is deprecated. \
+             Use 'thinking.type=adaptive' instead which results in better model \
+             performance in our testing: \
+             https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking"
+        );
+    }
+}
+
 /// Short-lived handle for the Messages API, borrowing a `Client<T>`.
 ///
 /// Obtain via [`Client::messages`]; do not construct directly.
@@ -80,6 +110,7 @@ impl<T: HttpTransport> MessagesResource<'_, T> {
     /// - [`Error::InvalidRequest`] — the configured base URL cannot be joined
     ///   with the messages path, or the HTTP request cannot be constructed.
     pub async fn create(&self, req: MessageRequest) -> Result<Message, Error> {
+        warn_if_deprecated_thinking(&req);
         let raw = self.send_request(req).await?;
         self.decode_response(raw).await
     }
@@ -173,6 +204,7 @@ impl<T: HttpTransport> MessagesResource<'_, T> {
         &self,
         mut req: MessageRequest,
     ) -> Result<super::streaming::MessageStream, Error> {
+        warn_if_deprecated_thinking(&req);
         req.stream = true;
 
         let body = serde_json::to_vec(&req).map_err(|e| Error::Serde {
@@ -547,5 +579,64 @@ mod tests {
             Error::Api(e) => assert_eq!(e.status, StatusCode::BAD_REQUEST),
             other => panic!("expected Error::Api, got {other:?}"),
         }
+    }
+
+    // ── deprecated thinking warning ─────────────────────────────────────────
+
+    use super::should_warn_deprecated_thinking;
+    use crate::messages::thinking::ThinkingConfig;
+
+    // `ModelId::custom` is the fallible free-form constructor; the crate has
+    // no `ModelId::new`. The named constructors (`claude_sonnet_4_5` etc.)
+    // do not cover the two deprecated models this test needs.
+    fn req(model: &str, thinking: Option<ThinkingConfig>) -> MessageRequest {
+        let b = MessageRequest::builder()
+            .model(ModelId::custom(model).unwrap())
+            .max_tokens(MaxTokens::new(64).unwrap())
+            .add_user_text("Hi");
+        match thinking {
+            Some(t) => b.thinking(t).build(),
+            None => b.build(),
+        }
+    }
+
+    #[test]
+    fn warns_for_enabled_thinking_on_a_listed_model() {
+        assert!(should_warn_deprecated_thinking(&req(
+            "claude-opus-4-6",
+            Some(ThinkingConfig::enabled(1024))
+        )));
+        assert!(should_warn_deprecated_thinking(&req(
+            "claude-mythos-preview",
+            Some(ThinkingConfig::enabled(1024))
+        )));
+    }
+
+    #[test]
+    fn does_not_warn_for_adaptive_or_disabled_on_a_listed_model() {
+        assert!(!should_warn_deprecated_thinking(&req(
+            "claude-opus-4-6",
+            Some(ThinkingConfig::adaptive())
+        )));
+        assert!(!should_warn_deprecated_thinking(&req(
+            "claude-opus-4-6",
+            Some(ThinkingConfig::disabled())
+        )));
+    }
+
+    #[test]
+    fn does_not_warn_when_thinking_is_unset() {
+        assert!(!should_warn_deprecated_thinking(&req(
+            "claude-opus-4-6",
+            None
+        )));
+    }
+
+    #[test]
+    fn does_not_warn_for_an_unlisted_model() {
+        assert!(!should_warn_deprecated_thinking(&req(
+            "claude-sonnet-4-5",
+            Some(ThinkingConfig::enabled(1024))
+        )));
     }
 }
