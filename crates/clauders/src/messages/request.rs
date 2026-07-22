@@ -176,6 +176,9 @@ pub struct MessageRequest {
     /// Output-shape constraint applied to the response.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_config: Option<crate::messages::structured_outputs::OutputConfig>,
+    /// Extended-thinking configuration for this request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<crate::messages::thinking::ThinkingConfig>,
     /// Whether to stream the response. Managed by the resource layer;
     /// callers should not set this directly.
     #[doc(hidden)]
@@ -214,6 +217,7 @@ struct MessageRequestFields {
     tools: Vec<crate::messages::tools::Tool>,
     tool_choice: Option<crate::messages::tools::ToolChoice>,
     output_config: Option<crate::messages::structured_outputs::OutputConfig>,
+    thinking: Option<crate::messages::thinking::ThinkingConfig>,
 }
 
 impl MessageRequestFields {
@@ -231,6 +235,7 @@ impl MessageRequestFields {
             tools: Vec::new(),
             tool_choice: None,
             output_config: None,
+            thinking: None,
         }
     }
 }
@@ -387,6 +392,13 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
         self.fields.output_config = Some(c);
         self
     }
+
+    /// Set the extended-thinking configuration.
+    #[must_use]
+    pub const fn thinking(mut self, thinking: crate::messages::thinking::ThinkingConfig) -> Self {
+        self.fields.thinking = Some(thinking);
+        self
+    }
 }
 
 impl MessageRequestBuilder<Present, Present> {
@@ -430,6 +442,7 @@ impl MessageRequestBuilder<Present, Present> {
             tools: self.fields.tools,
             tool_choice: self.fields.tool_choice,
             output_config: self.fields.output_config,
+            thinking: self.fields.thinking,
             stream: false,
         }
     }
@@ -444,6 +457,7 @@ mod tests {
 
     use super::*;
     use crate::messages::content::{ContentBlock, TextBlock};
+    use crate::messages::thinking::{ThinkingConfig, ThinkingDisplay};
     use crate::types::{
         MaxTokens, ModelId, StopSequence, SystemPrompt, Temperature, TopK, TopP, UserId,
     };
@@ -616,6 +630,39 @@ mod tests {
             j["output_config"]["format"]["schema"], schema,
             "output_config schema must survive transitions unchanged"
         );
+    }
+
+    #[test]
+    fn thinking_is_absent_when_unset() {
+        let req = MessageRequest::builder()
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(MaxTokens::new(64).unwrap())
+            .add_user_text("Hi")
+            .build();
+
+        let j = serde_json::to_value(&req).unwrap();
+        assert!(
+            j.get("thinking").is_none(),
+            "thinking must be absent when never set"
+        );
+    }
+
+    #[test]
+    fn thinking_reaches_the_request_body() {
+        let req = MessageRequest::builder()
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(MaxTokens::new(4096).unwrap())
+            .thinking(ThinkingConfig::enabled_with_display(
+                1024,
+                ThinkingDisplay::Omitted,
+            ))
+            .add_user_text("Hi")
+            .build();
+
+        let j = serde_json::to_value(&req).unwrap();
+        assert_eq!(j["thinking"]["type"], "enabled");
+        assert_eq!(j["thinking"]["budget_tokens"], 1024);
+        assert_eq!(j["thinking"]["display"], "omitted");
     }
 
     #[test]
