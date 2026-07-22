@@ -799,6 +799,34 @@ mod tests {
     }
 
     #[test]
+    fn a_batched_request_carries_thinking() {
+        use crate::messages::BatchRequest;
+        use crate::types::CustomRequestId;
+
+        let batch = BatchRequest::builder()
+            .add(
+                CustomRequestId::new("r1").unwrap(),
+                MessageRequest::builder()
+                    .model(ModelId::claude_sonnet_4_5())
+                    .max_tokens(MaxTokens::new(4096).unwrap())
+                    .thinking(ThinkingConfig::adaptive_with_display(
+                        ThinkingDisplay::Omitted,
+                    ))
+                    .add_user_text("Hi")
+                    .build(),
+            )
+            .build();
+
+        let j = serde_json::to_value(&batch).unwrap();
+        let params = &j["requests"][0]["params"];
+        assert_eq!(
+            params["thinking"]["type"], "adaptive",
+            "thinking must reach the batch path through the wrapped MessageRequest"
+        );
+        assert_eq!(params["thinking"]["display"], "omitted");
+    }
+
+    #[test]
     fn message_content_blocks_serializes_as_json_array() {
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
