@@ -18,7 +18,7 @@ use clauders::types::ToolName;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_key = ApiKey::new(std::env::var("ANTHROPIC_API_KEY")?)?;
     let client = Client::builder()?.api_key(api_key).build()?;
-    let max_tokens = MaxTokens::new(1024)?;
+    let max_tokens = MaxTokens::new(1024);
     let tool_name = ToolName::new("get_weather")?;
 
     let tool = Tool {

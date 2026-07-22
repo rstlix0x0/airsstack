@@ -61,7 +61,7 @@ async fn stream_yields_full_event_sequence() {
 
     let req = clauders::messages::MessageRequest::builder()
         .model(ModelId::claude_sonnet_4_5())
-        .max_tokens(MaxTokens::new(64).unwrap())
+        .max_tokens(MaxTokens::new(64))
         .add_user_text("hi")
         .build();
 
@@ -129,7 +129,7 @@ async fn stream_collect_assembles_message() {
 
     let req = clauders::messages::MessageRequest::builder()
         .model(ModelId::claude_sonnet_4_5())
-        .max_tokens(MaxTokens::new(64).unwrap())
+        .max_tokens(MaxTokens::new(64))
         .add_user_text("hi")
         .build();
 
@@ -178,7 +178,7 @@ data: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\
 
     let req = clauders::messages::MessageRequest::builder()
         .model(ModelId::claude_sonnet_4_5())
-        .max_tokens(MaxTokens::new(8).unwrap())
+        .max_tokens(MaxTokens::new(8))
         .add_user_text("hi")
         .build();
 
@@ -277,7 +277,7 @@ async fn collect_sse(body: &'static str) -> Result<clauders::messages::Message, 
 
     let req = clauders::messages::MessageRequest::builder()
         .model(ModelId::claude_sonnet_4_5())
-        .max_tokens(MaxTokens::new(64).unwrap())
+        .max_tokens(MaxTokens::new(64))
         .add_user_text("hi")
         .build();
 

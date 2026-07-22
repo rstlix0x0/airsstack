@@ -94,7 +94,7 @@ async fn batches_round_trip() {
 
     let req_inner = clauders::messages::MessageRequest::builder()
         .model(ModelId::claude_sonnet_4_5())
-        .max_tokens(MaxTokens::new(8).unwrap())
+        .max_tokens(MaxTokens::new(8))
         .add_user_text("hi")
         .build();
 

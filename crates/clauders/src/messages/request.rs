@@ -135,7 +135,7 @@ pub struct Metadata {
 ///
 /// let req = MessageRequest::builder()
 ///     .model(ModelId::claude_sonnet_4_5())
-///     .max_tokens(MaxTokens::new(1024).unwrap())
+///     .max_tokens(MaxTokens::new(1024))
 ///     .add_user_text("Hello, Claude")
 ///     .build();
 ///
@@ -333,6 +333,18 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
     }
 
     /// Set the sampling temperature.
+    ///
+    /// # Deprecated
+    ///
+    /// Models released after Claude Opus 4.6 do not support setting
+    /// `temperature`. A value of `1.0` is accepted for backwards
+    /// compatibility; any other value is rejected with a 400. Prefer
+    /// `output_config.effort` to influence generation on current models.
+    #[deprecated(
+        note = "Models released after Claude Opus 4.6 do not support setting temperature; \
+                only 1.0 is accepted, any other value is rejected with a 400. \
+                Prefer output_config.effort."
+    )]
     #[must_use]
     pub const fn temperature(mut self, temperature: Temperature) -> Self {
         self.fields.temperature = Some(temperature);
@@ -340,6 +352,16 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
     }
 
     /// Set the top-p nucleus sampling probability.
+    ///
+    /// # Deprecated
+    ///
+    /// Models released after Claude Opus 4.6 do not support setting `top_p`.
+    /// A value `>= 0.99` is accepted for backwards compatibility; anything
+    /// lower is rejected with a 400.
+    #[deprecated(
+        note = "Models released after Claude Opus 4.6 do not support setting top_p; \
+                only values >= 0.99 are accepted, anything lower is rejected with a 400."
+    )]
     #[must_use]
     pub const fn top_p(mut self, top_p: TopP) -> Self {
         self.fields.top_p = Some(top_p);
@@ -347,6 +369,13 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
     }
 
     /// Set the top-k sampling parameter.
+    ///
+    /// # Deprecated
+    ///
+    /// Models released after Claude Opus 4.6 do not accept `top_k` at all;
+    /// any value is rejected with a 400.
+    #[deprecated(note = "Models released after Claude Opus 4.6 do not accept top_k; \
+                any value is rejected with a 400.")]
     #[must_use]
     pub const fn top_k(mut self, top_k: TopK) -> Self {
         self.fields.top_k = Some(top_k);
@@ -402,7 +431,7 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
     /// // output_config() last: it assigns both slots, so effort is cleared.
     /// let req = MessageRequest::builder()
     ///     .model(ModelId::claude_sonnet_4_5())
-    ///     .max_tokens(MaxTokens::new(64).unwrap())
+    ///     .max_tokens(MaxTokens::new(64))
     ///     .effort(EffortLevel::High)
     ///     .output_config(OutputConfig::json_schema(serde_json::json!({"type": "object"})))
     ///     .build();
@@ -412,7 +441,7 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
     /// // effort() last: it names only its own slot, so both survive.
     /// let req = MessageRequest::builder()
     ///     .model(ModelId::claude_sonnet_4_5())
-    ///     .max_tokens(MaxTokens::new(64).unwrap())
+    ///     .max_tokens(MaxTokens::new(64))
     ///     .output_config(OutputConfig::json_schema(serde_json::json!({"type": "object"})))
     ///     .effort(EffortLevel::High)
     ///     .build();
@@ -517,7 +546,7 @@ mod tests {
     fn builder_round_trips_minimal_request() {
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(1024).unwrap())
+            .max_tokens(MaxTokens::new(1024))
             .add_user_text("Hello, Claude")
             .build();
 
@@ -531,7 +560,7 @@ mod tests {
     fn serializes_minimal_request_correctly() {
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(1024).unwrap())
+            .max_tokens(MaxTokens::new(1024))
             .add_user_text("Hello, Claude")
             .build();
 
@@ -545,11 +574,15 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        deprecated,
+        reason = "pins the wire shape of parameters that are deprecated but still serialized"
+    )]
     fn serializes_fully_populated_request_with_all_optional_fields_present() {
         let user_id = UserId::new("user-42").unwrap();
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(512).unwrap())
+            .max_tokens(MaxTokens::new(512))
             .system(SystemPrompt::text("You are terse."))
             .temperature(Temperature::new(0.7).unwrap())
             .top_p(TopP::new(0.9).unwrap())
@@ -587,7 +620,7 @@ mod tests {
     fn serializes_minimal_request_omits_all_optional_fields() {
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
+            .max_tokens(MaxTokens::new(64))
             .add_user_text("Hi")
             .build();
 
@@ -610,7 +643,7 @@ mod tests {
         // This compiles only if the setter takes impl IntoIterator.
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
+            .max_tokens(MaxTokens::new(64))
             .stop_sequences([StopSequence::new("STOP").unwrap()])
             .add_user_text("Hi")
             .build();
@@ -626,7 +659,7 @@ mod tests {
         let schema = serde_json::json!({"type": "object"});
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
+            .max_tokens(MaxTokens::new(64))
             .output_config(OutputConfig::json_schema(schema.clone()))
             .add_user_text("Hi")
             .build();
@@ -646,7 +679,7 @@ mod tests {
     fn output_config_omitted_when_unset() {
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
+            .max_tokens(MaxTokens::new(64))
             .add_user_text("Hi")
             .build();
 
@@ -668,7 +701,7 @@ mod tests {
         let req = MessageRequest::builder()
             .output_config(OutputConfig::json_schema(schema.clone()))
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
+            .max_tokens(MaxTokens::new(64))
             .add_user_text("Hi")
             .build();
 
@@ -687,7 +720,7 @@ mod tests {
     fn effort_alone_produces_an_output_config() {
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
+            .max_tokens(MaxTokens::new(64))
             .effort(EffortLevel::High)
             .add_user_text("Hi")
             .build();
@@ -700,7 +733,7 @@ mod tests {
     fn output_config_is_absent_when_neither_slot_is_set() {
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
+            .max_tokens(MaxTokens::new(64))
             .add_user_text("Hi")
             .build();
 
@@ -715,7 +748,7 @@ mod tests {
     fn output_config_after_effort_assigns_both_slots_and_clears_effort() {
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
+            .max_tokens(MaxTokens::new(64))
             .effort(EffortLevel::High)
             .output_config(OutputConfig::json_schema(
                 serde_json::json!({"type": "object"}),
@@ -735,7 +768,7 @@ mod tests {
     fn effort_after_output_config_keeps_both() {
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
+            .max_tokens(MaxTokens::new(64))
             .output_config(OutputConfig::json_schema(
                 serde_json::json!({"type": "object"}),
             ))
@@ -752,7 +785,7 @@ mod tests {
     fn output_config_carrying_both_halves_survives_intact() {
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
+            .max_tokens(MaxTokens::new(64))
             .output_config(
                 OutputConfig::json_schema(serde_json::json!({"type": "object"}))
                     .with_effort(EffortLevel::Max),
@@ -769,7 +802,7 @@ mod tests {
     fn thinking_is_absent_when_unset() {
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
+            .max_tokens(MaxTokens::new(64))
             .add_user_text("Hi")
             .build();
 
@@ -784,7 +817,7 @@ mod tests {
     fn thinking_reaches_the_request_body() {
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(4096).unwrap())
+            .max_tokens(MaxTokens::new(4096))
             .thinking(ThinkingConfig::enabled_with_display(
                 1024,
                 ThinkingDisplay::Omitted,
@@ -808,7 +841,7 @@ mod tests {
                 CustomRequestId::new("r1").unwrap(),
                 MessageRequest::builder()
                     .model(ModelId::claude_sonnet_4_5())
-                    .max_tokens(MaxTokens::new(4096).unwrap())
+                    .max_tokens(MaxTokens::new(4096))
                     .thinking(ThinkingConfig::adaptive_with_display(
                         ThinkingDisplay::Omitted,
                     ))
@@ -830,7 +863,7 @@ mod tests {
     fn message_content_blocks_serializes_as_json_array() {
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
+            .max_tokens(MaxTokens::new(64))
             .add_message(
                 Role::User,
                 MessageContent::Blocks(vec![ContentBlock::Text(TextBlock::new("x"))]),

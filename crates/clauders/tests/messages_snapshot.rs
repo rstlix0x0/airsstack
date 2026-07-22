@@ -16,7 +16,7 @@ use clauders::types::{MaxTokens, ModelId, StopSequence, SystemPrompt, Temperatur
 fn snapshot_minimal_request() {
     let req = MessageRequest::builder()
         .model(ModelId::claude_sonnet_4_5())
-        .max_tokens(MaxTokens::new(64).unwrap())
+        .max_tokens(MaxTokens::new(64))
         .add_user_text("Hi")
         .build();
 
@@ -25,10 +25,14 @@ fn snapshot_minimal_request() {
 }
 
 #[test]
+#[expect(
+    deprecated,
+    reason = "the snapshot pins the full request wire shape, deprecated fields included"
+)]
 fn snapshot_request_with_optional_params() {
     let req = MessageRequest::builder()
         .model(ModelId::claude_sonnet_4_5())
-        .max_tokens(MaxTokens::new(256).unwrap())
+        .max_tokens(MaxTokens::new(256))
         .system(SystemPrompt::text("You are terse."))
         .temperature(Temperature::new(0.7).unwrap())
         .stop_sequences(vec![StopSequence::new("STOP").unwrap()])

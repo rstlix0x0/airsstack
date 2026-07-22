@@ -111,7 +111,7 @@ mod tests {
     fn count_tokens_body_includes_model_and_messages() {
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(256).unwrap())
+            .max_tokens(MaxTokens::new(256))
             .add_user_text("Hello")
             .build();
 
@@ -126,7 +126,7 @@ mod tests {
     fn count_tokens_body_omits_max_tokens() {
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(1024).unwrap())
+            .max_tokens(MaxTokens::new(1024))
             .add_user_text("Hello")
             .build();
 
@@ -140,10 +140,14 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        deprecated,
+        reason = "asserts a deprecated parameter is excluded from the count-tokens projection"
+    )]
     fn count_tokens_body_omits_temperature_and_stream() {
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
+            .max_tokens(MaxTokens::new(64))
             .temperature(Temperature::new(0.5).unwrap())
             .add_user_text("Hi")
             .build();
@@ -168,7 +172,7 @@ mod tests {
 
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
+            .max_tokens(MaxTokens::new(64))
             .system(SystemPrompt::text("You are terse."))
             .add_user_text("Hi")
             .build();
@@ -188,7 +192,7 @@ mod tests {
 
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(4096).unwrap())
+            .max_tokens(MaxTokens::new(4096))
             .thinking(ThinkingConfig::enabled(1024))
             .add_user_text("Hi")
             .build();
@@ -209,7 +213,7 @@ mod tests {
 
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
+            .max_tokens(MaxTokens::new(64))
             .effort(EffortLevel::High)
             .add_user_text("Hi")
             .build();
@@ -224,7 +228,7 @@ mod tests {
     fn count_tokens_body_omits_thinking_and_output_config_when_absent() {
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
+            .max_tokens(MaxTokens::new(64))
             .add_user_text("Hi")
             .build();
 
@@ -242,7 +246,7 @@ mod tests {
     fn count_tokens_body_omits_system_when_absent() {
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
+            .max_tokens(MaxTokens::new(64))
             .add_user_text("Hi")
             .build();
 

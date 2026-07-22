@@ -11,8 +11,7 @@ product from the Claude Agent SDK covered in [`../agent-sdk/feature-parity.md`](
 the base SDK is a stateless `POST /v1/messages` client; the Agent SDK drives the `claude` CLI.
 `clauders` targets both, in separate modules.
 
-**As of:** 2026-07-21 (WS A re-verification). The 2026-07-20 revision graded the decode path as
-defective; that work has since landed and been re-graded against the same pinned sources.
+**As of:** 2026-07-21 (WS B — the `thinking` / `effort` request surface).
 
 **Method — read this before trusting a row.** The previous revision of this document scored parity by
 comparing *type surfaces* against prose documentation. That method produced false ✅s: a row can have
@@ -62,7 +61,7 @@ Paths in the Python column are relative to `src/anthropic/`; TypeScript to `src/
 | System prompt (string + segments + per-segment cache) | ✅ parity |
 | **Streaming accumulation** | ✅ parity on all five modelled delta kinds — with 5 recorded divergences (§12 rows 3, 18-21) and 2 gaps owned elsewhere: `citations_delta` (row 14), `server_tool_use` input gating (row 8) |
 | **Forward compatibility (every server-decoded enum)** | ✅ parity — payload-carrying unknown arm on all ten; `pause_turn` no longer fails |
-| **`thinking` / `output_config.effort`** | ❌ behind — blocks all current models |
+| **`thinking` / `output_config.effort`** | ✅ parity — both request params delivered |
 | Response content-block taxonomy (12 official response members) | 🟡 4 of 12 |
 | Request content-block taxonomy (17 official param members) | 🟡 4 of 17 — no vision, no PDF |
 | Models API (`capabilities`, `max_input_tokens`, `max_tokens`) | ❌ behind — **was wrongly ✅ in the prior revision** |
@@ -73,9 +72,9 @@ Paths in the Python column are relative to `src/anthropic/`; TypeScript to `src/
 
 **One-line summary:** clauders is at genuine parity on the *non-streaming, text-and-custom-tools core*
 — create, count-tokens, batches, caching, structured output, system prompts — **and now on streaming
-accumulation and forward compatibility**, the two runtime defects the prior revision found. What
-remains is capability breadth, not correctness: it still cannot drive any current-generation model
-because the `thinking` surface is absent, and the content-block taxonomy is 4 of 12 / 4 of 17.
+accumulation and forward compatibility**, the two runtime defects the prior revision found. The
+`thinking` and `output_config.effort` request parameters are now delivered; what remains is
+content-block taxonomy breadth (4 of 12 / 4 of 17), not correctness.
 
 ---
 
@@ -90,9 +89,10 @@ because the `thinking` surface is absent, and the content-block taxonomy is 4 of
 | `GET /v1/models`, `GET /v1/models/{id}` | ✅ | ✅ | `models::ModelsResource::{list,get}` | ✅ endpoints / ❌ payload — see §9 |
 | Files API (`/v1/files`) | ✅ (beta) | ✅ (beta) | ❌ | ❌ |
 
-`count_tokens` is worth calling out as correct: `CountTokensBody` (token_counting.rs:48-62) projects
-only `model`/`messages`/`system`/`tools`/`tool_choice`, matching the endpoint's accepted subset. Both
-official SDKs do the same via a separate params type.
+`count_tokens` projects `model` / `messages` / `system` / `tools` / `tool_choice` / `thinking` /
+`output_config` (`token_counting.rs`), matching the endpoint's accepted set apart from
+`cache_control`, which needs the top-level caching type tracked as row 12. `thinking` in particular
+must be forwarded because it changes the resulting count.
 
 ---
 
@@ -104,7 +104,7 @@ The official GA (non-beta) parameter set, verified identical in both SDKs
 | Param | Python | TS | clauders | Status |
 |---|---|---|---|---|
 | `model` | ✅ | ✅ | `model: ModelId` (request.rs:147) | ✅ |
-| `max_tokens` | ✅ | ✅ | `max_tokens: MaxTokens` (request.rs:149) | 🟡 — rejects `0`; see below |
+| `max_tokens` | ✅ | ✅ | `max_tokens: MaxTokens` (request.rs:149) | ✅ — `0` accepted; see §2.3 |
 | `messages` | ✅ | ✅ | `messages: Vec<InputMessage>` (request.rs:151) | 🟡 — no `system` role; see §3 |
 | `system` | ✅ | ✅ | `system: Option<SystemPrompt>` (request.rs:154) | ✅ |
 | `stop_sequences` | ✅ | ✅ | (request.rs:166) | ✅ |
@@ -112,11 +112,11 @@ The official GA (non-beta) parameter set, verified identical in both SDKs
 | `stream` | ✅ | ✅ | hidden, resource-managed (request.rs:183) | ✅ |
 | `tools` / `tool_choice` | ✅ | ✅ | (request.rs:172-175) | ✅ for custom tools — see §6 |
 | `output_config.format` | ✅ | ✅ | `OutputConfig` (request.rs:178, structured_outputs.rs:43) | ✅ |
-| **`output_config.effort`** | ✅ `low\|medium\|high\|xhigh\|max` | ✅ same | ❌ | ❌ |
-| **`thinking`** | ✅ 3 variants | ✅ 3 variants | ❌ | ❌ |
-| `temperature` | ✅ *(`@deprecated` in TS)* | ✅ *(`@deprecated`)* | `Temperature` (request.rs:157) | ⚠️ — see below |
-| `top_p` | ✅ *(`@deprecated`)* | ✅ *(`@deprecated`)* | `TopP` (request.rs:160) | ⚠️ — see below |
-| `top_k` | ✅ *(`@deprecated`)* | ✅ *(`@deprecated`)* | `TopK` (request.rs:163) | ⚠️ — see below |
+| `output_config.effort` | ✅ `low\|medium\|high\|xhigh\|max` | ✅ same | `EffortLevel` (structured_outputs.rs:52) | ✅ |
+| `thinking` | ✅ 3 variants | ✅ 3 variants | `ThinkingConfig` (request.rs:181) | ✅ |
+| `temperature` | ✅ *(`@deprecated` in TS)* | ✅ *(`@deprecated`)* | `Temperature`, `#[deprecated]` (request.rs:157, 343) | ✅ — see §2.2 |
+| `top_p` | ✅ *(`@deprecated`)* | ✅ *(`@deprecated`)* | `TopP`, `#[deprecated]` (request.rs:160, 361) | ✅ — see §2.2 |
+| `top_k` | ✅ *(`@deprecated`)* | ✅ *(`@deprecated`)* | `TopK`, `#[deprecated]` (request.rs:163, 377) | ✅ — see §2.2 |
 | **`cache_control`** (top-level auto-place) | ✅ | ✅ | ❌ (per-block only) | ❌ |
 | **`service_tier`** (`auto` \| `standard_only`) | ✅ | ✅ | ❌ | ❌ |
 | **`inference_geo`** | ✅ | ✅ | ❌ | ❌ |
@@ -127,10 +127,14 @@ The official GA (non-beta) parameter set, verified identical in both SDKs
 Beta-gated params, absent from clauders, listed for completeness: `mcp_servers`, `context_management`,
 `fallbacks`, `fallback_credit_token`, `speed`, `diagnostics`, `output_config.task_budget`.
 
-### 2.1 ❌ The `thinking` / `effort` surface — still the top capability gap
+### 2.1 ✅ The `thinking` / `effort` surface — delivered
 
-`MessageRequest` has no `thinking` field. On every current-generation model (Fable 5, Mythos 5,
-Opus 4.8/4.7, Sonnet 5) this means adaptive thinking cannot be enabled and `effort` cannot be set.
+`MessageRequest` carries a `thinking: Option<ThinkingConfig>` field (request.rs:181), set through the
+builder's `.thinking(ThinkingConfig)` method (request.rs:469). `output_config.effort` is set through
+`.effort(EffortLevel)` (request.rs:462) or through `.output_config(OutputConfig)` (request.rs:452),
+sharing the `EffortLevel` type with the Agent SDK pillar. Adaptive thinking can now be configured or
+disabled, and `effort` can be set, on every current-generation model. `count_tokens` forwards both
+parameters as well (§12 row 5).
 
 Official shape, identical in both SDKs (`types/thinking_config_param.py`, `messages.ts:1826`):
 
@@ -140,26 +144,29 @@ Official shape, identical in both SDKs (`types/thinking_config_param.py`, `messa
 | `{"type": "disabled"}` | `type` only — **no** `display` |
 | `{"type": "enabled"}` | required `budget_tokens` (≥1024, `< max_tokens`); optional `display` |
 
-`display` defaults to `omitted` on Fable 5 / Mythos 5 / Opus 4.8 / 4.7 / Sonnet 5, so a caller that
-wants visible reasoning must set it explicitly.
+`display` defaults to `summarized` on every model — the default is not model-dependent. Both SDK
+docstrings (`types/thinking_config_enabled_param.py`, `messages.ts:1774-1812`) and the REST
+reference state this. A caller who wants thinking redacted must set `omitted` explicitly.
 
-### 2.2 ⚠️ Sampling params are exposed without the rejection semantics
+### 2.2 ✅ Sampling params now carry the rejection semantics
 
-`temperature` / `top_p` / `top_k` are first-class builder methods (request.rs:330-347) documented only
-as "valid range 0.0..=1.0". The TypeScript SDK marks all three `@deprecated` **with the failure mode in
-the annotation** (`messages.ts:3055` block): post-Opus-4.6 models accept only `temperature == 1.0`,
-only `top_p >= 0.99`, and reject any `top_k` with a 400.
+`temperature` / `top_p` / `top_k` are first-class builder methods (request.rs:349, 366, 380) that now
+carry `#[deprecated(note = …)]` (request.rs:343, 361, 377) stating the exact failure mode: post-Opus-4.6
+models accept only `temperature == 1.0`, only `top_p >= 0.99`, and reject any `top_k` with a 400. This
+matches the TypeScript SDK's own `@deprecated` annotation (`messages.ts:3055` block), which documents
+the same failure mode.
 
-clauders carries the newtype validators (`Temperature::new` rejects `>1.0`, numeric.rs:77-82) but no
-signal that setting these at all breaks current models. Combined with §2.1, the builder's documented
-happy path produces a 400.
+clauders still carries the newtype validators (`Temperature::new` rejects out-of-range or NaN input,
+numeric.rs:73-77) for the values these setters still accept. The rejection semantics are now signalled
+at the call site: a caller who uses any of the three sees a compiler `deprecated` warning quoting the
+failure mode, not just a docs-only note.
 
-### 2.3 ⚠️ `max_tokens: 0` is rejected
+### 2.3 ✅ `max_tokens: 0` is accepted
 
-`MaxTokens::new(0)` returns `Err(InvalidMaxTokens)` (numeric.rs:35-40). Official TS documents
-`max_tokens` as *"set to `0` to pre-warm prompt cache without generating"* (`messages.ts:3055`), and
-the prompt-caching guide uses `max_tokens: 0` as the canonical cache pre-warm call. clauders makes
-that call unrepresentable.
+`MaxTokens::new` is infallible (`pub const fn new(n: u32) -> Self`, numeric.rs:34-36); `InvalidMaxTokens`
+has been deleted from the crate. Official TS documents `max_tokens` as *"set to `0` to pre-warm prompt
+cache without generating"* (`messages.ts:3055`), and the prompt-caching guide uses `max_tokens: 0` as
+the canonical cache pre-warm call. clauders now serializes that call onto the wire like any other value.
 
 ---
 
@@ -592,8 +599,8 @@ The official `ToolUnion` is 19 members (`messages.ts:2277`), versioned by date s
 | Top-level `cache_control` (auto-place on last cacheable block) | ✅ | ✅ | ❌ | ❌ |
 
 Explicit per-block caching is at genuine parity, including both TTL tiers and the tier-split accounting.
-Only the top-level convenience form is missing — and note §2.3: the documented cache **pre-warm** call
-(`max_tokens: 0`) is currently unrepresentable, which makes this gap larger in practice than it looks.
+Only the top-level convenience form is missing. The documented cache **pre-warm** call (`max_tokens: 0`)
+is representable (§2.3), so this row's remaining gap is exactly the auto-place convenience, no more.
 
 ---
 
@@ -773,8 +780,8 @@ Python and TypeScript blind-append and ignore `index`. See §4.3 — it is grade
 
 | # | Item | Class | Why here |
 |---|---|---|---|
-| 5 | `thinking` (3 variants + `display`) and `output_config.effort` (§2.1) | ❌ capability | Cannot correctly drive any current-generation model. |
-| 6 | Guard/deprecate `temperature`/`top_p`/`top_k`; allow `max_tokens: 0` (§2.2, §2.3) | ⚠️ ergonomics | The documented happy path 400s; cache pre-warm is unrepresentable. Cheap to fix alongside #5. |
+| 5 | `thinking` (3 variants + `display`) and `output_config.effort` (§2.1) | ✅ **delivered** | Both request parameters now exist, with `EffortLevel` shared between the two pillars. The prior framing — "cannot correctly drive any current-generation model" — was **overstated**: adaptive thinking is on by default and omitting `thinking` never produced a 400. The real gap, now closed, was the inability to *control* display, budget, and effort, or to disable thinking. `count_tokens` forwards both parameters. |
+| 6 | Guard/deprecate `temperature`/`top_p`/`top_k`; allow `max_tokens: 0` (§2.2, §2.3) | ✅ **delivered** | All three setters carry `#[deprecated]` with the failure mode, so the warning reaches the call site rather than only the docs. `MaxTokens::new` is now infallible and `InvalidMaxTokens` is deleted — with `0` legal there is no invalid `u32`, so the cache pre-warm call is representable. |
 
 ### Structural
 
@@ -795,6 +802,7 @@ Python and TypeScript blind-append and ignore `index`. See §4.3 — it is grade
 | 14 | `citations_delta` + `TextBlock.citations` (§3.1, §4.1) | ❌ capability | Pairs with the citations feature as a whole. |
 | 15 | `eager_input_streaming` (GA fine-grained tool streaming); `ToolUseBlock.caller` (§6) | ❌ capability | Both are GA on the custom-tool path clauders already claims parity on. |
 | 16 | `Role::System` mid-conversation messages (§3.4); refreshed `ModelId` constructors (§11) | ❌ small | Low effort, low risk. |
+| 22 | Client-side `DEPRECATED_MODELS` end-of-life warning on `create`/`stream` (§2) | ❌ capability | Both SDKs warn when the requested model is in their end-of-life table (`messages.py:1035`, `messages.ts:72-77`). clauders now carries the sibling `thinking.type=enabled` warning but not this one, which needs a maintained model→date table. |
 
 ### Deferred — large independent surfaces
 
@@ -829,12 +837,12 @@ parity rows; re-derive it rather than trusting it after any §12 revision.
 | WS | §12 rows | Primary files | Depends on |
 |---|---|---|---|
 | ~~**A — decode-path correctness**~~ ✅ **DONE 2026-07-21** | 1, 2, 3, 4 | `messages/accumulator.rs` (new), `messages/streaming.rs`, `messages/content.rs`, `messages/response.rs`, plus one-line arms in `messages/batches/types.rs`, `models/types.rs`, `error.rs` | — |
-| **B — current-model request surface** | 5, 6 | `messages/request.rs`, `messages/structured_outputs.rs`, `types/numeric.rs` | — |
+| ~~**B — current-model request surface**~~ ✅ **DONE 2026-07-21** | 5, 6 | `messages/request.rs`, `messages/structured_outputs.rs`, `types/numeric.rs` | — |
 | **C — response diagnostics & discovery** | 10, 11, 12, 13, 16 | `messages/response.rs`, `models/types.rs`, `messages/request.rs` | — |
 | **D — content-block taxonomy** | 7, 8, 9, 14, 15 | `messages/content.rs`, `messages/tools.rs` | **A** |
 
-**A is delivered, so D is unblocked.** `ContentBlock::Unknown` exists, which is exactly the arm that
-turns D from blocking work into progressive work. Recommended order for what remains: **B → C → D**.
+**A and B are delivered, so D is unblocked.** `ContentBlock::Unknown` exists, which is exactly the arm
+that turns D from blocking work into progressive work. Recommended order for what remains: **C → D**.
 
 **The one hard dependency is A → D.** Row 2 adds an unknown-variant arm to `ContentBlock`; that arm is
 what turns D from blocking work into progressive work, because unknown blocks stop being fatal and the
@@ -851,8 +859,9 @@ alongside it, so C is additive over A and the two do not conflict. B and C both 
 in disjoint fields (`thinking`/`output_config` vs `service_tier`/`inference_geo`/`container`/`cache_control`).
 
 Recommended order: **A → B → C → D.** A first because it is the only tier that corrupts data silently
-and because it unblocks D; B second because until it lands the crate cannot drive any current-generation
-model; C and D are additive from there.
+and because it unblocks D; B second because, until it landed, the crate could not correctly *drive* a
+current-generation model's thinking/effort surface; C and D are additive from there. A and B are both
+delivered, so what remains is C → D.
 
 ---
 

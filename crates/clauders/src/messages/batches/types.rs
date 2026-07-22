@@ -34,7 +34,7 @@ use crate::types::{BatchId, CustomRequestId};
 ///         CustomRequestId::new("r1").unwrap(),
 ///         MessageRequest::builder()
 ///             .model(ModelId::claude_sonnet_4_5())
-///             .max_tokens(MaxTokens::new(16).unwrap())
+///             .max_tokens(MaxTokens::new(16))
 ///             .add_user_text("hello")
 ///             .build(),
 ///     )
@@ -256,7 +256,7 @@ mod tests {
         use crate::types::{MaxTokens, ModelId};
         MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(8).unwrap())
+            .max_tokens(MaxTokens::new(8))
             .add_user_text("hi")
             .build()
     }

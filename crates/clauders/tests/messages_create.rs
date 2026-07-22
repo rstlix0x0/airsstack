@@ -47,7 +47,7 @@ async fn create_happy_path() {
 
     let req = clauders::messages::MessageRequest::builder()
         .model(ModelId::claude_sonnet_4_5())
-        .max_tokens(MaxTokens::new(64).unwrap())
+        .max_tokens(MaxTokens::new(64))
         .add_user_text("Hi")
         .build();
 
@@ -86,7 +86,7 @@ async fn create_decodes_429_as_retryable_api_error() {
 
     let req = clauders::messages::MessageRequest::builder()
         .model(ModelId::claude_sonnet_4_5())
-        .max_tokens(MaxTokens::new(64).unwrap())
+        .max_tokens(MaxTokens::new(64))
         .add_user_text("Hi")
         .build();
 

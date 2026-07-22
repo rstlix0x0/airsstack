@@ -30,8 +30,7 @@ pub use ids::{
 };
 pub use model_id::{InvalidModelId, ModelId};
 pub use numeric::{
-    InvalidMaxTokens, InvalidTemperature, InvalidTopK, InvalidTopP, MaxTokens, Temperature, TopK,
-    TopP,
+    InvalidTemperature, InvalidTopK, InvalidTopP, MaxTokens, Temperature, TopK, TopP,
 };
 pub use system::{SystemPrompt, SystemSegment, SystemSegmentKind};
 pub use version::{AnthropicVersion, BetaHeader, InvalidAnthropicVersion, InvalidBetaHeader};

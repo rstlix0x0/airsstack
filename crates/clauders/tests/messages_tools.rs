@@ -74,7 +74,7 @@ async fn tool_round_trip() {
 
     let req1 = MessageRequest::builder()
         .model(ModelId::claude_sonnet_4_5())
-        .max_tokens(MaxTokens::new(256).unwrap())
+        .max_tokens(MaxTokens::new(256))
         .tools([tool])
         .tool_choice(ToolChoice::Auto)
         .add_user_text("What is the weather in Paris?")
@@ -99,7 +99,7 @@ async fn tool_round_trip() {
 
     let req2 = MessageRequest::builder()
         .model(ModelId::claude_sonnet_4_5())
-        .max_tokens(MaxTokens::new(256).unwrap())
+        .max_tokens(MaxTokens::new(256))
         .add_user_text("What is the weather in Paris?")
         .add_assistant_text("(tool call) get_weather")
         .add_message(

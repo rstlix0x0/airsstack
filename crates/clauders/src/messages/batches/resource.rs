@@ -54,7 +54,7 @@ const BATCHES_PATH: &str = "v1/messages/batches";
 ///         CustomRequestId::new("r1").unwrap(),
 ///         MessageRequest::builder()
 ///             .model(ModelId::claude_sonnet_4_5())
-///             .max_tokens(MaxTokens::new(16).unwrap())
+///             .max_tokens(MaxTokens::new(16))
 ///             .add_user_text("hi")
 ///             .build(),
 ///     )
@@ -322,7 +322,7 @@ mod tests {
     fn minimal_request() -> MessageRequest {
         MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(8).unwrap())
+            .max_tokens(MaxTokens::new(8))
             .add_user_text("hi")
             .build()
     }

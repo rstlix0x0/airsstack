@@ -561,23 +561,14 @@ impl OptionsBuilder {
     }
 
     /// Finalize into an [`Options`].
-    ///
-    /// # Panics
-    ///
-    /// Never panics in practice: the fallback `max_tokens` default is built
-    /// from a non-zero constant, so [`MaxTokens::new`] cannot fail there.
     #[must_use]
     pub fn build(self) -> Options {
         Options {
             system_prompt: self.system_prompt,
             model: self.model,
-            max_tokens: self.max_tokens.unwrap_or_else(|| {
-                #[expect(
-                    clippy::expect_used,
-                    reason = "DEFAULT_MAX_TOKENS is a non-zero constant; construction is infallible"
-                )]
-                MaxTokens::new(DEFAULT_MAX_TOKENS).expect("DEFAULT_MAX_TOKENS is non-zero")
-            }),
+            max_tokens: self
+                .max_tokens
+                .unwrap_or_else(|| MaxTokens::new(DEFAULT_MAX_TOKENS)),
             permission_mode: self.permission_mode,
             allowed_tools: self.allowed_tools,
             disallowed_tools: self.disallowed_tools,
@@ -687,7 +678,7 @@ mod tests {
     #[test]
     fn builder_overrides_max_tokens() {
         let opts = Options::builder()
-            .max_tokens(crate::types::MaxTokens::new(512).expect("non-zero"))
+            .max_tokens(crate::types::MaxTokens::new(512))
             .build();
         assert_eq!(opts.max_tokens.get(), 512);
     }

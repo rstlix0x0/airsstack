@@ -83,7 +83,7 @@ fn warn_if_deprecated_thinking(req: &MessageRequest) {
 ///     .build()?;
 /// let req = MessageRequest::builder()
 ///     .model(ModelId::claude_sonnet_4_5())
-///     .max_tokens(MaxTokens::new(1024).unwrap())
+///     .max_tokens(MaxTokens::new(1024))
 ///     .add_user_text("Hello!")
 ///     .build();
 /// let msg = client.messages().create(req).await?;
@@ -451,7 +451,7 @@ mod tests {
     fn minimal_request() -> MessageRequest {
         MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
+            .max_tokens(MaxTokens::new(64))
             .add_user_text("hello")
             .build()
     }
@@ -514,7 +514,7 @@ mod tests {
 
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
+            .max_tokens(MaxTokens::new(64))
             .add_message(
                 Role::User,
                 MessageContent::Blocks(vec![ContentBlock::Unknown(serde_json::json!({
@@ -592,7 +592,7 @@ mod tests {
     fn req(model: &str, thinking: Option<ThinkingConfig>) -> MessageRequest {
         let b = MessageRequest::builder()
             .model(ModelId::custom(model).unwrap())
-            .max_tokens(MaxTokens::new(64).unwrap())
+            .max_tokens(MaxTokens::new(64))
             .add_user_text("Hi");
         match thinking {
             Some(t) => b.thinking(t).build(),

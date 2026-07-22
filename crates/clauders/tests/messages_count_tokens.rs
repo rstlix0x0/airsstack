@@ -36,7 +36,7 @@ async fn count_tokens_returns_input_token_count() {
 
     let req = MessageRequest::builder()
         .model(ModelId::claude_sonnet_4_5())
-        .max_tokens(MaxTokens::new(8).unwrap())
+        .max_tokens(MaxTokens::new(8))
         .add_user_text("hello")
         .build();
 
@@ -70,7 +70,7 @@ async fn count_tokens_body_omits_max_tokens() {
 
     let req = MessageRequest::builder()
         .model(ModelId::claude_sonnet_4_5())
-        .max_tokens(MaxTokens::new(512).unwrap())
+        .max_tokens(MaxTokens::new(512))
         .add_user_text("count me")
         .build();
 
