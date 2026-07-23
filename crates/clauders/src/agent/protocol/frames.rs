@@ -314,6 +314,99 @@ pub enum OutboundRequestBody {
     },
     /// Query MCP server status.
     McpStatus,
+    /// Toggle an MCP server on or off.
+    #[serde(rename = "mcp_toggle")]
+    ToggleMcpServer {
+        /// Target server's name.
+        #[serde(rename = "serverName")]
+        server_name: String,
+        /// Desired enabled state.
+        enabled: bool,
+    },
+    /// Reconnect an MCP server.
+    #[serde(rename = "mcp_reconnect")]
+    ReconnectMcpServer {
+        /// Target server's name.
+        #[serde(rename = "serverName")]
+        server_name: String,
+    },
+    /// Replace the MCP server set. `servers` is opaque config, passed through.
+    #[serde(rename = "mcp_set_servers")]
+    SetMcpServers {
+        /// Opaque server-set configuration.
+        servers: serde_json::Value,
+    },
+    /// Override an MCP server's permission mode.
+    SetMcpPermissionModeOverride {
+        /// Target server's name.
+        #[serde(rename = "serverName")]
+        server_name: String,
+        /// New permission mode (wire string).
+        mode: String,
+    },
+    /// Stop a running task.
+    StopTask {
+        /// Id of the task to stop.
+        task_id: String,
+    },
+    /// Move tool calls to the background.
+    BackgroundTasks {
+        /// The tool-use id to background, when targeting one specifically.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tool_use_id: Option<String>,
+    },
+    /// Rewind files to a prior message.
+    RewindFiles {
+        /// The user message to rewind file state to.
+        user_message_id: String,
+        /// Preview the rewind without applying it.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        dry_run: Option<bool>,
+    },
+    /// Read a workspace file through the binary.
+    ReadFile {
+        /// Path to read.
+        path: String,
+        /// Cap on bytes read.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_bytes: Option<u64>,
+        /// Requested text encoding.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        encoding: Option<String>,
+    },
+    /// Seed a file's read state.
+    SeedReadState {
+        /// Path whose read state is being seeded.
+        path: String,
+        /// Opaque mtime marker.
+        mtime: serde_json::Value,
+    },
+    /// Report context-window usage.
+    GetContextUsage,
+    /// Report token/cost usage.
+    GetUsage,
+    /// Reload plugins.
+    ReloadPlugins,
+    /// Reload skills.
+    ReloadSkills,
+    /// Apply flag settings. `settings` is opaque, passed through.
+    ApplyFlagSettings {
+        /// Opaque flag settings payload.
+        settings: serde_json::Value,
+    },
+    /// Set the max thinking-token budget.
+    SetMaxThinkingTokens {
+        /// New thinking-token budget.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_thinking_tokens: Option<u64>,
+        /// Opaque thinking-display setting.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        thinking_display: Option<serde_json::Value>,
+    },
+    /// Re-run the `initialize` handshake over the live transport. Carries the
+    /// pre-built initialize request body (see handshake's shared body
+    /// builder).
+    Initialize(serde_json::Value),
 }
 
 /// An outbound `control_response` answering an inbound control request.
@@ -758,6 +851,62 @@ mod tests {
             frame,
             crate::agent::protocol::InboundFrame::Message(_)
         ));
+    }
+
+    #[test]
+    fn serializes_new_control_subtypes_with_wire_field_names() {
+        use super::OutboundRequestBody as B;
+        let cases = [
+            (
+                serde_json::to_value(B::ToggleMcpServer {
+                    server_name: "s".into(),
+                    enabled: true,
+                })
+                .expect("serialize"),
+                serde_json::json!({"subtype":"mcp_toggle","serverName":"s","enabled":true}),
+            ),
+            (
+                serde_json::to_value(B::ReconnectMcpServer {
+                    server_name: "s".into(),
+                })
+                .expect("serialize"),
+                serde_json::json!({"subtype":"mcp_reconnect","serverName":"s"}),
+            ),
+            (
+                serde_json::to_value(B::StopTask {
+                    task_id: "t".into(),
+                })
+                .expect("serialize"),
+                serde_json::json!({"subtype":"stop_task","task_id":"t"}),
+            ),
+            (
+                serde_json::to_value(B::ReadFile {
+                    path: "/p".into(),
+                    max_bytes: Some(10),
+                    encoding: None,
+                })
+                .expect("serialize"),
+                serde_json::json!({"subtype":"read_file","path":"/p","max_bytes":10}),
+            ),
+            (
+                serde_json::to_value(B::SetMaxThinkingTokens {
+                    max_thinking_tokens: Some(1),
+                    thinking_display: None,
+                })
+                .expect("serialize"),
+                serde_json::json!({"subtype":"set_max_thinking_tokens","max_thinking_tokens":1}),
+            ),
+            (
+                serde_json::to_value(B::SetMcpServers {
+                    servers: serde_json::json!({"s":{}}),
+                })
+                .expect("serialize"),
+                serde_json::json!({"subtype":"mcp_set_servers","servers":{"s":{}}}),
+            ),
+        ];
+        for (got, want) in cases {
+            assert_eq!(got, want);
+        }
     }
 
     #[test]
