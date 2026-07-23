@@ -17,7 +17,11 @@ use crate::agent::permissions::PermissionMode;
 use crate::agent::runtime::Runtime;
 use crate::agent::runtime::cli::CliRuntime;
 use crate::agent::stream::MessageStream;
-use crate::agent::types::{McpStatus, Prompt};
+use crate::agent::types::{
+    BackgroundTasksResult, ContextUsage, McpStatus, Prompt, ReadFileResult, ReloadPluginsResult,
+    ReloadSkillsResult, RewindFilesResult, SetMcpPermissionModeResult, SetMcpServersResult,
+    UsageReport,
+};
 use crate::types::ModelId;
 
 /// A stateful agent session over a [`Runtime`].
@@ -75,6 +79,161 @@ impl<R: Runtime> Client<R> {
     /// cannot be decoded.
     pub async fn mcp_status(&self) -> Result<McpStatus, AgentError> {
         self.runtime.mcp_status().await
+    }
+
+    /// Reconnect an MCP server mid-session.
+    ///
+    /// # Errors
+    /// Returns an [`AgentError`] if the control request fails.
+    pub async fn reconnect_mcp_server(&self, server_name: &str) -> Result<(), AgentError> {
+        self.runtime.reconnect_mcp_server(server_name).await
+    }
+
+    /// Read a workspace file through the backend.
+    ///
+    /// # Errors
+    /// Returns an [`AgentError`] if the control request fails or its response cannot be decoded.
+    pub async fn read_file(
+        &self,
+        path: &str,
+        max_bytes: Option<u64>,
+        encoding: Option<String>,
+    ) -> Result<ReadFileResult, AgentError> {
+        self.runtime.read_file(path, max_bytes, encoding).await
+    }
+
+    /// Toggle an MCP server on or off mid-session.
+    ///
+    /// # Errors
+    /// Returns an [`AgentError`] if the control request fails.
+    pub async fn toggle_mcp_server(
+        &self,
+        server_name: &str,
+        enabled: bool,
+    ) -> Result<(), AgentError> {
+        self.runtime.toggle_mcp_server(server_name, enabled).await
+    }
+
+    /// Replace the MCP server set mid-session.
+    ///
+    /// # Errors
+    /// Returns an [`AgentError`] if the control request fails or its response cannot be decoded.
+    pub async fn set_mcp_servers(
+        &self,
+        servers: serde_json::Value,
+    ) -> Result<SetMcpServersResult, AgentError> {
+        self.runtime.set_mcp_servers(servers).await
+    }
+
+    /// Override an MCP server's permission mode mid-session.
+    ///
+    /// # Errors
+    /// Returns an [`AgentError`] if the control request fails or its response cannot be decoded.
+    pub async fn set_mcp_permission_mode_override(
+        &self,
+        server_name: &str,
+        mode: &str,
+    ) -> Result<SetMcpPermissionModeResult, AgentError> {
+        self.runtime
+            .set_mcp_permission_mode_override(server_name, mode)
+            .await
+    }
+
+    /// Stop a running task mid-session.
+    ///
+    /// # Errors
+    /// Returns an [`AgentError`] if the control request fails.
+    pub async fn stop_task(&self, task_id: &str) -> Result<(), AgentError> {
+        self.runtime.stop_task(task_id).await
+    }
+
+    /// Move tool calls to the background.
+    ///
+    /// # Errors
+    /// Returns an [`AgentError`] if the control request fails or its response cannot be decoded.
+    pub async fn background_tasks(
+        &self,
+        tool_use_id: Option<String>,
+    ) -> Result<BackgroundTasksResult, AgentError> {
+        self.runtime.background_tasks(tool_use_id).await
+    }
+
+    /// Rewind workspace file state to a prior user message.
+    ///
+    /// # Errors
+    /// Returns an [`AgentError`] if the control request fails or its response cannot be decoded.
+    pub async fn rewind_files(
+        &self,
+        user_message_id: &str,
+        dry_run: Option<bool>,
+    ) -> Result<RewindFilesResult, AgentError> {
+        self.runtime.rewind_files(user_message_id, dry_run).await
+    }
+
+    /// Seed a file's read state, so a later edit is not rejected as unread.
+    ///
+    /// # Errors
+    /// Returns an [`AgentError`] if the control request fails.
+    pub async fn seed_read_state(
+        &self,
+        path: &str,
+        mtime: serde_json::Value,
+    ) -> Result<(), AgentError> {
+        self.runtime.seed_read_state(path, mtime).await
+    }
+
+    /// Report a breakdown of current context-window usage.
+    ///
+    /// # Errors
+    /// Returns an [`AgentError`] if the control request fails or its response cannot be decoded.
+    pub async fn get_context_usage(&self) -> Result<ContextUsage, AgentError> {
+        self.runtime.get_context_usage().await
+    }
+
+    /// Report session cost/token usage.
+    ///
+    /// # Errors
+    /// Returns an [`AgentError`] if the control request fails or its response cannot be decoded.
+    pub async fn get_usage(&self) -> Result<UsageReport, AgentError> {
+        self.runtime.get_usage().await
+    }
+
+    /// Reload plugins mid-session.
+    ///
+    /// # Errors
+    /// Returns an [`AgentError`] if the control request fails or its response cannot be decoded.
+    pub async fn reload_plugins(&self) -> Result<ReloadPluginsResult, AgentError> {
+        self.runtime.reload_plugins().await
+    }
+
+    /// Reload skills mid-session.
+    ///
+    /// # Errors
+    /// Returns an [`AgentError`] if the control request fails or its response cannot be decoded.
+    pub async fn reload_skills(&self) -> Result<ReloadSkillsResult, AgentError> {
+        self.runtime.reload_skills().await
+    }
+
+    /// Apply flag settings mid-session.
+    ///
+    /// # Errors
+    /// Returns an [`AgentError`] if the control request fails.
+    pub async fn apply_flag_settings(&self, settings: serde_json::Value) -> Result<(), AgentError> {
+        self.runtime.apply_flag_settings(settings).await
+    }
+
+    /// Set the max thinking-token budget mid-session.
+    ///
+    /// # Errors
+    /// Returns an [`AgentError`] if the control request fails.
+    pub async fn set_max_thinking_tokens(
+        &self,
+        max_thinking_tokens: Option<u64>,
+        thinking_display: Option<serde_json::Value>,
+    ) -> Result<(), AgentError> {
+        self.runtime
+            .set_max_thinking_tokens(max_thinking_tokens, thinking_display)
+            .await
     }
 
     /// The capabilities the backend advertised.
@@ -185,7 +344,7 @@ mod tests {
     use crate::agent::message::{Message, ResultMessage, ResultSubtype};
     use crate::agent::permissions::PermissionMode;
     use crate::agent::runtime::mock::{ControlCall, MockRuntime};
-    use crate::agent::types::SessionId;
+    use crate::agent::types::{ReadFileResult, SessionId};
     use crate::types::ModelId;
     use futures_util::StreamExt;
 
@@ -230,5 +389,89 @@ mod tests {
         assert_eq!(calls.len(), 4);
         assert!(matches!(calls[0], ControlCall::Interrupt));
         assert!(matches!(calls[3], ControlCall::McpStatus));
+    }
+
+    #[tokio::test]
+    async fn reconnect_and_read_file_delegate_to_runtime() {
+        let client = Client::with_runtime(MockRuntime::new(vec![]));
+        client.reconnect_mcp_server("srv").await.expect("reconnect");
+        let file = client
+            .read_file("/tmp/x", None, None)
+            .await
+            .expect("read_file");
+        assert_eq!(
+            file,
+            ReadFileResult {
+                contents: String::new(),
+                abs_path: String::new(),
+                truncated: None,
+                encoding: None
+            }
+        ); // mock default
+        let calls = client.runtime().calls();
+        assert!(matches!(calls[0], ControlCall::ReconnectMcpServer(ref s) if s == "srv"));
+        assert!(matches!(calls[1], ControlCall::ReadFile { .. }));
+    }
+
+    #[tokio::test]
+    async fn live_mcp_ops_delegate_to_runtime() {
+        let client = Client::with_runtime(MockRuntime::new(vec![]));
+        client.toggle_mcp_server("s", false).await.expect("toggle");
+        client
+            .set_mcp_servers(serde_json::json!({"s":{}}))
+            .await
+            .expect("set");
+        client
+            .set_mcp_permission_mode_override("s", "plan")
+            .await
+            .expect("override");
+        let c = client.runtime().calls();
+        assert!(matches!(
+            c[0],
+            ControlCall::ToggleMcpServer { enabled: false, .. }
+        ));
+        assert!(matches!(c[1], ControlCall::SetMcpServers));
+        assert!(matches!(
+            c[2],
+            ControlCall::SetMcpPermissionModeOverride { .. }
+        ));
+    }
+
+    #[tokio::test]
+    async fn task_turn_workspace_ops_delegate_to_runtime() {
+        let client = Client::with_runtime(MockRuntime::new(vec![]));
+        client.stop_task("t").await.expect("stop");
+        client
+            .background_tasks(Some("tu".into()))
+            .await
+            .expect("bg");
+        client.rewind_files("m1", Some(true)).await.expect("rewind");
+        client
+            .seed_read_state("/p", serde_json::json!(1))
+            .await
+            .expect("seed");
+        let c = client.runtime().calls();
+        assert!(matches!(c[0], ControlCall::StopTask(ref s) if s == "t"));
+        assert!(matches!(c[1], ControlCall::BackgroundTasks));
+        assert!(matches!(c[2], ControlCall::RewindFiles { .. }));
+        assert!(matches!(c[3], ControlCall::SeedReadState { .. }));
+    }
+
+    #[tokio::test]
+    async fn introspection_ops_delegate_to_runtime() {
+        let client = Client::with_runtime(MockRuntime::new(vec![]));
+        client.get_context_usage().await.expect("ctx");
+        client.get_usage().await.expect("usage");
+        client.reload_plugins().await.expect("plugins");
+        client.reload_skills().await.expect("skills");
+        client
+            .apply_flag_settings(serde_json::json!({"x":1}))
+            .await
+            .expect("flags");
+        client
+            .set_max_thinking_tokens(Some(100), None)
+            .await
+            .expect("tokens");
+        assert_eq!(client.runtime().calls().len(), 6);
     }
 }

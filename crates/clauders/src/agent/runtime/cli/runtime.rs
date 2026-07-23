@@ -23,7 +23,11 @@ use crate::agent::protocol::{
 };
 use crate::agent::runtime::Runtime;
 use crate::agent::stream::{MessageStream, ReceiverStream};
-use crate::agent::types::{McpStatus, Prompt};
+use crate::agent::types::{
+    BackgroundTasksResult, ContextUsage, McpStatus, Prompt, ReadFileResult, ReloadPluginsResult,
+    ReloadSkillsResult, RewindFilesResult, SetMcpPermissionModeResult, SetMcpServersResult,
+    UsageReport,
+};
 use crate::types::ModelId;
 
 use super::argv::{build_argv, permission_mode_wire};
@@ -275,6 +279,188 @@ impl Runtime for CliRuntime {
             .send_control(OutboundRequestBody::McpStatus, "mcp_status")
             .await?;
         serde_json::from_value(value).map_err(|e| AgentError::Decode(e.to_string()))
+    }
+
+    async fn reconnect_mcp_server(&self, server_name: &str) -> Result<(), AgentError> {
+        self.send_control(
+            OutboundRequestBody::ReconnectMcpServer {
+                server_name: server_name.to_string(),
+            },
+            "reconnect_mcp_server",
+        )
+        .await
+        .map(|_| ())
+    }
+
+    async fn read_file(
+        &self,
+        path: &str,
+        max_bytes: Option<u64>,
+        encoding: Option<String>,
+    ) -> Result<ReadFileResult, AgentError> {
+        let value = self
+            .send_control(
+                OutboundRequestBody::ReadFile {
+                    path: path.to_string(),
+                    max_bytes,
+                    encoding,
+                },
+                "read_file",
+            )
+            .await?;
+        serde_json::from_value(value).map_err(|e| AgentError::Decode(e.to_string()))
+    }
+
+    async fn toggle_mcp_server(&self, server_name: &str, enabled: bool) -> Result<(), AgentError> {
+        self.send_control(
+            OutboundRequestBody::ToggleMcpServer {
+                server_name: server_name.to_string(),
+                enabled,
+            },
+            "toggle_mcp_server",
+        )
+        .await
+        .map(|_| ())
+    }
+
+    async fn set_mcp_servers(
+        &self,
+        servers: serde_json::Value,
+    ) -> Result<SetMcpServersResult, AgentError> {
+        let value = self
+            .send_control(
+                OutboundRequestBody::SetMcpServers { servers },
+                "set_mcp_servers",
+            )
+            .await?;
+        serde_json::from_value(value).map_err(|e| AgentError::Decode(e.to_string()))
+    }
+
+    async fn set_mcp_permission_mode_override(
+        &self,
+        server_name: &str,
+        mode: &str,
+    ) -> Result<SetMcpPermissionModeResult, AgentError> {
+        let value = self
+            .send_control(
+                OutboundRequestBody::SetMcpPermissionModeOverride {
+                    server_name: server_name.to_string(),
+                    mode: mode.to_string(),
+                },
+                "set_mcp_permission_mode_override",
+            )
+            .await?;
+        serde_json::from_value(value).map_err(|e| AgentError::Decode(e.to_string()))
+    }
+
+    async fn stop_task(&self, task_id: &str) -> Result<(), AgentError> {
+        self.send_control(
+            OutboundRequestBody::StopTask {
+                task_id: task_id.to_string(),
+            },
+            "stop_task",
+        )
+        .await
+        .map(|_| ())
+    }
+
+    async fn background_tasks(
+        &self,
+        tool_use_id: Option<String>,
+    ) -> Result<BackgroundTasksResult, AgentError> {
+        let value = self
+            .send_control(
+                OutboundRequestBody::BackgroundTasks { tool_use_id },
+                "background_tasks",
+            )
+            .await?;
+        serde_json::from_value(value).map_err(|e| AgentError::Decode(e.to_string()))
+    }
+
+    async fn rewind_files(
+        &self,
+        user_message_id: &str,
+        dry_run: Option<bool>,
+    ) -> Result<RewindFilesResult, AgentError> {
+        let value = self
+            .send_control(
+                OutboundRequestBody::RewindFiles {
+                    user_message_id: user_message_id.to_string(),
+                    dry_run,
+                },
+                "rewind_files",
+            )
+            .await?;
+        serde_json::from_value(value).map_err(|e| AgentError::Decode(e.to_string()))
+    }
+
+    async fn seed_read_state(
+        &self,
+        path: &str,
+        mtime: serde_json::Value,
+    ) -> Result<(), AgentError> {
+        self.send_control(
+            OutboundRequestBody::SeedReadState {
+                path: path.to_string(),
+                mtime,
+            },
+            "seed_read_state",
+        )
+        .await
+        .map(|_| ())
+    }
+
+    async fn get_context_usage(&self) -> Result<ContextUsage, AgentError> {
+        let value = self
+            .send_control(OutboundRequestBody::GetContextUsage, "get_context_usage")
+            .await?;
+        serde_json::from_value(value).map_err(|e| AgentError::Decode(e.to_string()))
+    }
+
+    async fn get_usage(&self) -> Result<UsageReport, AgentError> {
+        let value = self
+            .send_control(OutboundRequestBody::GetUsage, "get_usage")
+            .await?;
+        serde_json::from_value(value).map_err(|e| AgentError::Decode(e.to_string()))
+    }
+
+    async fn reload_plugins(&self) -> Result<ReloadPluginsResult, AgentError> {
+        let value = self
+            .send_control(OutboundRequestBody::ReloadPlugins, "reload_plugins")
+            .await?;
+        serde_json::from_value(value).map_err(|e| AgentError::Decode(e.to_string()))
+    }
+
+    async fn reload_skills(&self) -> Result<ReloadSkillsResult, AgentError> {
+        let value = self
+            .send_control(OutboundRequestBody::ReloadSkills, "reload_skills")
+            .await?;
+        serde_json::from_value(value).map_err(|e| AgentError::Decode(e.to_string()))
+    }
+
+    async fn apply_flag_settings(&self, settings: serde_json::Value) -> Result<(), AgentError> {
+        self.send_control(
+            OutboundRequestBody::ApplyFlagSettings { settings },
+            "apply_flag_settings",
+        )
+        .await
+        .map(|_| ())
+    }
+
+    async fn set_max_thinking_tokens(
+        &self,
+        max_thinking_tokens: Option<u64>,
+        thinking_display: Option<serde_json::Value>,
+    ) -> Result<(), AgentError> {
+        self.send_control(
+            OutboundRequestBody::SetMaxThinkingTokens {
+                max_thinking_tokens,
+                thinking_display,
+            },
+            "set_max_thinking_tokens",
+        )
+        .await
+        .map(|_| ())
     }
 
     fn capabilities(&self) -> Capabilities {
