@@ -16,6 +16,15 @@
 //! - Client construction — that is the builder's job.
 //!
 //! Entry point: [`MessagesResource`], obtained via `client.messages()`.
+//!
+//! ```
+//! use clauders::messages::{StopDetails, RefusalCategory, Container, OutputTokensDetails,
+//!     ServerToolUse, UsageServiceTier};
+//! let _ = std::mem::size_of::<StopDetails>();
+//! # let _ = (RefusalCategory::Cyber, std::mem::size_of::<Container>(),
+//! #          std::mem::size_of::<OutputTokensDetails>(), std::mem::size_of::<ServerToolUse>(),
+//! #          UsageServiceTier::Standard);
+//! ```
 
 pub mod accumulator;
 pub mod content;
@@ -46,7 +55,10 @@ pub use request::{
 #[doc(inline)]
 pub use resource::MessagesResource;
 #[doc(inline)]
-pub use response::{Message, MessageKind, StopReason, Usage};
+pub use response::{
+    CacheCreation, Container, Message, MessageKind, OutputTokensDetails, RefusalCategory,
+    ServerToolUse, StopDetails, StopDetailsKind, StopReason, Usage, UsageServiceTier,
+};
 
 #[doc(inline)]
 pub use streaming::{ContentDelta, MessageMetaDelta, MessageStream, StreamEvent, UsageDelta};

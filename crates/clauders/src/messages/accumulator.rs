@@ -142,7 +142,32 @@ impl MessageAccumulator {
                     if delta.stop_sequence.is_some() {
                         snapshot.stop_sequence.clone_from(&delta.stop_sequence);
                     }
+                    // Mirrors the pinned Python SDK's fold policy
+                    // (`_messages.py:503-518`): stop_details is folded when
+                    // the delta carries it; container/service_tier/
+                    // inference_geo/output_tokens_details are decoded on the
+                    // wire types but deliberately not folded, matching that
+                    // source.
+                    if delta.stop_details.is_some() {
+                        snapshot.stop_details.clone_from(&delta.stop_details);
+                    }
+                    // output_tokens is written unconditionally; the
+                    // input-side counters overwrite only when the delta
+                    // actually reports them.
                     snapshot.usage.output_tokens = usage.output_tokens;
+                    if let Some(v) = usage.input_tokens {
+                        snapshot.usage.input_tokens = v;
+                    }
+                    if usage.cache_creation_input_tokens.is_some() {
+                        snapshot.usage.cache_creation_input_tokens =
+                            usage.cache_creation_input_tokens;
+                    }
+                    if usage.cache_read_input_tokens.is_some() {
+                        snapshot.usage.cache_read_input_tokens = usage.cache_read_input_tokens;
+                    }
+                    if usage.server_tool_use.is_some() {
+                        snapshot.usage.server_tool_use = usage.server_tool_use;
+                    }
                 }
                 Ok(())
             }
@@ -307,7 +332,7 @@ mod tests {
     )]
 
     use super::*;
-    use crate::messages::response::StopReason;
+    use crate::messages::response::{RefusalCategory, StopReason};
     use crate::types::StopSequence;
 
     // ── fixtures ───────────────────────────────────────────────────────────
@@ -834,6 +859,58 @@ mod tests {
             Some("END"),
             "a later delta's null stop_sequence must not clobber the resolved value"
         );
+        assert_eq!(msg.usage.output_tokens, 7);
+    }
+
+    #[test]
+    fn message_delta_merges_input_side_usage_and_stop_details() {
+        let mut acc = MessageAccumulator::new();
+        acc.accumulate(&event(
+            r#"{"type":"message_start","message":{
+                "id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-4-5",
+                "content":[],"stop_reason":null,"stop_sequence":null,
+                "usage":{"input_tokens":5,"output_tokens":0}}}"#,
+        ))
+        .unwrap();
+        acc.accumulate(&event(
+            r#"{"type":"message_delta",
+                "delta":{"stop_reason":"refusal","stop_sequence":null,
+                         "stop_details":{"type":"refusal","category":"bio","explanation":null}},
+                "usage":{"input_tokens":9,"cache_read_input_tokens":4,"output_tokens":42,
+                         "server_tool_use":{"web_search_requests":2,"web_fetch_requests":0}}}"#,
+        ))
+        .unwrap();
+        let msg = acc.finish().unwrap();
+        assert_eq!(msg.usage.input_tokens, 9, "overwritten from 5");
+        assert_eq!(msg.usage.cache_read_input_tokens, Some(4));
+        assert_eq!(msg.usage.output_tokens, 42);
+        assert_eq!(
+            msg.usage.server_tool_use.map(|s| s.web_search_requests),
+            Some(2)
+        );
+        assert_eq!(
+            msg.stop_details.map(|d| d.category),
+            Some(Some(RefusalCategory::Bio))
+        );
+    }
+
+    #[test]
+    fn message_delta_leaves_input_tokens_untouched_when_absent() {
+        let mut acc = MessageAccumulator::new();
+        acc.accumulate(&event(
+            r#"{"type":"message_start","message":{
+                "id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-4-5",
+                "content":[],"stop_reason":null,"stop_sequence":null,
+                "usage":{"input_tokens":5,"output_tokens":0}}}"#,
+        ))
+        .unwrap();
+        acc.accumulate(&event(
+            r#"{"type":"message_delta","delta":{"stop_reason":null,"stop_sequence":null},
+                "usage":{"output_tokens":7}}"#,
+        ))
+        .unwrap();
+        let msg = acc.finish().unwrap();
+        assert_eq!(msg.usage.input_tokens, 5, "preserved from message_start");
         assert_eq!(msg.usage.output_tokens, 7);
     }
 

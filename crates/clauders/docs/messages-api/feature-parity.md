@@ -62,10 +62,11 @@ Paths in the Python column are relative to `src/anthropic/`; TypeScript to `src/
 | **Streaming accumulation** | ✅ parity on all five modelled delta kinds — with 5 recorded divergences (§12 rows 3, 18-21) and 2 gaps owned elsewhere: `citations_delta` (row 14), `server_tool_use` input gating (row 8) |
 | **Forward compatibility (every server-decoded enum)** | ✅ parity — payload-carrying unknown arm on all ten; `pause_turn` no longer fails |
 | **`thinking` / `output_config.effort`** | ✅ parity — both request params delivered |
+| **Response diagnostics (`container`, `stop_details`, typed `pause_turn`, usage sub-objects)** | ✅ parity — all delivered (§8, §8.1, §8.3) |
+| **`message_delta` usage merge (input-side counters, `stop_details`)** | ✅ parity — overwrite-cumulative, matching Python/TypeScript (§4.4) |
 | Response content-block taxonomy (12 official response members) | 🟡 4 of 12 |
 | Request content-block taxonomy (17 official param members) | 🟡 4 of 17 — no vision, no PDF |
 | Models API (`capabilities`, `max_input_tokens`, `max_tokens`) | ❌ behind — **was wrongly ✅ in the prior revision** |
-| Response diagnostics (`container`, `stop_details`, `pause_turn`, usage sub-objects) | ❌ behind |
 | GA request params (`service_tier`, `inference_geo`, `container`, top-level `cache_control`) | ❌ behind |
 | Server-side & Anthropic-defined tools | ❌ behind |
 | Files API / citations / context management / MCP connector | ❌ behind |
@@ -411,26 +412,35 @@ Delta and stop events are a separate question, and there clauders follows TypeSc
 index is a silent no-op (`accumulator.rs:212-214`), where Python raises `IndexError` and Go returns an
 error. Also 🔶, by the same standard — §12 row 18.
 
-### 4.4 🟡 `message_delta` usage merge
+### 4.4 ✅ `message_delta` usage merge — delivered
 
-`UsageDelta` (streaming.rs:198) models `output_tokens` only, and `collect()` (streaming.rs:249-277)
-preserves `message_start`'s input-side counts.
+`UsageDelta` (streaming.rs:207-226) now carries `input_tokens`, `cache_creation_input_tokens`,
+`cache_read_input_tokens`, `output_tokens`, `output_tokens_details`, and `server_tool_use`.
+`MessageAccumulator` (`accumulator.rs:137-172`) overwrites the snapshot's `input_tokens`,
+`cache_creation_input_tokens`, `cache_read_input_tokens`, and `server_tool_use` when the delta
+reports them, writes `output_tokens` unconditionally, and folds `stop_details` the same way — matching
+the pinned Python SDK's fold policy.
 
-Official `MessageDeltaUsage` carries `input_tokens`, `cache_creation_input_tokens`,
-`cache_read_input_tokens`, `output_tokens`, `output_tokens_details`, `server_tool_use`. Both SDKs
-**overwrite** the snapshot with the cumulative value when non-null, never sum
-(`_messages.py:503-518`, `MessageStream.ts:575-600`). Neither copies `delta.container`,
-`usage.cache_creation`, `usage.service_tier`, or `usage.inference_geo` into the snapshot — so those
-omissions in clauders are *not* parity gaps; the missing input/cache/server-tool merge is.
+**Correction to the prior revision's field list.** The prior revision of this section claimed both SDKs
+overwrite `output_tokens_details` as part of the same merge. Re-reading the pinned source: Python's
+`accumulate_event` (`_messages.py:503-518`) overwrites `input_tokens`, `cache_creation_input_tokens`,
+`cache_read_input_tokens`, `output_tokens`, and `server_tool_use` when non-null, and separately folds
+`delta.stop_details` (`:504-505` area) — but it does **not** assign `output_tokens_details` anywhere in
+that block; TypeScript's `accumulateMessage` (`MessageStream.ts:575-600`) mirrors the same field list.
+clauders decodes `output_tokens_details` on the wire type for completeness but does not fold it in the
+accumulator, matching what the pinned source actually does rather than the field list previously
+claimed here. That claim is struck.
 
-`RawMessageDeltaEvent.Delta` also carries `container` and `stop_details` officially; clauders'
-`MessageMetaDelta` (streaming.rs:186) has `stop_reason` + `stop_sequence` only.
+`container`, `usage.service_tier`, and `usage.inference_geo` remain deliberately un-folded, unchanged
+from the prior revision: neither pinned SDK copies `delta.container`, `usage.service_tier`, or
+`usage.inference_geo` into its snapshot either, so clauders' `MessageMetaDelta.container`
+(streaming.rs:196-199) and `Usage.{service_tier,inference_geo}` stay decoded-but-unfolded by design, not
+by gap.
 
-The usage-merge gap is **unchanged** by the accumulator work — `MessageAccumulator` folds
-`usage.output_tokens` only (`accumulator.rs:145`). Row 13 stays open, and the official policy is
-unanimous across Python, TypeScript, **and** Go, so there is no design question here, only work.
+Row 13 is closed. The official policy was unanimous across Python, TypeScript, and Go, so this was pure
+work, no design question.
 
-One new divergence introduced by the accumulator, small but real (§12 row 21): clauders writes
+One divergence introduced by the accumulator, small but real (§12 row 21): clauders writes
 `stop_reason` and `stop_sequence` **only when the delta carries them** (`accumulator.rs:139-144`),
 whereas all three SDKs assign unconditionally — including overwriting a resolved value with `null`
 (`_messages.py:504-505`, `MessageStream.ts:576-577`). Kept deliberately: it makes a stray later
@@ -520,14 +530,15 @@ but not the only one:
 
 | Enum | Site | Exposure |
 |---|---|---|
-| **`StopReason`** | response.rs:64-87 | **Live failure.** `pause_turn` is missing (§8.1) and the API returns it on every server-tool turn that hits the 10-iteration limit. An unrecognized value fails the entire `Message`, so both `create()` and `collect()` return `Error::Serde`. |
+| **`StopReason`** | response.rs:64-87 | ✅ Delivered. `pause_turn` is now a typed `StopReason::PauseTurn` variant (§8.1) and an untagged `Unknown(String)` fallback arm retains the raw value instead of hard-failing the enclosing `Message`, so `create()` and `collect()` no longer return `Error::Serde` on an unrecognized stop reason. |
 | `ErrorType` | error.rs:70 | Already tolerant — a presence-only `#[serde(other)]` unit arm meant it never hard-failed. Its gap was payload retention, not decode failure. |
 | `BatchStatus` | batches/types.rs:140-152 | Plausible. Batch lifecycle states have grown before. |
 | `MessageKind` | response.rs:53 | Latent — single-valued, stable. |
 | `BatchKind` / `DeletedBatchKind` | batches/types.rs:127 / :230-237 | Latent — single-valued. |
 | `ModelInfoKind` | models/types.rs:31 | Latent — single-valued. |
 
-`StopReason` is the one that fails today; the rest are latent. The distinction is timing, not kind.
+`StopReason` was the one that failed on GA paths; it is now closed (typed `PauseTurn` + `Unknown`
+fallback). The rest remain latent — the distinction is timing, not kind.
 
 `SystemSegmentKind` (system.rs:159) is deliberately **absent** from this table. It derives `Serialize`
 only — a request-side type the SDK sends and never decodes — so an unknown arm on it could be neither
@@ -610,11 +621,11 @@ Official `Message` — 10 fields, identical in both SDKs (`types/message.py`, `m
 
 | Field | clauders | Status |
 |---|---|---|
-| `id` / `type` / `role` / `model` / `content` / `stop_sequence` | `Message` (response.rs:26-45) | ✅ |
-| `stop_reason` | `StopReason` (response.rs:63-87) | 🟡 — 5 of 6 **typed**; the 6th (`pause_turn`) decodes to `Unknown("pause_turn")` rather than failing, see §8.1 |
-| **`stop_details`** | ❌ | ❌ |
-| **`container`** | ❌ | ❌ |
-| `usage` | `Usage` (response.rs:115-130) | 🟡 — see below |
+| `id` / `type` / `role` / `model` / `content` / `stop_sequence` | `Message` (response.rs:27-51) | ✅ |
+| `stop_reason` | `StopReason` (response.rs:73-91) | ✅ — all 6 official values **typed**, including `PauseTurn`; `Unknown(String)` retained for values a future release adds, see §8.1 |
+| **`stop_details`** | `StopDetails` (response.rs:44-45, 99-109) | ✅ |
+| **`container`** | `Container` (response.rs:47-48, 145-151) | ✅ |
+| `usage` | `Usage` (response.rs:217-243) | ✅ — see §8.3 |
 
 ### 8.1 `stop_reason` — non-beta is exactly 6 values
 
@@ -622,19 +633,17 @@ Official `Message` — 10 fields, identical in both SDKs (`types/message.py`, `m
 
 `end_turn` · `max_tokens` · `stop_sequence` · `tool_use` · **`pause_turn`** · `refusal`
 
-clauders types five of them, still missing **`pause_turn`** — which the API returns whenever a
-server-tool loop hits its 10-iteration limit, i.e. on every long server-tool turn.
+clauders now types all six, including `pause_turn` — the value the API returns whenever a server-tool
+loop hits its 10-iteration limit, i.e. on every long server-tool turn.
 
-**Status 2026-07-21 — the decode failure is fixed; the typed variant is still absent.** This used to be
-a decode failure rather than a missing field: `StopReason` was closed, so `pause_turn` failed the
-enclosing `Message` and both `create()` and `collect()` returned `Error::Serde` for the whole response.
-Since `a155625` the enum carries `Unknown(String)` (response.rs:86) and `pause_turn` decodes as
-`StopReason::Unknown("pause_turn")` — pinned by a passing test at response.rs:248-251. Nothing
-hard-fails.
-
-What remains is ergonomics, not correctness: a caller must match on `Unknown("pause_turn")` rather than
-a typed `StopReason::PauseTurn`, so they cannot act on a paused server-tool turn through the type
-system. That is §12 row 10 (WS C). Row 2, the decode half, is delivered. See §5.1.
+**Status 2026-07-21 — delivered as `StopReason::PauseTurn`; `Unknown` retained for future values.**
+This used to be a decode failure rather than a missing field: `StopReason` was closed, so `pause_turn`
+failed the enclosing `Message` and both `create()` and `collect()` returned `Error::Serde` for the whole
+response. Since `a155625` the enum carries `Unknown(String)` for forward compatibility, and since
+`736363d` it also carries a first-class `PauseTurn` variant (response.rs:86) — pinned by a passing test
+at response.rs:384. A caller now matches `StopReason::PauseTurn` directly and can act on a paused
+server-tool turn through the type system; `Unknown(String)` remains for whatever value a future SDK
+release adds next. §12 row 10 (WS C) is closed. See §5.1.
 
 > **Correction to the prior revision.** That revision listed `model_context_window_exceeded` as a
 > missing official stop reason. It is real, but it is **not** in the non-beta union — both SDKs type it
@@ -664,16 +673,16 @@ Official (`types/usage.py`, `messages.ts:2345`):
 
 | Field | clauders | Status |
 |---|---|---|
-| `input_tokens` / `output_tokens` | ✅ (response.rs:117-119) | ✅ |
-| `cache_creation_input_tokens` / `cache_read_input_tokens` | ✅ (response.rs:122, :125) | ✅ |
-| `cache_creation.{ephemeral_5m,ephemeral_1h}_input_tokens` | ✅ (response.rs:94-100) | ✅ |
-| **`output_tokens_details.thinking_tokens`** | ❌ | ❌ |
-| **`server_tool_use.{web_search_requests,web_fetch_requests}`** | ❌ | ❌ |
-| **`service_tier`** (`standard` \| `priority` \| `batch`) | ❌ | ❌ |
-| **`inference_geo`** | ❌ | ❌ |
+| `input_tokens` / `output_tokens` | ✅ (response.rs:219, :221) | ✅ |
+| `cache_creation_input_tokens` / `cache_read_input_tokens` | ✅ (response.rs:224, :227) | ✅ |
+| `cache_creation.{ephemeral_5m,ephemeral_1h}_input_tokens` | ✅ (response.rs:158-163) | ✅ |
+| **`output_tokens_details.thinking_tokens`** | `OutputTokensDetails` (response.rs:170-173, 233) | ✅ |
+| **`server_tool_use.{web_search_requests,web_fetch_requests}`** | `ServerToolUse` (response.rs:177-182, 236) | ✅ |
+| **`service_tier`** (`standard` \| `priority` \| `batch`) | `UsageServiceTier` (response.rs:191-201, 239) | ✅ |
+| **`inference_geo`** | `Option<String>` (response.rs:242) | ✅ |
 | `iterations[]` (beta, server-side fallback) | ❌ | — beta |
 
-`Usage::total_input_tokens` (response.rs:150-154) is a clauders-only convenience with no official
+`Usage::total_input_tokens` (response.rs:246-268) is a clauders-only convenience with no official
 counterpart. Harmless, keep.
 
 ### 8.4 Typed parse helper
@@ -795,10 +804,10 @@ Python and TypeScript blind-append and ignore `index`. See §4.3 — it is grade
 |---|---|---|---|
 | 8 | Response blocks: `redacted_thinking`, `server_tool_use`, the five `*_tool_result` kinds, `container_upload` (§3.1) | ❌ capability | Largely subsumed by #2 — once unknown blocks stop being fatal, these become progressive typing work. |
 | 9 | Vision (`image`) + PDF (`document`) input blocks (§3.2) | ❌ capability | The most-requested everyday base-SDK feature. |
-| 10 | Response diagnostics: typed `pause_turn`, `stop_details`, `container`, `usage.{output_tokens_details,server_tool_use,service_tier,inference_geo}` (§8) | ❌ capability | Cheap. `pause_turn` stops being a decode failure under #2, but still needs its typed variant here before a caller can act on a paused server-tool turn. |
+| 10 | Response diagnostics: typed `pause_turn`, `stop_details`, `container`, `usage.{output_tokens_details,server_tool_use,service_tier,inference_geo}` (§8) | ✅ **delivered** | `StopReason::PauseTurn` is now a typed variant (`Unknown` retained for values a future release adds), and `Message.stop_details` / `Message.container` / `Usage.{output_tokens_details,server_tool_use,service_tier,inference_geo}` all exist (response.rs). A caller can act on a paused server-tool turn, a refusal category, or a container id through the type system rather than matching `Unknown("pause_turn")` or reading nothing at all. |
 | 11 | Models API `capabilities` / `max_input_tokens` / `max_tokens` (§9) | ❌ capability | Restores the row this doc previously mis-scored as ✅. |
 | 12 | GA request params: `service_tier`, `inference_geo`, `container`, top-level `cache_control` (§2, §7) | ❌ capability | Small, mechanical. |
-| 13 | `message_delta` usage merge: carry `input_tokens`, `cache_*`, `server_tool_use` on `UsageDelta` and overwrite-cumulative (§4.4) | 🟡 partial | Streaming callers currently lose every input-side counter update after `message_start`. |
+| 13 | `message_delta` usage merge: carry `input_tokens`, `cache_*`, `server_tool_use` on `UsageDelta` and overwrite-cumulative (§4.4) | ✅ **delivered** | `UsageDelta` now carries the input-side counters and `server_tool_use`; `MessageAccumulator` overwrites them into the snapshot when the delta reports them, and folds `stop_details` the same way — matching the pinned Python/TypeScript overwrite-cumulative policy. Streaming callers no longer lose input-side counter updates after `message_start`. |
 | 14 | `citations_delta` + `TextBlock.citations` (§3.1, §4.1) | ❌ capability | Pairs with the citations feature as a whole. |
 | 15 | `eager_input_streaming` (GA fine-grained tool streaming); `ToolUseBlock.caller` (§6) | ❌ capability | Both are GA on the custom-tool path clauders already claims parity on. |
 | 16 | `Role::System` mid-conversation messages (§3.4); refreshed `ModelId` constructors (§11) | ❌ small | Low effort, low risk. |
