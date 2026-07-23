@@ -11,6 +11,7 @@
 //! - Define [`ModelList`], the paginated list wrapper returned by
 //!   `GET /v1/models`.
 
+use crate::models::capabilities::ModelCapabilities;
 use crate::types::ModelId;
 
 /// The kind of object returned in a models list entry.
@@ -72,6 +73,9 @@ pub struct ModelInfo {
     /// Maximum `max_tokens` value for this model, when the API reports it.
     #[serde(default)]
     pub max_tokens: Option<u32>,
+    /// Capability-discovery record, when the API reports it.
+    #[serde(default)]
+    pub capabilities: Option<ModelCapabilities>,
 }
 
 /// Paginated list of [`ModelInfo`] records returned by `GET /v1/models`.
@@ -172,6 +176,23 @@ mod tests {
         let info: ModelInfo = serde_json::from_str(json).unwrap();
         assert_eq!(info.max_input_tokens, None);
         assert_eq!(info.max_tokens, None);
+    }
+
+    #[test]
+    fn model_info_decodes_capabilities() {
+        let json = r#"{
+            "id":"claude-sonnet-4-5","display_name":"S","created_at":"t","type":"model",
+            "capabilities":{"batch":{"supported":true},"citations":{"supported":true},
+                "code_execution":{"supported":true},"image_input":{"supported":true},
+                "pdf_input":{"supported":true},"structured_outputs":{"supported":true},
+                "context_management":{"supported":true},
+                "effort":{"low":{"supported":true},"medium":{"supported":true},
+                    "high":{"supported":true},"max":{"supported":true},"supported":true},
+                "thinking":{"supported":true,
+                    "types":{"adaptive":{"supported":true},"enabled":{"supported":true}}}}
+        }"#;
+        let info: ModelInfo = serde_json::from_str(json).unwrap();
+        assert!(info.capabilities.unwrap().batch.supported);
     }
 
     #[test]

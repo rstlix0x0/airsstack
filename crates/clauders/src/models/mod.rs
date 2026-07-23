@@ -15,9 +15,15 @@
 //!
 //! Entry point: [`ModelsResource`], obtained via `client.models()`.
 
+pub mod capabilities;
 pub mod resource;
 pub mod types;
 
+#[doc(inline)]
+pub use capabilities::{
+    CapabilitySupport, ContextManagementCapability, EffortCapability, ModelCapabilities,
+    ThinkingCapability, ThinkingTypes,
+};
 #[doc(inline)]
 pub use resource::ModelsResource;
 #[doc(inline)]
