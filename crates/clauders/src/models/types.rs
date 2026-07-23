@@ -66,6 +66,12 @@ pub struct ModelInfo {
     /// Object kind; always `"model"` in current API responses.
     #[serde(rename = "type")]
     pub kind: ModelInfoKind,
+    /// Maximum input context-window size in tokens, when the API reports it.
+    #[serde(default)]
+    pub max_input_tokens: Option<u32>,
+    /// Maximum `max_tokens` value for this model, when the API reports it.
+    #[serde(default)]
+    pub max_tokens: Option<u32>,
 }
 
 /// Paginated list of [`ModelInfo`] records returned by `GET /v1/models`.
@@ -146,6 +152,26 @@ mod tests {
     fn unknown_model_info_kind_decodes_with_payload() {
         let k: ModelInfoKind = serde_json::from_str(r#""future_kind""#).unwrap();
         assert_eq!(k, ModelInfoKind::Unknown("future_kind".into()));
+    }
+
+    #[test]
+    fn model_info_decodes_token_limits() {
+        let json = r#"{
+            "id":"claude-sonnet-4-5","display_name":"Claude Sonnet 4.5",
+            "created_at":"2025-09-01T00:00:00Z","type":"model",
+            "max_input_tokens":200000,"max_tokens":64000
+        }"#;
+        let info: ModelInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(info.max_input_tokens, Some(200_000));
+        assert_eq!(info.max_tokens, Some(64_000));
+    }
+
+    #[test]
+    fn model_info_token_limits_default_to_none() {
+        let json = r#"{"id":"m","display_name":"m","created_at":"t","type":"model"}"#;
+        let info: ModelInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(info.max_input_tokens, None);
+        assert_eq!(info.max_tokens, None);
     }
 
     #[test]

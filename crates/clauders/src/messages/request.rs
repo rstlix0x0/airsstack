@@ -237,6 +237,19 @@ pub struct MessageRequest {
     /// Extended-thinking configuration for this request.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking: Option<crate::messages::thinking::ThinkingConfig>,
+    /// Service-tier selector.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<RequestServiceTier>,
+    /// Geographic inference region.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inference_geo: Option<InferenceGeo>,
+    /// Code-execution container to reuse.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container: Option<ContainerId>,
+    /// Top-level cache-control breakpoint; the server auto-places it on the
+    /// last cacheable block.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_control: Option<crate::types::CacheControl>,
     /// Whether to stream the response. Managed by the resource layer;
     /// callers should not set this directly.
     #[doc(hidden)]
@@ -277,6 +290,10 @@ struct MessageRequestFields {
     output_format: Option<crate::messages::structured_outputs::OutputFormat>,
     effort: Option<crate::types::EffortLevel>,
     thinking: Option<crate::messages::thinking::ThinkingConfig>,
+    service_tier: Option<RequestServiceTier>,
+    inference_geo: Option<InferenceGeo>,
+    container: Option<ContainerId>,
+    cache_control: Option<crate::types::CacheControl>,
 }
 
 impl MessageRequestFields {
@@ -296,6 +313,10 @@ impl MessageRequestFields {
             output_format: None,
             effort: None,
             thinking: None,
+            service_tier: None,
+            inference_geo: None,
+            container: None,
+            cache_control: None,
         }
     }
 }
@@ -538,6 +559,34 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
         self.fields.thinking = Some(thinking);
         self
     }
+
+    /// Set the service-tier selector.
+    #[must_use]
+    pub const fn service_tier(mut self, tier: RequestServiceTier) -> Self {
+        self.fields.service_tier = Some(tier);
+        self
+    }
+
+    /// Set the geographic inference region.
+    #[must_use]
+    pub fn inference_geo(mut self, geo: InferenceGeo) -> Self {
+        self.fields.inference_geo = Some(geo);
+        self
+    }
+
+    /// Set the code-execution container to reuse.
+    #[must_use]
+    pub fn container(mut self, container: ContainerId) -> Self {
+        self.fields.container = Some(container);
+        self
+    }
+
+    /// Set the top-level cache-control breakpoint.
+    #[must_use]
+    pub const fn cache_control(mut self, cache_control: crate::types::CacheControl) -> Self {
+        self.fields.cache_control = Some(cache_control);
+        self
+    }
 }
 
 impl MessageRequestBuilder<Present, Present> {
@@ -589,6 +638,10 @@ impl MessageRequestBuilder<Present, Present> {
             tool_choice: self.fields.tool_choice,
             output_config,
             thinking: self.fields.thinking,
+            service_tier: self.fields.service_tier,
+            inference_geo: self.fields.inference_geo,
+            container: self.fields.container,
+            cache_control: self.fields.cache_control,
             stream: false,
         }
     }
@@ -941,6 +994,33 @@ mod tests {
             "thinking must reach the batch path through the wrapped MessageRequest"
         );
         assert_eq!(params["thinking"]["display"], "omitted");
+    }
+
+    #[test]
+    fn ga_request_params_serialize_when_set() {
+        let req = base_builder()
+            .service_tier(RequestServiceTier::StandardOnly)
+            .inference_geo(InferenceGeo::new("us"))
+            .container(ContainerId::new("c_1"))
+            .cache_control(crate::types::CacheControl::ephemeral())
+            .build();
+        let j = serde_json::to_string(&req).unwrap();
+        assert!(j.contains(r#""service_tier":"standard_only""#), "got: {j}");
+        assert!(j.contains(r#""inference_geo":"us""#), "got: {j}");
+        assert!(j.contains(r#""container":"c_1""#), "got: {j}");
+        assert!(
+            j.contains(r#""cache_control":{"type":"ephemeral"}"#),
+            "got: {j}"
+        );
+    }
+
+    #[test]
+    fn ga_request_params_are_skipped_when_unset() {
+        let j = serde_json::to_string(&base_builder().build()).unwrap();
+        assert!(!j.contains("service_tier"), "got: {j}");
+        assert!(!j.contains("inference_geo"), "got: {j}");
+        assert!(!j.contains("container"), "got: {j}");
+        assert!(!j.contains("cache_control"), "got: {j}");
     }
 
     #[test]
