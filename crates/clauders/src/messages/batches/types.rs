@@ -201,7 +201,7 @@ pub enum BatchResult {
     /// The request completed successfully; `message` holds the response.
     Succeeded {
         /// Decoded message response.
-        message: Message,
+        message: Box<Message>,
     },
     /// The request failed with an API error.
     Errored {
