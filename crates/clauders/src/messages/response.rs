@@ -40,6 +40,12 @@ pub struct Message {
     pub stop_reason: Option<StopReason>,
     /// The stop sequence that triggered the stop, if applicable.
     pub stop_sequence: Option<StopSequence>,
+    /// Structured refusal diagnostic; `Some` only when `stop_reason` is refusal.
+    #[serde(default)]
+    pub stop_details: Option<StopDetails>,
+    /// Code-execution container metadata, when the request used one.
+    #[serde(default)]
+    pub container: Option<Container>,
     /// Token counts for this request-response pair.
     pub usage: Usage,
 }
@@ -291,6 +297,28 @@ mod tests {
         assert_eq!(msg.usage.input_tokens, 25);
         assert_eq!(msg.usage.output_tokens, 5);
         assert_eq!(msg.content.len(), 1);
+    }
+
+    #[test]
+    fn message_decodes_stop_details_and_container() {
+        let j = r#"{
+            "id": "msg_1",
+            "type": "message",
+            "role": "assistant",
+            "model": "claude-sonnet-4-5",
+            "content": [],
+            "stop_reason": "refusal",
+            "stop_sequence": null,
+            "stop_details": {"type":"refusal","category":"bio","explanation":null},
+            "container": {"id":"c1","expires_at":"2026-07-22T00:00:00Z"},
+            "usage": {"input_tokens": 3, "output_tokens": 0}
+        }"#;
+        let msg: Message = serde_json::from_str(j).unwrap();
+        assert_eq!(
+            msg.stop_details.map(|d| d.category),
+            Some(Some(RefusalCategory::Bio))
+        );
+        assert_eq!(msg.container.map(|c| c.id), Some("c1".to_owned()));
     }
 
     #[test]

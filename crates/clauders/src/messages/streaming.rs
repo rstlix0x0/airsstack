@@ -33,7 +33,9 @@ use pin_project_lite::pin_project;
 use crate::error::{ApiError, ApiErrorBody, Error};
 use crate::messages::accumulator::MessageAccumulator;
 use crate::messages::content::ContentBlock;
-use crate::messages::response::Message;
+use crate::messages::response::{
+    Container, Message, OutputTokensDetails, ServerToolUse, StopDetails,
+};
 use crate::transport::BodyStream;
 use crate::types::StopSequence;
 
@@ -188,6 +190,13 @@ pub struct MessageMetaDelta {
     pub stop_reason: Option<StopReason>,
     /// Which stop sequence triggered the stop, if any.
     pub stop_sequence: Option<StopSequence>,
+    /// Structured refusal diagnostic carried on the terminal delta, when present.
+    #[serde(default)]
+    pub stop_details: Option<StopDetails>,
+    /// Container metadata carried on the delta, when present. Decoded for wire
+    /// completeness; the accumulator does not fold it (matches the pinned SDKs).
+    #[serde(default)]
+    pub container: Option<Container>,
 }
 
 /// Output-token count carried by [`StreamEvent::MessageDelta`].
@@ -196,8 +205,24 @@ pub struct MessageMetaDelta {
 /// event, not an incremental count.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
 pub struct UsageDelta {
+    /// Cumulative input tokens, when the delta reports them.
+    #[serde(default)]
+    pub input_tokens: Option<u32>,
+    /// Cumulative cache-creation input tokens, when reported.
+    #[serde(default)]
+    pub cache_creation_input_tokens: Option<u32>,
+    /// Cumulative cache-read input tokens, when reported.
+    #[serde(default)]
+    pub cache_read_input_tokens: Option<u32>,
     /// Total output tokens generated so far.
     pub output_tokens: u32,
+    /// Read-only decomposition of `output_tokens`, when reported. Decoded for
+    /// wire completeness; the accumulator does not fold it (see `accumulator.rs`).
+    #[serde(default)]
+    pub output_tokens_details: Option<OutputTokensDetails>,
+    /// Cumulative server-tool invocation counts, when reported.
+    #[serde(default)]
+    pub server_tool_use: Option<ServerToolUse>,
 }
 
 pin_project! {
@@ -734,6 +759,50 @@ mod tests {
             }
             other => panic!("wrong variant: {other:?}"),
         }
+    }
+
+    #[test]
+    fn message_meta_delta_decodes_stop_details_and_container() {
+        use crate::messages::response::RefusalCategory;
+
+        let j = r#"{
+            "stop_reason": "refusal",
+            "stop_sequence": null,
+            "stop_details": {"type":"refusal","category":"cyber","explanation":"x"},
+            "container": {"id":"c9","expires_at":"2026-07-22T00:00:00Z"}
+        }"#;
+        let d: MessageMetaDelta = serde_json::from_str(j).unwrap();
+        assert_eq!(
+            d.stop_details.map(|s| s.category),
+            Some(Some(RefusalCategory::Cyber))
+        );
+        assert_eq!(d.container.map(|c| c.id), Some("c9".to_owned()));
+    }
+
+    #[test]
+    fn usage_delta_decodes_input_side_counters() {
+        let j = r#"{
+            "input_tokens": 100,
+            "cache_creation_input_tokens": 10,
+            "cache_read_input_tokens": 5,
+            "output_tokens": 42,
+            "output_tokens_details": {"thinking_tokens": 3},
+            "server_tool_use": {"web_search_requests": 1, "web_fetch_requests": 0}
+        }"#;
+        let d: UsageDelta = serde_json::from_str(j).unwrap();
+        assert_eq!(d.input_tokens, Some(100));
+        assert_eq!(d.cache_creation_input_tokens, Some(10));
+        assert_eq!(d.cache_read_input_tokens, Some(5));
+        assert_eq!(d.output_tokens, 42);
+        assert_eq!(d.output_tokens_details.map(|o| o.thinking_tokens), Some(3));
+        assert_eq!(d.server_tool_use.map(|s| s.web_search_requests), Some(1));
+    }
+
+    #[test]
+    fn usage_delta_input_side_default_to_none() {
+        let d: UsageDelta = serde_json::from_str(r#"{"output_tokens":7}"#).unwrap();
+        assert_eq!(d.input_tokens, None);
+        assert_eq!(d.output_tokens, 7);
     }
 
     // ── Stream terminates after Error event ────────────────────────────────────
