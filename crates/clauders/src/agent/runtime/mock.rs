@@ -18,9 +18,9 @@ use crate::agent::permissions::PermissionMode;
 use crate::agent::runtime::Runtime;
 use crate::agent::stream::{MessageStream, ReceiverStream};
 use crate::agent::types::{
-    BackgroundTasksResult, ContextUsage, McpStatus, Prompt, ReadFileResult, ReloadPluginsResult,
-    ReloadSkillsResult, RewindFilesResult, SetMcpPermissionModeResult, SetMcpServersResult,
-    UsageReport,
+    BackgroundTasksResult, ContextUsage, InitializeResult, InterruptReceipt, McpStatus, Prompt,
+    ReadFileResult, ReloadPluginsResult, ReloadSkillsResult, RewindFilesResult,
+    SetMcpPermissionModeResult, SetMcpServersResult, UsageReport,
 };
 use crate::types::ModelId;
 
@@ -84,6 +84,8 @@ pub enum ControlCall {
     ApplyFlagSettings,
     /// `set_max_thinking_tokens` was invoked.
     SetMaxThinkingTokens,
+    /// `reinitialize` was invoked.
+    Reinitialize,
 }
 
 /// A scripted, subprocess-free [`Runtime`] implementation for tests.
@@ -94,6 +96,7 @@ pub struct MockRuntime {
     capabilities: Capabilities,
     mcp_status: McpStatus,
     read_file: ReadFileResult,
+    initialize_result: InitializeResult,
 }
 
 impl MockRuntime {
@@ -107,6 +110,7 @@ impl MockRuntime {
             capabilities: Capabilities::default(),
             mcp_status: McpStatus::default(),
             read_file: ReadFileResult::default(),
+            initialize_result: InitializeResult::default(),
         }
     }
 
@@ -134,6 +138,13 @@ impl MockRuntime {
     #[must_use]
     pub fn with_capabilities(mut self, capabilities: Capabilities) -> Self {
         self.capabilities = capabilities;
+        self
+    }
+
+    /// Override the `initialize` response this mock retains.
+    #[must_use]
+    pub fn with_initialize_result(mut self, initialize_result: InitializeResult) -> Self {
+        self.initialize_result = initialize_result;
         self
     }
 
@@ -184,9 +195,9 @@ impl Runtime for MockRuntime {
         Ok(ReceiverStream::new(rx).boxed())
     }
 
-    async fn interrupt(&self) -> Result<(), AgentError> {
+    async fn interrupt(&self) -> Result<Option<InterruptReceipt>, AgentError> {
         self.record(ControlCall::Interrupt);
-        Ok(())
+        Ok(None)
     }
 
     async fn set_model(&self, model: ModelId) -> Result<(), AgentError> {
@@ -320,6 +331,15 @@ impl Runtime for MockRuntime {
 
     fn capabilities(&self) -> Capabilities {
         self.capabilities.clone()
+    }
+
+    fn initialize_result(&self) -> InitializeResult {
+        self.initialize_result.clone()
+    }
+
+    async fn reinitialize(&self) -> Result<InitializeResult, AgentError> {
+        self.record(ControlCall::Reinitialize);
+        Ok(self.initialize_result.clone())
     }
 }
 

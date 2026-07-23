@@ -18,10 +18,11 @@ use crate::agent::runtime::Runtime;
 use crate::agent::runtime::cli::CliRuntime;
 use crate::agent::stream::MessageStream;
 use crate::agent::types::{
-    BackgroundTasksResult, ContextUsage, McpStatus, Prompt, ReadFileResult, ReloadPluginsResult,
-    ReloadSkillsResult, RewindFilesResult, SetMcpPermissionModeResult, SetMcpServersResult,
-    UsageReport,
+    BackgroundTasksResult, ContextUsage, InitializeResult, InterruptReceipt, McpStatus, Prompt,
+    ReadFileResult, ReloadPluginsResult, ReloadSkillsResult, RewindFilesResult,
+    SetMcpPermissionModeResult, SetMcpServersResult, UsageReport,
 };
+use crate::agent::warm::WarmQuery;
 use crate::types::ModelId;
 
 /// A stateful agent session over a [`Runtime`].
@@ -50,9 +51,12 @@ impl<R: Runtime> Client<R> {
 
     /// Interrupt the in-flight turn.
     ///
+    /// Returns `Some` receipt when the backend reports which queued items
+    /// remain after the interrupt, `None` when it reports nothing.
+    ///
     /// # Errors
     /// Returns an [`AgentError`] if the control request fails.
-    pub async fn interrupt(&self) -> Result<(), AgentError> {
+    pub async fn interrupt(&self) -> Result<Option<InterruptReceipt>, AgentError> {
         self.runtime.interrupt().await
     }
 
@@ -90,6 +94,15 @@ impl<R: Runtime> Client<R> {
     }
 
     /// Read a workspace file through the backend.
+    ///
+    /// # Examples
+    /// ```no_run
+    /// # use clauders::agent::{Client, types::ReadFileResult};
+    /// # async fn f(c: &Client) -> Result<(), clauders::agent::AgentError> {
+    /// let file: ReadFileResult = c.read_file("/etc/hosts", Some(1024), None).await?;
+    /// println!("{}", file.abs_path);
+    /// # Ok(()) }
+    /// ```
     ///
     /// # Errors
     /// Returns an [`AgentError`] if the control request fails or its response cannot be decoded.
@@ -240,6 +253,39 @@ impl<R: Runtime> Client<R> {
     pub fn capabilities(&self) -> Capabilities {
         self.runtime.capabilities()
     }
+
+    /// The retained `initialize` response.
+    pub fn initialize_result(&self) -> InitializeResult {
+        self.runtime.initialize_result()
+    }
+
+    /// Available slash commands, from the retained `initialize` response.
+    pub fn supported_commands(&self) -> Vec<serde_json::Value> {
+        self.runtime.initialize_result().commands
+    }
+
+    /// Available models, from the retained `initialize` response.
+    pub fn supported_models(&self) -> Vec<serde_json::Value> {
+        self.runtime.initialize_result().models
+    }
+
+    /// Available agents, from the retained `initialize` response.
+    pub fn supported_agents(&self) -> Vec<serde_json::Value> {
+        self.runtime.initialize_result().agents
+    }
+
+    /// Account info, from the retained `initialize` response.
+    pub fn account_info(&self) -> serde_json::Value {
+        self.runtime.initialize_result().account
+    }
+
+    /// Re-run the `initialize` handshake over the live control channel.
+    ///
+    /// # Errors
+    /// Returns an [`AgentError`] if the control request fails.
+    pub async fn reinitialize(&self) -> Result<InitializeResult, AgentError> {
+        self.runtime.reinitialize().await
+    }
 }
 
 impl Client<CliRuntime> {
@@ -256,6 +302,19 @@ impl Client<CliRuntime> {
     /// spawn, version, or handshake failure).
     pub async fn connect(options: Options) -> Result<Self, AgentError> {
         Ok(Self::with_runtime(CliRuntime::connect(options).await?))
+    }
+
+    /// Pre-warm a session: spawn, handshake, and return a single-shot query handle.
+    ///
+    /// `connect` already spawns and completes the initialize round-trip eagerly
+    /// (bounded by [`Options::control_request_timeout`]), so warm start adds only
+    /// the single-shot handle. The SDK's `initializeTimeoutMs` maps to that same
+    /// timeout; a distinct warm-start timeout is intentionally not added.
+    ///
+    /// # Errors
+    /// Returns an [`AgentError`] if the runtime cannot connect.
+    pub async fn startup(options: Options) -> Result<WarmQuery<CliRuntime>, AgentError> {
+        Ok(WarmQuery::over(Self::connect(options).await?))
     }
 }
 
@@ -455,6 +514,36 @@ mod tests {
         assert!(matches!(c[1], ControlCall::BackgroundTasks));
         assert!(matches!(c[2], ControlCall::RewindFiles { .. }));
         assert!(matches!(c[3], ControlCall::SeedReadState { .. }));
+    }
+
+    #[tokio::test]
+    async fn initialize_accessors_read_the_retained_result() {
+        use crate::agent::types::InitializeResult;
+
+        let init = InitializeResult {
+            models: vec![serde_json::json!("claude-x")],
+            ..Default::default()
+        };
+        let client =
+            Client::with_runtime(MockRuntime::new(vec![]).with_initialize_result(init.clone()));
+        assert_eq!(client.initialize_result(), init);
+        assert_eq!(
+            client.supported_models(),
+            vec![serde_json::json!("claude-x")]
+        );
+    }
+
+    #[tokio::test]
+    async fn reinitialize_delegates_and_refreshes() {
+        let client = Client::with_runtime(MockRuntime::new(vec![]));
+        client.reinitialize().await.expect("reinitialize");
+        assert!(
+            client
+                .runtime()
+                .calls()
+                .iter()
+                .any(|c| matches!(c, ControlCall::Reinitialize))
+        );
     }
 
     #[tokio::test]

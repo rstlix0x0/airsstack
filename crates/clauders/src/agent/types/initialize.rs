@@ -4,9 +4,9 @@ use serde::{Deserialize, Serialize};
 
 /// The `initialize` control response, retained for zero-wire accessors.
 ///
-/// [binary v2.1.216] fields: `commands`, `agents`, `output_style`,
-/// `available_output_styles`, `models`, `account`, `pid`. Element shapes of
-/// the list fields are not modeled here (opaque values); `account` is opaque.
+/// Fields: `commands`, `agents`, `output_style`, `available_output_styles`,
+/// `models`, `account`, `pid`. Element shapes of the list fields are not
+/// modeled here (opaque values); `account` is opaque.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[expect(
     clippy::derive_partial_eq_without_eq,

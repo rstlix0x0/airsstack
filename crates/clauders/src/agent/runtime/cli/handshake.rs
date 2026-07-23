@@ -7,8 +7,11 @@
 
 use crate::agent::options::Options;
 
-/// Build the `initialize` control-request frame as a JSON value.
-pub(super) fn initialize_request(options: &Options, request_id: &str) -> serde_json::Value {
+/// Build the `initialize` request body as a JSON value.
+///
+/// Shared by the initial handshake (wrapped as a `control_request`) and by
+/// `reinitialize`, which sends this same body over the live control channel.
+pub(super) fn initialize_body(options: &Options) -> serde_json::Value {
     let mut request = serde_json::json!({
         "subtype": "initialize",
         "system_prompt": options.system_prompt.native_text(),
@@ -32,17 +35,30 @@ pub(super) fn initialize_request(options: &Options, request_id: &str) -> serde_j
             );
         }
     }
+    request
+}
+
+/// Build the `initialize` control-request frame as a JSON value.
+pub(super) fn initialize_request(options: &Options, request_id: &str) -> serde_json::Value {
     serde_json::json!({
         "type": "control_request",
         "request_id": request_id,
-        "request": request,
+        "request": initialize_body(options),
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use super::initialize_request;
+    use super::{initialize_body, initialize_request};
     use crate::agent::options::Options;
+
+    #[test]
+    fn initialize_body_carries_subtype_and_system_prompt() {
+        let opts = Options::builder().system_prompt("hi").build();
+        let body = initialize_body(&opts);
+        assert_eq!(body["subtype"], "initialize");
+        assert_eq!(body["system_prompt"], "hi");
+    }
 
     #[test]
     fn initialize_request_carries_id_and_system_prompt() {

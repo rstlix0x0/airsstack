@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Result of `read_file`. [binary v2.1.216].
+/// Result of `read_file`.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReadFileResult {
     /// The file contents (utf-8, or base64 when `encoding` says so).
@@ -20,8 +20,8 @@ pub struct ReadFileResult {
 
 /// Result of `rewind_files`.
 ///
-/// [binary v2.1.216], the response is built by the `rewindFiles` handler and
-/// matches its zod schema verbatim
+/// The response is built by the `rewindFiles` handler and matches its zod
+/// schema verbatim
 /// (`{canRewind, error?, filesChanged?, insertions?, deletions?, skippedLinks?}`):
 /// refusal returns only `{canRewind:false, error}`; a dry run returns
 /// `{canRewind:true, filesChanged, insertions, deletions}`; a real rewind
@@ -59,13 +59,13 @@ pub struct RewindFilesResult {
 
 /// Result of `background_tasks`.
 ///
-/// [binary v2.1.216]: the server dispatch for `subtype:"background_tasks"`
-/// builds `{backgrounded: <bool>}` when the request named a single
-/// `tool_use_id` (the backgrounding outcome for that task), and `{}` — no
-/// `backgrounded` key at all — when it backgrounded every foreground task.
-/// The SDK's own client reads this field as `response.backgrounded ?? true`,
-/// i.e. absence means "succeeded, backgrounding everything". This is a
-/// boolean flag, not a list of task ids or a count.
+/// The server dispatch for `subtype:"background_tasks"` builds
+/// `{backgrounded: <bool>}` when the request named a single `tool_use_id`
+/// (the backgrounding outcome for that task), and `{}` — no `backgrounded`
+/// key at all — when it backgrounded every foreground task. The SDK's own
+/// client reads this field as `response.backgrounded ?? true`, i.e. absence
+/// means "succeeded, backgrounding everything". This is a boolean flag, not
+/// a list of task ids or a count.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BackgroundTasksResult {
     /// Whether the targeted task was backgrounded, when a single

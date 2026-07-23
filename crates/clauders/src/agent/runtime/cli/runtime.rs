@@ -24,9 +24,9 @@ use crate::agent::protocol::{
 use crate::agent::runtime::Runtime;
 use crate::agent::stream::{MessageStream, ReceiverStream};
 use crate::agent::types::{
-    BackgroundTasksResult, ContextUsage, McpStatus, Prompt, ReadFileResult, ReloadPluginsResult,
-    ReloadSkillsResult, RewindFilesResult, SetMcpPermissionModeResult, SetMcpServersResult,
-    UsageReport,
+    BackgroundTasksResult, ContextUsage, InitializeResult, InterruptReceipt, McpStatus, Prompt,
+    ReadFileResult, ReloadPluginsResult, ReloadSkillsResult, RewindFilesResult,
+    SetMcpPermissionModeResult, SetMcpServersResult, UsageReport,
 };
 use crate::types::ModelId;
 
@@ -34,7 +34,7 @@ use super::argv::{build_argv, permission_mode_wire};
 use super::demux::Demux;
 use super::discovery::{check_version, discover};
 use super::dispatch::Dispatcher;
-use super::handshake::initialize_request;
+use super::handshake::{initialize_body, initialize_request};
 
 /// Per-turn message channel capacity (natural backpressure beyond this).
 const TURN_CHANNEL_CAPACITY: usize = 64;
@@ -47,6 +47,8 @@ pub struct CliRuntime {
     demux: Arc<Demux>,
     id_gen: RequestIdGen,
     capabilities: Arc<Mutex<Capabilities>>,
+    initialize_result: Arc<Mutex<InitializeResult>>,
+    options: Arc<Options>,
     control_request_timeout: Duration,
     reader: JoinHandle<()>,
     writer: JoinHandle<()>,
@@ -85,7 +87,8 @@ impl CliRuntime {
         let mut stdout = stdout;
 
         let id_gen = RequestId::generator();
-        handshake(&mut stdin, &mut stdout, &options, &id_gen).await?;
+        let init = handshake(&mut stdin, &mut stdout, &options, &id_gen).await?;
+        let initialize_result = Arc::new(Mutex::new(init));
         let capabilities = Arc::new(Mutex::new(Capabilities::default()));
 
         // Single writer task owns stdin from here on.
@@ -115,12 +118,15 @@ impl CliRuntime {
         // stderr is drained by the process layer; not needed for message routing.
         drop(stderr);
 
+        let control_request_timeout = options.control_request_timeout;
         Ok(Self {
             out_tx,
             demux,
             id_gen,
             capabilities,
-            control_request_timeout: options.control_request_timeout,
+            initialize_result,
+            options: Arc::new(options),
+            control_request_timeout,
             reader,
             writer,
             _process: process,
@@ -219,6 +225,18 @@ fn control_response_outcome(
     }
 }
 
+/// Decode an interrupt response by field presence, per the SDK: a
+/// `still_queued` array yields a receipt keeping only string elements;
+/// anything else (absent, or not an array) yields `None`.
+fn interrupt_receipt_from_value(value: &serde_json::Value) -> Option<InterruptReceipt> {
+    let arr = value.get("still_queued")?.as_array()?;
+    let still_queued = arr
+        .iter()
+        .filter_map(|v| v.as_str().map(str::to_string))
+        .collect();
+    Some(InterruptReceipt { still_queued })
+}
+
 impl Drop for CliRuntime {
     fn drop(&mut self) {
         // Stop both tasks; the process handle's own Drop tears the child down.
@@ -246,10 +264,11 @@ impl Runtime for CliRuntime {
         Ok(ReceiverStream::new(rx).boxed())
     }
 
-    async fn interrupt(&self) -> Result<(), AgentError> {
-        self.send_control(OutboundRequestBody::Interrupt, "interrupt")
-            .await
-            .map(|_| ())
+    async fn interrupt(&self) -> Result<Option<InterruptReceipt>, AgentError> {
+        let value = self
+            .send_control(OutboundRequestBody::Interrupt, "interrupt")
+            .await?;
+        Ok(interrupt_receipt_from_value(&value))
     }
 
     async fn set_model(&self, model: ModelId) -> Result<(), AgentError> {
@@ -469,6 +488,27 @@ impl Runtime for CliRuntime {
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
     }
+
+    fn initialize_result(&self) -> InitializeResult {
+        self.initialize_result
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    async fn reinitialize(&self) -> Result<InitializeResult, AgentError> {
+        let body = initialize_body(&self.options);
+        let value = self
+            .send_control(OutboundRequestBody::Initialize(body), "initialize")
+            .await?;
+        let init: InitializeResult =
+            serde_json::from_value(value).map_err(|e| AgentError::Decode(e.to_string()))?;
+        *self
+            .initialize_result
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = init.clone();
+        Ok(init)
+    }
 }
 
 /// Build the outbound user-message frame carrying one prompt text.
@@ -518,7 +558,7 @@ async fn handshake(
     stdout: &mut StdoutLines,
     options: &Options,
     id_gen: &RequestIdGen,
-) -> Result<(), AgentError> {
+) -> Result<InitializeResult, AgentError> {
     let id = id_gen.next();
     let request = initialize_request(options, id.as_str());
     let line = encode_line(&request)?;
@@ -542,7 +582,9 @@ async fn handshake(
 }
 
 /// Read frames from `stdout` until the initialize response arrives.
-async fn read_initialize_response(stdout: &mut StdoutLines) -> Result<(), AgentError> {
+async fn read_initialize_response(
+    stdout: &mut StdoutLines,
+) -> Result<InitializeResult, AgentError> {
     loop {
         match stdout.next_line().await {
             Ok(Some(text)) if text.trim().is_empty() => {}
@@ -550,7 +592,10 @@ async fn read_initialize_response(stdout: &mut StdoutLines) -> Result<(), AgentE
                 if let crate::agent::protocol::InboundFrame::ControlResponse(response) =
                     decode_inbound(&text)?
                 {
-                    return control_response_outcome(response.response, "initialize").map(|_| ());
+                    let response_value = control_response_outcome(response.response, "initialize")?;
+                    let init: InitializeResult = serde_json::from_value(response_value)
+                        .map_err(|e| AgentError::Decode(e.to_string()))?;
+                    return Ok(init);
                 }
                 // Ignore any pre-handshake message frames.
             }
@@ -663,10 +708,13 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        await_control_response, control_response_outcome, drain_input, user_message_frame,
+        await_control_response, control_response_outcome, drain_input, initialize_body,
+        user_message_frame,
     };
     use crate::agent::error::AgentError;
-    use crate::agent::protocol::ControlResponseBody;
+    use crate::agent::options::Options;
+    use crate::agent::protocol::{ControlResponseBody, OutboundRequestBody};
+    use crate::agent::types::InterruptReceipt;
 
     #[test]
     fn control_response_outcome_maps_success_to_ok() {
@@ -727,6 +775,40 @@ mod tests {
         let value = user_message_frame("hi");
         assert_eq!(value["type"], "user");
         assert_eq!(value["message"]["content"], "hi");
+    }
+
+    #[test]
+    fn reinitialize_frame_carries_initialize_subtype() {
+        let opts = Options::builder().system_prompt("hi").build();
+        let body = initialize_body(&opts);
+        let frame = OutboundRequestBody::Initialize(body);
+        let value = serde_json::to_value(&frame).expect("serialize");
+        assert_eq!(value["subtype"], "initialize");
+        assert_eq!(value["system_prompt"], "hi");
+    }
+
+    #[test]
+    fn interrupt_decode_present_array_yields_some_filtered() {
+        let v = serde_json::json!({"still_queued":["a", 3, "b"]});
+        let r = super::interrupt_receipt_from_value(&v);
+        assert_eq!(
+            r,
+            Some(InterruptReceipt {
+                still_queued: vec!["a".into(), "b".into()]
+            })
+        );
+    }
+
+    #[test]
+    fn interrupt_decode_absent_or_nonarray_yields_none() {
+        assert_eq!(
+            super::interrupt_receipt_from_value(&serde_json::json!({})),
+            None
+        );
+        assert_eq!(
+            super::interrupt_receipt_from_value(&serde_json::json!({"still_queued":5})),
+            None
+        );
     }
 
     #[tokio::test(start_paused = true)]

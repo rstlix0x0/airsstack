@@ -13,9 +13,9 @@ use crate::agent::error::AgentError;
 use crate::agent::permissions::PermissionMode;
 use crate::agent::stream::MessageStream;
 use crate::agent::types::{
-    BackgroundTasksResult, ContextUsage, McpStatus, Prompt, ReadFileResult, ReloadPluginsResult,
-    ReloadSkillsResult, RewindFilesResult, SetMcpPermissionModeResult, SetMcpServersResult,
-    UsageReport,
+    BackgroundTasksResult, ContextUsage, InitializeResult, InterruptReceipt, McpStatus, Prompt,
+    ReadFileResult, ReloadPluginsResult, ReloadSkillsResult, RewindFilesResult,
+    SetMcpPermissionModeResult, SetMcpServersResult, UsageReport,
 };
 use crate::types::ModelId;
 
@@ -31,10 +31,13 @@ pub trait Runtime: Send + Sync {
 
     /// Interrupt the in-flight turn.
     ///
+    /// Returns `Some` receipt when the backend reports which queued items
+    /// remain after the interrupt, `None` when it reports nothing.
+    ///
     /// # Errors
     /// Returns an [`AgentError`] if the control request fails or the
     /// transport has closed.
-    async fn interrupt(&self) -> Result<(), AgentError>;
+    async fn interrupt(&self) -> Result<Option<InterruptReceipt>, AgentError>;
 
     /// Switch the active model mid-session.
     ///
@@ -185,6 +188,16 @@ pub trait Runtime: Send + Sync {
     /// Empty until the binary's `system`/`init` frame has been read, so a
     /// caller that checks before the first turn sees no flags.
     fn capabilities(&self) -> Capabilities;
+
+    /// The retained `initialize` response.
+    fn initialize_result(&self) -> InitializeResult;
+
+    /// Re-run the `initialize` handshake over the live control channel.
+    ///
+    /// # Errors
+    /// Returns an [`AgentError`] if the control request fails, the transport
+    /// closed, or the response cannot be decoded.
+    async fn reinitialize(&self) -> Result<InitializeResult, AgentError>;
 }
 
 #[cfg(test)]

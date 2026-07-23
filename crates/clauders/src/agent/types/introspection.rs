@@ -14,7 +14,7 @@ pub struct ReloadSkillsResult {
     pub skills: Vec<serde_json::Value>,
 }
 
-/// Result of `reload_plugins`. [binary v2.1.216].
+/// Result of `reload_plugins`.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[expect(
     clippy::derive_partial_eq_without_eq,

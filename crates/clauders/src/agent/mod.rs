@@ -25,6 +25,7 @@ pub mod stream;
 pub mod subagents;
 pub mod system_prompt;
 pub mod types;
+mod warm;
 
 pub use cancel::CancelSignal;
 pub use capabilities::{Capabilities, HookEvent};
@@ -53,3 +54,4 @@ pub use stream::MessageStream;
 pub use subagents::{AgentDefinition, AgentDefinitionError, MemorySource};
 pub use system_prompt::SystemPromptConfig;
 pub use types::{EffortLevel, SessionControl};
+pub use warm::{WarmQuery, WarmSession};
