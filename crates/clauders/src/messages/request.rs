@@ -58,6 +58,64 @@ pub enum Role {
     User,
     /// A message from the assistant.
     Assistant,
+    /// A mid-conversation system message (GA on current models).
+    System,
+}
+
+// ── Request-side value types ────────────────────────────────────────────────
+
+/// Request-side service-tier selector.
+///
+/// Distinct from the response-side [`crate::messages::UsageServiceTier`], which
+/// reports the tier that actually served the request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RequestServiceTier {
+    /// Let the server choose the tier.
+    Auto,
+    /// Use only the standard tier; never fall back.
+    StandardOnly,
+}
+
+/// Geographic region selector for inference (`inference_geo` request param).
+///
+/// Open-valued: any region string the workspace accepts. When unset, the
+/// workspace's `default_inference_geo` is used.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(transparent)]
+pub struct InferenceGeo(String);
+
+impl InferenceGeo {
+    /// Wrap a region identifier.
+    #[must_use]
+    pub fn new(region: impl Into<String>) -> Self {
+        Self(region.into())
+    }
+
+    /// Borrow the region identifier.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Identifier of a code-execution container to reuse (`container` request param).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(transparent)]
+pub struct ContainerId(String);
+
+impl ContainerId {
+    /// Wrap a container identifier.
+    #[must_use]
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(id.into())
+    }
+
+    /// Borrow the container identifier.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 // ── MessageContent ────────────────────────────────────────────────────────────
@@ -313,6 +371,16 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
     pub fn add_assistant_text(mut self, text: impl Into<String>) -> Self {
         self.fields.messages.push(InputMessage {
             role: Role::Assistant,
+            content: MessageContent::Text(text.into()),
+        });
+        self
+    }
+
+    /// Append a `system`-role text message to the conversation.
+    #[must_use]
+    pub fn add_system_text(mut self, text: impl Into<String>) -> Self {
+        self.fields.messages.push(InputMessage {
+            role: Role::System,
             content: MessageContent::Text(text.into()),
         });
         self
@@ -638,6 +706,42 @@ mod tests {
         assert!(
             j.get("stop_sequences").is_none(),
             "stop_sequences must be absent when empty"
+        );
+    }
+
+    #[test]
+    fn add_system_text_emits_system_role_on_the_wire() {
+        let req = base_builder().add_system_text("operator note").build();
+        let j = serde_json::to_string(&req).unwrap();
+        assert!(j.contains(r#""role":"system""#), "got: {j}");
+    }
+
+    #[test]
+    fn system_role_serializes_lowercase() {
+        assert_eq!(serde_json::to_string(&Role::System).unwrap(), r#""system""#);
+    }
+
+    #[test]
+    fn request_service_tier_serializes_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&RequestServiceTier::Auto).unwrap(),
+            r#""auto""#
+        );
+        assert_eq!(
+            serde_json::to_string(&RequestServiceTier::StandardOnly).unwrap(),
+            r#""standard_only""#
+        );
+    }
+
+    #[test]
+    fn inference_geo_and_container_id_serialize_transparently() {
+        assert_eq!(
+            serde_json::to_string(&InferenceGeo::new("us")).unwrap(),
+            r#""us""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ContainerId::new("c_42")).unwrap(),
+            r#""c_42""#
         );
     }
 
