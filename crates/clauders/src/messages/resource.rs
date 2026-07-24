@@ -82,7 +82,7 @@ fn warn_if_deprecated_thinking(req: &MessageRequest) {
 ///     .api_key(ApiKey::new("sk-ant-…").unwrap())
 ///     .build()?;
 /// let req = MessageRequest::builder()
-///     .model(ModelId::claude_sonnet_4_5())
+///     .model(ModelId::claude_sonnet_5())
 ///     .max_tokens(MaxTokens::new(1024))
 ///     .add_user_text("Hello!")
 ///     .build();

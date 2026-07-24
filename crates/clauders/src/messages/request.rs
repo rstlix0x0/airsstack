@@ -192,12 +192,12 @@ pub struct Metadata {
 /// use clauders::types::{MaxTokens, ModelId};
 ///
 /// let req = MessageRequest::builder()
-///     .model(ModelId::claude_sonnet_4_5())
+///     .model(ModelId::claude_sonnet_5())
 ///     .max_tokens(MaxTokens::new(1024))
 ///     .add_user_text("Hello, Claude")
 ///     .build();
 ///
-/// assert_eq!(req.model.as_str(), "claude-sonnet-4-5");
+/// assert_eq!(req.model.as_str(), "claude-sonnet-5");
 /// ```
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct MessageRequest {
@@ -519,7 +519,7 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
     ///
     /// // output_config() last: it assigns both slots, so effort is cleared.
     /// let req = MessageRequest::builder()
-    ///     .model(ModelId::claude_sonnet_4_5())
+    ///     .model(ModelId::claude_sonnet_5())
     ///     .max_tokens(MaxTokens::new(64))
     ///     .effort(EffortLevel::High)
     ///     .output_config(OutputConfig::json_schema(serde_json::json!({"type": "object"})))
@@ -529,7 +529,7 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
     ///
     /// // effort() last: it names only its own slot, so both survive.
     /// let req = MessageRequest::builder()
-    ///     .model(ModelId::claude_sonnet_4_5())
+    ///     .model(ModelId::claude_sonnet_5())
     ///     .max_tokens(MaxTokens::new(64))
     ///     .output_config(OutputConfig::json_schema(serde_json::json!({"type": "object"})))
     ///     .effort(EffortLevel::High)

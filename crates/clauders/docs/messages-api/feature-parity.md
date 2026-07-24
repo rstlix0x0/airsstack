@@ -11,7 +11,9 @@ product from the Claude Agent SDK covered in [`../agent-sdk/feature-parity.md`](
 the base SDK is a stateless `POST /v1/messages` client; the Agent SDK drives the `claude` CLI.
 `clauders` targets both, in separate modules.
 
-**As of:** 2026-07-21 (WS B — the `thinking` / `effort` request surface).
+**As of:** 2026-07-23 (WS C — response diagnostics & discovery: Models API `capabilities` /
+`max_input_tokens` / `max_tokens`, GA request params, `Role::System`, refreshed headline model
+constructors).
 
 **Method — read this before trusting a row.** The previous revision of this document scored parity by
 comparing *type surfaces* against prose documentation. That method produced false ✅s: a row can have
@@ -24,7 +26,7 @@ parity question. Three rows previously marked ✅ are ❌ or ⚠️ under that t
 
 | Side | Version |
 |---|---|
-| clauders | `crates/clauders/src/` @ the commit carrying this revision (2026-07-21). Decode-path work landed across `a155625`, `0cb629f`, `f0aab9d` and this commit; **`file:line` citations resolve against this commit's tree, not against `f0aab9d`** — the accumulator gained ~110 comment lines here. |
+| clauders | `crates/clauders/src/` @ the commit carrying this revision (2026-07-23). Decode-path work landed across `a155625`, `0cb629f`, `f0aab9d`; the response-diagnostics-and-discovery surface (WS C: `Role::System`, GA request params, `ModelInfo` token limits and `capabilities`, refreshed headline constructors) landed across `b743013`..`bee2083`; **`file:line` citations resolve against this commit's tree**, not against either prior pin. |
 | Python SDK | `anthropic-sdk-python` @ `3c8bdf14bc55377262f11d6c34b893834a02b3fc` (release 0.117.0, 2026-07-16) |
 | TypeScript SDK | `anthropic-sdk-typescript` @ `f84e8638fc74268d602d729747f7fd9fcbadbc71` (2026-07-17) |
 | Go SDK (tiebreaker only) | `anthropic-sdk-go` `messageutil.go` @ `0ce94bd583a556abfc18ccde1e132be5fd9e32f4` (branch `main`, **not** a pinned release) — consulted only where Python and TypeScript disagree, or where both blind-append |
@@ -66,16 +68,18 @@ Paths in the Python column are relative to `src/anthropic/`; TypeScript to `src/
 | **`message_delta` usage merge (input-side counters, `stop_details`)** | ✅ parity — overwrite-cumulative, matching Python/TypeScript (§4.4) |
 | Response content-block taxonomy (12 official response members) | 🟡 4 of 12 |
 | Request content-block taxonomy (17 official param members) | 🟡 4 of 17 — no vision, no PDF |
-| Models API (`capabilities`, `max_input_tokens`, `max_tokens`) | ❌ behind — **was wrongly ✅ in the prior revision** |
-| GA request params (`service_tier`, `inference_geo`, `container`, top-level `cache_control`) | ❌ behind |
+| Models API (`capabilities`, `max_input_tokens`, `max_tokens`) | ✅ delivered — one divergence: `context_management`'s dated strategies are a flatten map, not named fields (§9.1) |
+| GA request params (`service_tier`, `inference_geo`, `container`, top-level `cache_control`) | ✅ delivered — all four are builder setters, serialized when set (§2) |
 | Server-side & Anthropic-defined tools | ❌ behind |
 | Files API / citations / context management / MCP connector | ❌ behind |
 
 **One-line summary:** clauders is at genuine parity on the *non-streaming, text-and-custom-tools core*
 — create, count-tokens, batches, caching, structured output, system prompts — **and now on streaming
 accumulation and forward compatibility**, the two runtime defects the prior revision found. The
-`thinking` and `output_config.effort` request parameters are now delivered; what remains is
-content-block taxonomy breadth (4 of 12 / 4 of 17), not correctness.
+`thinking` and `output_config.effort` request parameters, the GA request params
+(`service_tier`/`inference_geo`/`container`/top-level `cache_control`), `Role::System`, and the Models
+API capability-discovery surface are all delivered; what remains is content-block taxonomy breadth
+(4 of 12 / 4 of 17) and the server-side/Anthropic-defined tool tier, not correctness.
 
 ---
 
@@ -118,10 +122,10 @@ The official GA (non-beta) parameter set, verified identical in both SDKs
 | `temperature` | ✅ *(`@deprecated` in TS)* | ✅ *(`@deprecated`)* | `Temperature`, `#[deprecated]` (request.rs:157, 343) | ✅ — see §2.2 |
 | `top_p` | ✅ *(`@deprecated`)* | ✅ *(`@deprecated`)* | `TopP`, `#[deprecated]` (request.rs:160, 361) | ✅ — see §2.2 |
 | `top_k` | ✅ *(`@deprecated`)* | ✅ *(`@deprecated`)* | `TopK`, `#[deprecated]` (request.rs:163, 377) | ✅ — see §2.2 |
-| **`cache_control`** (top-level auto-place) | ✅ | ✅ | ❌ (per-block only) | ❌ |
-| **`service_tier`** (`auto` \| `standard_only`) | ✅ | ✅ | ❌ | ❌ |
-| **`inference_geo`** | ✅ | ✅ | ❌ | ❌ |
-| **`container`** | ✅ | ✅ | ❌ | ❌ |
+| **`cache_control`** (top-level auto-place) | ✅ | ✅ | `MessageRequest.cache_control: Option<CacheControl>` (request.rs:252), `.cache_control()` builder setter (request.rs:586) | ✅ — see §2.4 |
+| **`service_tier`** (`auto` \| `standard_only`) | ✅ | ✅ | `RequestServiceTier` (request.rs:73-78, 242, 565) | ✅ — see §2.4 |
+| **`inference_geo`** | ✅ | ✅ | `InferenceGeo` newtype (request.rs:86-100, 245, 572) | ✅ — see §2.4 |
+| **`container`** | ✅ | ✅ | `ContainerId` newtype (request.rs:105-119, 248, 579) | ✅ — see §2.4 |
 | `user_profile_id` (sent as `anthropic-user-profile-id` header) | ✅ | ✅ | ❌ | ❌ |
 | `betas` / `anthropic-beta` header | ✅ | ✅ | multi, comma-joined (resource.rs:114-122) | ✅ |
 
@@ -168,6 +172,23 @@ failure mode, not just a docs-only note.
 has been deleted from the crate. Official TS documents `max_tokens` as *"set to `0` to pre-warm prompt
 cache without generating"* (`messages.ts:3055`), and the prompt-caching guide uses `max_tokens: 0` as
 the canonical cache pre-warm call. clauders now serializes that call onto the wire like any other value.
+
+### 2.4 ✅ `service_tier` / `inference_geo` / `container` / top-level `cache_control` — delivered
+
+`MessageRequest` carries all four GA fields (request.rs:240-252), each gated with
+`#[serde(skip_serializing_if = "Option::is_none")]` so an unset field never appears on the wire. Each
+has a dedicated builder setter: `.service_tier(RequestServiceTier)` (request.rs:565), `.inference_geo
+(InferenceGeo)` (request.rs:572), `.container(ContainerId)` (request.rs:579), and `.cache_control
+(crate::types::CacheControl)` (request.rs:586).
+
+`RequestServiceTier` is a two-variant enum, `#[serde(rename_all = "snake_case")]`, serializing `Auto` →
+`"auto"` and `StandardOnly` → `"standard_only"` (request.rs:71-78), tested at
+`request_service_tier_serializes_snake_case` (request.rs:778). `InferenceGeo` and `ContainerId` are
+`#[serde(transparent)]` newtypes over `String` (request.rs:84-119), serializing as a bare JSON string,
+tested at `inference_geo_and_container_id_serialize_transparently` (request.rs:790). Top-level
+`cache_control` reuses the existing per-block `crate::types::CacheControl` type (request.rs:252) rather
+than introducing a parallel type — the same `ephemeral` breakpoint shape already used on content
+blocks, tools, and system segments (§7).
 
 ---
 
@@ -237,12 +258,17 @@ tokens; standard tier 1568/1568. Automatic, no beta header.
 accepts a block the API never returns and the request path accepts blocks it should not send. Parity
 work should split the union or document the asymmetry explicitly.
 
-### 3.4 ⚠️ `Role` has no `System` variant
+### 3.4 ✅ `Role::System` — delivered
 
-`Role` (request.rs:56-61) is `User | Assistant`. Official `MessageParam.role` is
-`'user' | 'assistant' | 'system'` (`messages.ts:1206`) — mid-conversation system messages are GA on
-Claude Opus 4.8 with no beta header, and are the cache-preserving way to inject operator instructions
-mid-session. Not representable in clauders.
+`Role` (request.rs:54-63) now has three variants: `User`, `Assistant`, `System`. Official
+`MessageParam.role` is `'user' | 'assistant' | 'system'` (`messages.ts:1206`) — mid-conversation system
+messages are GA on Claude Opus 4.8 with no beta header, and are the cache-preserving way to inject
+operator instructions mid-session. The builder gained `.add_system_text(impl Into<String>)`
+(request.rs:402), which appends an `InputMessage { role: Role::System, .. }` the same way
+`.add_user_text()` / `.add_assistant_text()` already do, so a `system`-role turn requires no manual
+`InputMessage` construction. `Role::System` round-trips through serde like the other two variants
+(`#[serde(rename_all = "lowercase")]`, request.rs:55), pinned by
+`add_system_text_emits_system_role_on_the_wire` (request.rs:766).
 
 ---
 
@@ -607,11 +633,14 @@ The official `ToolUnion` is 19 members (`messages.ts:2277`), versioned by date s
 | Carriers: system segment / text / tool / tool_use / tool_result | ✅ | ✅ | system.rs:149, content.rs:72, tools.rs:57/118/152 | ✅ |
 | Cache-aware usage counters | ✅ | ✅ | `Usage.cache_creation/read` (response.rs:122-125) | ✅ |
 | `cache_creation` per-tier breakdown | ✅ | ✅ | `CacheCreation` (response.rs:94-100) | ✅ |
-| Top-level `cache_control` (auto-place on last cacheable block) | ✅ | ✅ | ❌ | ❌ |
+| Top-level `cache_control` (auto-place on last cacheable block) | ✅ | ✅ | `MessageRequest.cache_control` (request.rs:249-252), `.cache_control()` builder setter (request.rs:586) | ✅ |
 
 Explicit per-block caching is at genuine parity, including both TTL tiers and the tier-split accounting.
-Only the top-level convenience form is missing. The documented cache **pre-warm** call (`max_tokens: 0`)
-is representable (§2.3), so this row's remaining gap is exactly the auto-place convenience, no more.
+The top-level convenience form is delivered too: clauders sends the ephemeral `cache_control` breakpoint
+at the top level and the server auto-places it on the last cacheable block, exactly as the official
+SDKs describe it — the crate does not compute placement itself, it forwards the breakpoint. The
+documented cache **pre-warm** call (`max_tokens: 0`) is representable (§2.3). Both rows in this table
+are now closed.
 
 ---
 
@@ -694,22 +723,23 @@ first text block by hand. 🟡
 
 ---
 
-## 9. Models API — ❌ (regression against the prior revision's ✅)
+## 9. Models API — ✅ delivered
 
 Official `ModelInfo` — `types/model_info.py`, `resources/models.ts:177`, confirmed against
 `GET /v1/models`:
 
-| Field | clauders (`models/types.rs:58-66`) | Status |
+| Field | clauders (`models/types.rs:58-79`) | Status |
 |---|---|---|
 | `id` | ✅ | ✅ |
 | `display_name` | ✅ | ✅ |
 | `created_at` | ✅ (kept as `String`) | ✅ |
 | `type` | ✅ `ModelInfoKind` | ✅ |
-| **`max_input_tokens`** | ❌ | ❌ |
-| **`max_tokens`** | ❌ | ❌ |
-| **`capabilities`** | ❌ | ❌ |
+| **`max_input_tokens`** | ✅ `Option<u32>` (models/types.rs:70-72) | ✅ |
+| **`max_tokens`** | ✅ `Option<u32>` (models/types.rs:73-75) | ✅ |
+| **`capabilities`** | ✅ `Option<ModelCapabilities>` (models/types.rs:76-78) | ✅ |
 
-`ModelCapabilities` — 9 fields (`types/model_capabilities.py`, `models.ts:130`):
+`ModelCapabilities` — 9 fields (`types/model_capabilities.py`, `models.ts:130`), all decoded in
+`models/capabilities.rs`:
 
 ```
 batch, citations, code_execution, image_input, pdf_input, structured_outputs  → CapabilitySupport { supported: bool }
@@ -719,10 +749,31 @@ thinking           → { supported, types: { adaptive, enabled } }
 ```
 
 This is the API's live capability-discovery surface — the supported way to answer "does this model take
-`xhigh` effort / adaptive thinking / PDF input" without hardcoding a table. clauders returns none of it,
-so the Models resource is currently a name-and-date lookup rather than a capability probe.
+`xhigh` effort / adaptive thinking / PDF input" without hardcoding a table. Eight of the nine fields —
+`batch`, `citations`, `code_execution`, `image_input`, `pdf_input`, `structured_outputs`, `effort`,
+`thinking` — are modelled with named fields matching the official shape one-for-one
+(`capabilities.rs:8-37`, `52-71`, `74-103`). The ninth, `context_management`, is delivered but shaped
+differently — see §9.1.
 
 `ModelList` pagination (`data`/`has_more`/`first_id`/`last_id`) matches. ✅
+
+### 9.1 🔶 `context_management` — delivered, diverging
+
+Both official SDKs hardcode each dated context-management strategy as its own named optional field:
+`clear_thinking_20251015?`, `clear_tool_uses_20250919?`, `compact_20260112?`, plus a `supported: bool`.
+clauders instead models `ContextManagementCapability` as `supported: bool` plus a
+`#[serde(flatten)] strategies: BTreeMap<String, CapabilitySupport>` (capabilities.rs:39-49) — every
+dated key the server sends, named or not yet named, lands in the map under its wire key rather than a
+struct field, pinned by `context_management_dated_keys_land_in_the_map` (capabilities.rs:139-150).
+
+Graded 🔶, not a plain ✅, for the same reason as §4.3 row 3 and §12 rows 18-21: it is a deliberate
+design choice, not a defect, but a caller porting field-access code from Python or TypeScript
+(`caps.context_management.clear_thinking_20251015`) will not find a same-named field on
+`ContextManagementCapability` and must index the map instead
+(`caps.context_management.strategies.get("clear_thinking_20251015")`). The observable data is
+equivalent — every dated key the server sends is retained, none dropped — but the access pattern
+differs, and unlike the pinned SDKs a newly dated strategy needs no clauders code change to be
+represented. Recorded as §12 row 23.
 
 ---
 
@@ -742,16 +793,19 @@ results** — so refusal detection in batches must key on `stop_reason`.
 
 | Aspect | Official | clauders | Status |
 |---|---|---|---|
-| Open model-id type | TS `Model = <15 known ids> \| (string & {})` (`messages.ts:1258`); Python `ModelParam` accepts `str` | `ModelId::custom` + 4 headline ctors (types/model_id.rs:46-92) | ✅ same escape hatch |
-| Headline model constructors | 15 ids incl. `claude-fable-5`, `claude-opus-4-8`, `claude-sonnet-5` | `claude_opus_4_7`, `claude_sonnet_4_6`, `claude_sonnet_4_5`, `claude_haiku_4_5` | 🟡 stale set |
+| Open model-id type | TS `Model = <15 known ids> \| (string & {})` (`messages.ts:1258`); Python `ModelParam` accepts `str` | `ModelId::custom` + 7 headline ctors (types/model_id.rs:70-110) | ✅ same escape hatch |
+| Headline model constructors | 15 ids incl. `claude-fable-5`, `claude-opus-4-8`, `claude-sonnet-5` | `claude_opus_4_7`, `claude_sonnet_4_6`, `claude_sonnet_4_5`, `claude_haiku_4_5`, `claude_opus_4_8`, `claude_sonnet_5`, `claude_fable_5` (model_id.rs:70-110) | ✅ current headline set |
 | `system` as string or block array | ✅ | `SystemPrompt::{Text,Segments}` (types/system.rs:57-64) | ✅ |
 | Per-segment system `cache_control` | ✅ | `SystemSegment.cache_control` (types/system.rs:149) | ✅ |
 | Deprecation signalling on sampling params | ✅ `@deprecated` + 400 semantics in TS | none | ❌ — see §2.2 |
 | Unknown-field tolerance on known objects | ✅ | ✅ serde default | ✅ |
 | Client-side model/thinking mismatch warning | TS `console.warn` on `enabled` thinking + Opus 4.6 (`messages.ts:79-87`) | ❌ | ❌ — optional |
 
-The `ModelId` gap is cosmetic (`custom()` covers everything) but the doctests and examples throughout
-the crate all use `claude_sonnet_4_5()`, which steers callers to a model two generations back.
+`ModelId` gained `claude_opus_4_8()`, `claude_sonnet_5()`, and `claude_fable_5()` alongside the four
+pre-existing constructors (model_id.rs:96-110), and the crate's doctests and examples were swept from
+`claude_sonnet_4_5()` onto `claude_sonnet_5()` (e.g. `messages::MessageRequest`'s doctest, request.rs:195)
+so a caller copying an example no longer gets steered to a model two generations back. `custom()`
+remains the escape hatch for any id without a dedicated constructor.
 
 ---
 
@@ -805,12 +859,12 @@ Python and TypeScript blind-append and ignore `index`. See §4.3 — it is grade
 | 8 | Response blocks: `redacted_thinking`, `server_tool_use`, the five `*_tool_result` kinds, `container_upload` (§3.1) | ❌ capability | Largely subsumed by #2 — once unknown blocks stop being fatal, these become progressive typing work. |
 | 9 | Vision (`image`) + PDF (`document`) input blocks (§3.2) | ❌ capability | The most-requested everyday base-SDK feature. |
 | 10 | Response diagnostics: typed `pause_turn`, `stop_details`, `container`, `usage.{output_tokens_details,server_tool_use,service_tier,inference_geo}` (§8) | ✅ **delivered** | `StopReason::PauseTurn` is now a typed variant (`Unknown` retained for values a future release adds), and `Message.stop_details` / `Message.container` / `Usage.{output_tokens_details,server_tool_use,service_tier,inference_geo}` all exist (response.rs). A caller can act on a paused server-tool turn, a refusal category, or a container id through the type system rather than matching `Unknown("pause_turn")` or reading nothing at all. |
-| 11 | Models API `capabilities` / `max_input_tokens` / `max_tokens` (§9) | ❌ capability | Restores the row this doc previously mis-scored as ✅. |
-| 12 | GA request params: `service_tier`, `inference_geo`, `container`, top-level `cache_control` (§2, §7) | ❌ capability | Small, mechanical. |
+| 11 | Models API `capabilities` / `max_input_tokens` / `max_tokens` (§9) | ✅ **delivered** | `ModelInfo` now decodes `max_input_tokens`, `max_tokens` (both `Option<u32>`), and `capabilities: Option<ModelCapabilities>` (models/types.rs:70-78). Eight of the nine `ModelCapabilities` fields match the official named-field shape one-for-one; the ninth, `context_management`, is delivered but shaped as a dated-strategy map rather than named fields — a deliberate divergence, not a gap, recorded separately as row 23. |
+| 12 | GA request params: `service_tier`, `inference_geo`, `container`, top-level `cache_control` (§2, §7) | ✅ **delivered** | All four are builder setters on `MessageRequest` (request.rs:565-589), each serialized only when set. Top-level `cache_control` reuses the existing per-block `CacheControl` type (§7): clauders sends the ephemeral breakpoint and the server auto-places it. |
 | 13 | `message_delta` usage merge: carry `input_tokens`, `cache_*`, `server_tool_use` on `UsageDelta` and overwrite-cumulative (§4.4) | ✅ **delivered** | `UsageDelta` now carries the input-side counters and `server_tool_use`; `MessageAccumulator` overwrites them into the snapshot when the delta reports them, and folds `stop_details` the same way — matching the pinned Python/TypeScript overwrite-cumulative policy. Streaming callers no longer lose input-side counter updates after `message_start`. |
 | 14 | `citations_delta` + `TextBlock.citations` (§3.1, §4.1) | ❌ capability | Pairs with the citations feature as a whole. |
 | 15 | `eager_input_streaming` (GA fine-grained tool streaming); `ToolUseBlock.caller` (§6) | ❌ capability | Both are GA on the custom-tool path clauders already claims parity on. |
-| 16 | `Role::System` mid-conversation messages (§3.4); refreshed `ModelId` constructors (§11) | ❌ small | Low effort, low risk. |
+| 16 | `Role::System` mid-conversation messages (§3.4); refreshed `ModelId` constructors (§11) | ✅ **delivered** | `Role::System` is a first-class variant with `.add_system_text()` (request.rs:62, 402). `ModelId` gained `claude_opus_4_8()` / `claude_sonnet_5()` / `claude_fable_5()` (model_id.rs:96-110) and the crate's doctests were swept onto `claude_sonnet_5()`. |
 | 22 | Client-side `DEPRECATED_MODELS` end-of-life warning on `create`/`stream` (§2) | ❌ capability | Both SDKs warn when the requested model is in their end-of-life table (`messages.py:1035`, `messages.ts:72-77`). clauders now carries the sibling `thinking.type=enabled` warning but not this one, which needs a maintained model→date table. |
 
 ### Deferred — large independent surfaces
@@ -834,6 +888,7 @@ carries it, because that row also carries the defect it replaced. Row 3 is 🔶 
 | 19 | A stream ending without `message_stop` yields `Ok(partial)`; a tool-JSON buffer never closed by `content_block_stop` is never parsed (§4.5, §4.2) | 🔶 divergence | Follows Python and Go, which have no completeness check at all; TypeScript throws. The unclosed-buffer half is strictly *less* salvaging than Python, whose eager per-delta parse recovers complete key/value pairs (`{"a": 1,` → `{"a": 1}`). Reachable only on an already-broken stream. |
 | 20 | A duplicate `message_start` replaces the snapshot and resets the JSON buffers (§4.5) | 🔶 divergence | All three official SDKs differ — TypeScript throws, Python ignores the second event and interleaves its blocks into the first message, Go replaces. clauders follows Go; Python's interleaving is the outcome worth avoiding outright. |
 | 21 | `message_delta` writes `stop_reason`/`stop_sequence` only when present (§4.4) | 🔶 divergence | Python, TypeScript and Go all assign unconditionally, including overwriting a resolved value with `null`. The guard prevents a stray later delta from clobbering a resolved `stop_reason`. |
+| 23 | `ModelCapabilities.context_management` is a flatten dated-strategy map, not named optional fields (§9.1) | 🔶 divergence | Both official SDKs hardcode `clear_thinking_20251015?` / `clear_tool_uses_20250919?` / `compact_20260112?` as named fields. clauders captures every dated key in a `BTreeMap<String, CapabilitySupport>` instead — no data is lost, but field-access code ported from Python or TypeScript must switch to a map lookup, and a caller gets forward compatibility with new dated keys the pinned SDKs would need a new field for. |
 
 ---
 
@@ -847,11 +902,11 @@ parity rows; re-derive it rather than trusting it after any §12 revision.
 |---|---|---|---|
 | ~~**A — decode-path correctness**~~ ✅ **DONE 2026-07-21** | 1, 2, 3, 4 | `messages/accumulator.rs` (new), `messages/streaming.rs`, `messages/content.rs`, `messages/response.rs`, plus one-line arms in `messages/batches/types.rs`, `models/types.rs`, `error.rs` | — |
 | ~~**B — current-model request surface**~~ ✅ **DONE 2026-07-21** | 5, 6 | `messages/request.rs`, `messages/structured_outputs.rs`, `types/numeric.rs` | — |
-| **C — response diagnostics & discovery** | 10, 11, 12, 13, 16 | `messages/response.rs`, `models/types.rs`, `messages/request.rs` | — |
+| ~~**C — response diagnostics & discovery**~~ ✅ **DONE 2026-07-23** | 10, 11, 12, 13, 16 | `messages/response.rs`, `models/types.rs`, `models/capabilities.rs` (new), `messages/request.rs`, `types/model_id.rs` | — |
 | **D — content-block taxonomy** | 7, 8, 9, 14, 15 | `messages/content.rs`, `messages/tools.rs` | **A** |
 
-**A and B are delivered, so D is unblocked.** `ContentBlock::Unknown` exists, which is exactly the arm
-that turns D from blocking work into progressive work. Recommended order for what remains: **C → D**.
+**A, B, and C are delivered, so D is unblocked.** `ContentBlock::Unknown` exists, which is exactly the
+arm that turns D from blocking work into progressive work. What remains is **D**.
 
 **The one hard dependency is A → D.** Row 2 adds an unknown-variant arm to `ContentBlock`; that arm is
 what turns D from blocking work into progressive work, because unknown blocks stop being fatal and the
@@ -867,10 +922,10 @@ A and C both touch `response.rs` — A adds `StopReason::Unknown`, C adds the ty
 alongside it, so C is additive over A and the two do not conflict. B and C both touch `request.rs` but
 in disjoint fields (`thinking`/`output_config` vs `service_tier`/`inference_geo`/`container`/`cache_control`).
 
-Recommended order: **A → B → C → D.** A first because it is the only tier that corrupts data silently
-and because it unblocks D; B second because, until it landed, the crate could not correctly *drive* a
-current-generation model's thinking/effort surface; C and D are additive from there. A and B are both
-delivered, so what remains is C → D.
+Recommended order was **A → B → C → D.** A first because it is the only tier that corrupts data
+silently and because it unblocks D; B second because, until it landed, the crate could not correctly
+*drive* a current-generation model's thinking/effort surface; C and D are additive from there. A, B, and
+C are all delivered, so what remains is D.
 
 ---
 

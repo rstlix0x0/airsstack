@@ -53,7 +53,7 @@ const BATCHES_PATH: &str = "v1/messages/batches";
 ///     .add(
 ///         CustomRequestId::new("r1").unwrap(),
 ///         MessageRequest::builder()
-///             .model(ModelId::claude_sonnet_4_5())
+///             .model(ModelId::claude_sonnet_5())
 ///             .max_tokens(MaxTokens::new(16))
 ///             .add_user_text("hi")
 ///             .build(),

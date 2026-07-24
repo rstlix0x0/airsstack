@@ -90,6 +90,24 @@ impl ModelId {
     pub fn claude_haiku_4_5() -> Self {
         Self("claude-haiku-4-5".to_owned())
     }
+
+    /// Headline Opus 4.8 model.
+    #[must_use]
+    pub fn claude_opus_4_8() -> Self {
+        Self("claude-opus-4-8".to_owned())
+    }
+
+    /// Headline Sonnet 5 model.
+    #[must_use]
+    pub fn claude_sonnet_5() -> Self {
+        Self("claude-sonnet-5".to_owned())
+    }
+
+    /// Headline Fable 5 model.
+    #[must_use]
+    pub fn claude_fable_5() -> Self {
+        Self("claude-fable-5".to_owned())
+    }
 }
 
 impl fmt::Display for ModelId {
@@ -113,6 +131,13 @@ mod tests {
         assert_eq!(ModelId::claude_sonnet_4_6().as_str(), "claude-sonnet-4-6");
         assert_eq!(ModelId::claude_sonnet_4_5().as_str(), "claude-sonnet-4-5");
         assert_eq!(ModelId::claude_haiku_4_5().as_str(), "claude-haiku-4-5");
+    }
+
+    #[test]
+    fn current_headline_models_have_expected_wire_strings() {
+        assert_eq!(ModelId::claude_opus_4_8().as_str(), "claude-opus-4-8");
+        assert_eq!(ModelId::claude_sonnet_5().as_str(), "claude-sonnet-5");
+        assert_eq!(ModelId::claude_fable_5().as_str(), "claude-fable-5");
     }
 
     #[test]
