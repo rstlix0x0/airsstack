@@ -35,13 +35,6 @@ pub(crate) fn projects_root(base: &Path) -> PathBuf {
 }
 
 /// Whether `s` is a canonical `8-4-4-4-12` hex UUID (case-insensitive).
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "will gate rename/tag session-id validation once those operations are added"
-    )
-)]
 pub(crate) fn is_session_id(s: &str) -> bool {
     let groups = [8usize, 4, 4, 4, 12];
     let mut parts = s.split('-');
@@ -70,13 +63,6 @@ pub(crate) fn encode_cwd(cwd: &str) -> String {
 /// (`<base>/projects`). For an encoding within the length cap this is the
 /// single exact directory (when it exists); for an over-long encoding it is
 /// every directory whose name starts with the 200-char prefix.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "will back the session finder used by list/info once those operations are added"
-    )
-)]
 pub(crate) async fn candidate_dirs(root: &Path, cwd: &str) -> Vec<PathBuf> {
     let encoded = encode_cwd(cwd);
     if encoded.len() <= MAX_ENCODED_LEN {
@@ -96,6 +82,60 @@ pub(crate) async fn candidate_dirs(root: &Path, cwd: &str) -> Vec<PathBuf> {
         }
     }
     out
+}
+
+/// A located session file: its path, the cwd it was scoped to (when the
+/// lookup supplied one), and its byte size.
+pub(crate) struct FoundSession {
+    pub file_path: PathBuf,
+    pub project_path: Option<String>,
+    #[expect(
+        dead_code,
+        reason = "will back per-directory session entries once list/dir enumeration is added"
+    )]
+    pub file_size: u64,
+}
+
+/// Try one directory for `<id>.jsonl` with size > 0.
+async fn probe(dir: &Path, file_name: &str, project_path: Option<&str>) -> Option<FoundSession> {
+    let file_path = dir.join(file_name);
+    match tokio::fs::metadata(&file_path).await {
+        Ok(m) if m.is_file() && m.len() > 0 => Some(FoundSession {
+            file_path,
+            project_path: project_path.map(str::to_string),
+            file_size: m.len(),
+        }),
+        _ => None,
+    }
+}
+
+/// Locate a session's `.jsonl`. With `dir`, search that cwd's candidate
+/// project directories; otherwise scan every subdirectory of `root`. Only a
+/// non-empty file counts.
+pub(crate) async fn find_session_file(
+    root: &Path,
+    session_id: &str,
+    dir: Option<&str>,
+) -> Option<FoundSession> {
+    let file_name = format!("{session_id}.jsonl");
+    if let Some(cwd) = dir {
+        for candidate in candidate_dirs(root, cwd).await {
+            if let Some(found) = probe(&candidate, &file_name, Some(cwd)).await {
+                return Some(found);
+            }
+        }
+        // Worktree-linked directories are not searched here.
+        return None;
+    }
+    let mut rd = tokio::fs::read_dir(root).await.ok()?;
+    while let Ok(Some(entry)) = rd.next_entry().await {
+        if entry.file_type().await.map(|t| t.is_dir()).unwrap_or(false) {
+            if let Some(found) = probe(&entry.path(), &file_name, None).await {
+                return Some(found);
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -172,5 +212,51 @@ mod tests {
         let root = tmp.path().join("projects");
         tokio::fs::create_dir_all(&root).await.expect("mkdir");
         assert!(candidate_dirs(&root, "/nope").await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn finds_a_session_by_scanning_all_project_dirs() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path().join("projects");
+        let dir = root.join("-repo-a");
+        tokio::fs::create_dir_all(&dir).await.expect("mkdir");
+        let id = "f28ced56-9bd4-41f8-a37d-2a496c7d0e35";
+        tokio::fs::write(dir.join(format!("{id}.jsonl")), b"x\n")
+            .await
+            .expect("write");
+        let found = find_session_file(&root, id, None).await.expect("found");
+        assert_eq!(found.file_path, dir.join(format!("{id}.jsonl")));
+        assert!(found.project_path.is_none());
+    }
+
+    #[tokio::test]
+    async fn finds_a_session_scoped_to_a_dir() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path().join("projects");
+        let cwd = "/repo/b";
+        let dir = root.join(encode_cwd(cwd));
+        tokio::fs::create_dir_all(&dir).await.expect("mkdir");
+        let id = "f28ced56-9bd4-41f8-a37d-2a496c7d0e35";
+        tokio::fs::write(dir.join(format!("{id}.jsonl")), b"x\n")
+            .await
+            .expect("write");
+        let found = find_session_file(&root, id, Some(cwd))
+            .await
+            .expect("found");
+        assert_eq!(found.file_path, dir.join(format!("{id}.jsonl")));
+        assert_eq!(found.project_path.as_deref(), Some(cwd));
+    }
+
+    #[tokio::test]
+    async fn empty_session_file_is_not_found() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path().join("projects");
+        let dir = root.join("-repo-c");
+        tokio::fs::create_dir_all(&dir).await.expect("mkdir");
+        let id = "f28ced56-9bd4-41f8-a37d-2a496c7d0e35";
+        tokio::fs::write(dir.join(format!("{id}.jsonl")), b"")
+            .await
+            .expect("write");
+        assert!(find_session_file(&root, id, None).await.is_none());
     }
 }
