@@ -21,6 +21,7 @@ pub mod permissions;
 pub mod process;
 pub mod protocol;
 pub mod runtime;
+pub mod sessions;
 pub mod stream;
 pub mod subagents;
 pub mod system_prompt;
@@ -50,6 +51,7 @@ pub use permissions::{
 };
 pub use runtime::Runtime;
 pub use runtime::cli::CliRuntime;
+pub use sessions::{SessionArchive, SessionError};
 pub use stream::MessageStream;
 pub use subagents::{AgentDefinition, AgentDefinitionError, MemorySource};
 pub use system_prompt::SystemPromptConfig;
