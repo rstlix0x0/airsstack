@@ -3,8 +3,13 @@
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use super::error::SessionError;
+
+/// Upper bound on the `git worktree list` invocation in [`worktree_paths`],
+/// matching the binary's bound on the same call.
+const WORKTREE_LIST_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Resolve the config root: `CLAUDE_CONFIG_DIR` when set (even if empty),
 /// otherwise `$HOME/.claude`.
@@ -109,9 +114,62 @@ async fn probe(dir: &Path, file_name: &str, project_path: Option<&str>) -> Optio
     }
 }
 
+/// The git worktrees linked to `cwd`, via `git worktree list --porcelain`.
+/// Returns an empty vector when git is absent, `cwd` is not a work tree, the
+/// command errors, or it exceeds [`WORKTREE_LIST_TIMEOUT`] — never an error
+/// (matching the binary's `catch → []`, extended to a hung child process).
+pub(crate) async fn worktree_paths(cwd: &str) -> Vec<String> {
+    let mut cmd = tokio::process::Command::new("git");
+    cmd.args([
+        "-c",
+        "core.hooksPath=/dev/null",
+        "-c",
+        "core.fsmonitor=",
+        "worktree",
+        "list",
+        "--porcelain",
+    ])
+    .current_dir(cwd)
+    .kill_on_drop(true);
+
+    let Ok(Ok(out)) = tokio::time::timeout(WORKTREE_LIST_TIMEOUT, cmd.output()).await else {
+        return Vec::new();
+    };
+    if !out.status.success() {
+        return Vec::new();
+    }
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .filter_map(|l| l.strip_prefix("worktree "))
+        .map(str::to_string)
+        .collect()
+}
+
+/// Candidate directories for `cwd` **and** its linked worktrees, each tagged
+/// with the worktree path it came from (for `project_path`).
+pub(crate) async fn candidate_dirs_with_worktrees(
+    root: &Path,
+    cwd: &str,
+) -> Vec<(PathBuf, String)> {
+    let mut out: Vec<(PathBuf, String)> = candidate_dirs(root, cwd)
+        .await
+        .into_iter()
+        .map(|d| (d, cwd.to_string()))
+        .collect();
+    for wt in worktree_paths(cwd).await {
+        if wt == cwd {
+            continue;
+        }
+        for d in candidate_dirs(root, &wt).await {
+            out.push((d, wt.clone()));
+        }
+    }
+    out
+}
+
 /// Locate a session's `.jsonl`. With `dir`, search that cwd's candidate
-/// project directories; otherwise scan every subdirectory of `root`. Only a
-/// non-empty file counts.
+/// project directories (and any linked git worktrees); otherwise scan every
+/// subdirectory of `root`. Only a non-empty file counts.
 pub(crate) async fn find_session_file(
     root: &Path,
     session_id: &str,
@@ -124,7 +182,11 @@ pub(crate) async fn find_session_file(
                 return Some(found);
             }
         }
-        // Worktree-linked directories are not searched here.
+        for (candidate, wt) in candidate_dirs_with_worktrees(root, cwd).await {
+            if let Some(found) = probe(&candidate, &file_name, Some(&wt)).await {
+                return Some(found);
+            }
+        }
         return None;
     }
     let mut rd = tokio::fs::read_dir(root).await.ok()?;
@@ -258,5 +320,37 @@ mod tests {
             .await
             .expect("write");
         assert!(find_session_file(&root, id, None).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn worktree_dirs_returns_empty_outside_git() {
+        // Outside a git tree (or with git absent) enumeration yields nothing,
+        // never an error.
+        let tmp = tempfile::tempdir().expect("tmp");
+        assert!(
+            worktree_paths(&tmp.path().to_string_lossy())
+                .await
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn worktree_dirs_returns_promptly_well_under_the_timeout_bound() {
+        // A real 5s hang is impractical to trigger deterministically in a
+        // unit test. This instead proves the fast, non-hanging path stays
+        // far under WORKTREE_LIST_TIMEOUT, so the wrapper isn't silently
+        // stretching every call out to the bound; the timeout-elapses branch
+        // (`Vec::new()` on `Err` from `tokio::time::timeout`) is exercised by
+        // code inspection: it shares the exact same catch-arm as the
+        // git-absent/non-worktree/non-zero-exit cases covered above.
+        let tmp = tempfile::tempdir().expect("tmp");
+        let start = std::time::Instant::now();
+        let got = worktree_paths(&tmp.path().to_string_lossy()).await;
+        let elapsed = start.elapsed();
+        assert!(got.is_empty());
+        assert!(
+            elapsed < WORKTREE_LIST_TIMEOUT / 2,
+            "expected a fast return well under the 5s timeout bound, took {elapsed:?}"
+        );
     }
 }

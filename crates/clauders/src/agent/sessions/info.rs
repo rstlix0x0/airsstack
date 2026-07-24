@@ -1,14 +1,17 @@
 //! Session metadata (`SessionInfo`) and its derivation from the head/tail
 //! of a transcript file.
 
+use std::collections::HashMap;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 
 use crate::agent::types::SessionId;
+
+use super::path::is_session_id;
 
 /// The head/tail window the binary reads for metadata: 64 KiB.
 const WINDOW: usize = 65536;
@@ -186,6 +189,160 @@ pub(crate) fn build_info(
         tag,
         created_at,
     })
+}
+
+/// A lightweight session entry located in one project directory.
+pub(crate) struct SessionEntry {
+    pub session_id: String,
+    pub file_path: PathBuf,
+    pub mtime_ms: i64,
+    pub project_path: Option<String>,
+}
+
+/// List the session entries in one project directory: every `<uuid>.jsonl`.
+/// Reads mtime only when `need_mtime` (the paginated path sorts by it).
+pub(crate) async fn list_dir_entries(
+    dir: &Path,
+    need_mtime: bool,
+    project_path: Option<&str>,
+) -> Vec<SessionEntry> {
+    let mut out = Vec::new();
+    let Ok(mut rd) = tokio::fs::read_dir(dir).await else {
+        return out;
+    };
+    while let Ok(Some(entry)) = rd.next_entry().await {
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let Some(stem) = name.strip_suffix(".jsonl") else {
+            continue;
+        };
+        if !is_session_id(stem) {
+            continue;
+        }
+        let path = entry.path();
+        let mtime_ms = if need_mtime {
+            match tokio::fs::metadata(&path).await {
+                Ok(m) => m
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+                    .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX)),
+                Err(_) => continue, // matches the binary: a stat failure drops the entry
+            }
+        } else {
+            0
+        };
+        out.push(SessionEntry {
+            session_id: stem.to_string(),
+            file_path: path,
+            mtime_ms,
+            project_path: project_path.map(str::to_string),
+        });
+    }
+    out
+}
+
+/// Entrypoints the binary treats as programmatic (SDK-initiated).
+const PROGRAMMATIC_ENTRYPOINTS: [&str; 3] = ["sdk-cli", "sdk-ts", "sdk-py"];
+
+/// Whether a session is programmatic (SDK-initiated or a daemon worker).
+pub(crate) fn is_programmatic(head: &str, tail: &str) -> bool {
+    let entrypoint =
+        first_string_field(head, "entrypoint").or_else(|| last_string_field(tail, "entrypoint"));
+    if let Some(ep) = entrypoint {
+        if PROGRAMMATIC_ENTRYPOINTS.contains(&ep.as_str()) {
+            return true;
+        }
+    }
+    let line = head
+        .split('\n')
+        .find(|l| l.contains("\"parentUuid\":"))
+        .unwrap_or(head);
+    matches!(
+        first_string_field(line, "sessionKind").as_deref(),
+        Some("daemon" | "daemon-worker")
+    )
+}
+
+/// Build [`SessionInfo`] for one located entry, applying the programmatic
+/// filter and overriding `last_modified` with the entry mtime when known.
+/// `None` when unreadable, programmatic-and-excluded, or lacking a summary.
+pub(crate) async fn build_entry_info(
+    entry: &SessionEntry,
+    include_programmatic: bool,
+) -> Option<SessionInfo> {
+    let ht = read_head_tail(&entry.file_path).await.ok().flatten()?;
+    if !include_programmatic && is_programmatic(&ht.head, &ht.tail) {
+        return None;
+    }
+    let mut info = build_info(&entry.session_id, &ht, entry.project_path.as_deref())?;
+    if entry.mtime_ms != 0 {
+        info.last_modified = entry.mtime_ms;
+    }
+    Some(info)
+}
+
+/// Build all entries, dedup by session id (max `last_modified` wins), and
+/// sort descending by `(last_modified, session_id)`.
+pub(crate) async fn collect_unpaged(
+    entries: Vec<SessionEntry>,
+    include_programmatic: bool,
+) -> Vec<SessionInfo> {
+    let mut by_id: HashMap<String, SessionInfo> = HashMap::new();
+    for entry in &entries {
+        if let Some(info) = build_entry_info(entry, include_programmatic).await {
+            let id = info.session_id.as_str().to_string();
+            match by_id.get(&id) {
+                Some(existing) if existing.last_modified >= info.last_modified => {}
+                _ => {
+                    by_id.insert(id, info);
+                }
+            }
+        }
+    }
+    let mut out: Vec<SessionInfo> = by_id.into_values().collect();
+    out.sort_by(|a, b| {
+        b.last_modified
+            .cmp(&a.last_modified)
+            .then_with(|| b.session_id.as_str().cmp(a.session_id.as_str()))
+    });
+    out
+}
+
+/// Sort entries by `(mtime desc, id desc)`, build lazily, dedup first-seen,
+/// skip `offset`, take `limit`.
+pub(crate) async fn collect_paged(
+    mut entries: Vec<SessionEntry>,
+    limit: Option<usize>,
+    offset: usize,
+    include_programmatic: bool,
+) -> Vec<SessionInfo> {
+    entries.sort_by(|a, b| {
+        b.mtime_ms
+            .cmp(&a.mtime_ms)
+            .then_with(|| b.session_id.cmp(&a.session_id))
+    });
+    let cap = limit.filter(|l| *l > 0).unwrap_or(usize::MAX);
+    let mut seen = std::collections::HashSet::new();
+    let mut skipped = 0usize;
+    let mut out = Vec::new();
+    for entry in &entries {
+        if out.len() >= cap {
+            break;
+        }
+        let Some(info) = build_entry_info(entry, include_programmatic).await else {
+            continue;
+        };
+        let id = info.session_id.as_str().to_string();
+        if !seen.insert(id) {
+            continue;
+        }
+        if skipped < offset {
+            skipped += 1;
+            continue;
+        }
+        out.push(info);
+    }
+    out
 }
 
 /// Unescape a raw JSON string body (the text between the quotes). Mirrors
@@ -476,5 +633,118 @@ mod build_tests {
             )
             .is_none()
         );
+    }
+}
+
+#[cfg(test)]
+mod entry_tests {
+    #![expect(clippy::expect_used, reason = "test assertions use expect for context")]
+
+    use super::*;
+
+    #[tokio::test]
+    async fn lists_only_uuid_named_jsonl_files() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let dir = tmp.path();
+        tokio::fs::write(
+            dir.join("f28ced56-9bd4-41f8-a37d-2a496c7d0e35.jsonl"),
+            b"x\n",
+        )
+        .await
+        .expect("write");
+        tokio::fs::write(dir.join("not-a-uuid.jsonl"), b"x\n")
+            .await
+            .expect("write");
+        tokio::fs::write(dir.join("notes.txt"), b"x\n")
+            .await
+            .expect("write");
+        let entries = list_dir_entries(dir, false, None).await;
+        assert_eq!(entries.len(), 1);
+        assert_eq!(
+            entries[0].session_id,
+            "f28ced56-9bd4-41f8-a37d-2a496c7d0e35"
+        );
+        assert_eq!(
+            entries[0].mtime_ms, 0,
+            "mtime not read when need_mtime is false"
+        );
+    }
+}
+
+#[cfg(test)]
+mod programmatic_tests {
+    use super::*;
+
+    #[test]
+    fn sdk_entrypoint_is_programmatic() {
+        let head = r#"{"type":"user","entrypoint":"sdk-py","message":{"content":"x"}}"#;
+        assert!(is_programmatic(head, ""));
+    }
+
+    #[test]
+    fn daemon_session_kind_is_programmatic() {
+        let head =
+            r#"{"type":"user","parentUuid":null,"sessionKind":"daemon","message":{"content":"x"}}"#;
+        assert!(is_programmatic(head, ""));
+    }
+
+    #[test]
+    fn interactive_session_is_not_programmatic() {
+        let head = r#"{"type":"user","entrypoint":"cli","message":{"content":"x"}}"#;
+        assert!(!is_programmatic(head, ""));
+    }
+}
+
+#[cfg(test)]
+mod collect_tests {
+    #![expect(clippy::expect_used, reason = "test assertions use expect for context")]
+
+    use super::*;
+
+    async fn write_session(dir: &Path, id: &str, summary: &str) -> SessionEntry {
+        let p = dir.join(format!("{id}.jsonl"));
+        tokio::fs::write(
+            &p,
+            format!("{{\"type\":\"user\",\"message\":{{\"content\":\"{summary}\"}}}}\n"),
+        )
+        .await
+        .expect("write");
+        SessionEntry {
+            session_id: id.to_string(),
+            file_path: p,
+            mtime_ms: 0,
+            project_path: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn unpaged_dedups_by_session_id() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let id = "f28ced56-9bd4-41f8-a37d-2a496c7d0e35";
+        let e1 = write_session(tmp.path(), id, "one").await;
+        let mut e2 = write_session(tmp.path(), id, "one").await; // same id, other dir simulated
+        e2.mtime_ms = 5;
+        let out = collect_unpaged(vec![e1, e2], true).await;
+        assert_eq!(out.len(), 1, "same session id collapses");
+    }
+
+    #[tokio::test]
+    async fn paged_applies_offset_and_limit() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let mut entries = Vec::new();
+        for (n, id) in [
+            "a0000000-0000-4000-8000-000000000001",
+            "a0000000-0000-4000-8000-000000000002",
+            "a0000000-0000-4000-8000-000000000003",
+        ]
+        .iter()
+        .enumerate()
+        {
+            let mut e = write_session(tmp.path(), id, "s").await;
+            e.mtime_ms = i64::try_from(n).unwrap_or(i64::MAX) + 1;
+            entries.push(e);
+        }
+        let out = collect_paged(entries, Some(1), 1, true).await;
+        assert_eq!(out.len(), 1, "limit 1 after offset 1");
     }
 }

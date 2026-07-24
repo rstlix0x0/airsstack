@@ -4,8 +4,15 @@
 use std::path::PathBuf;
 
 use super::error::SessionError;
-use super::info::{SessionInfo, build_info, read_head_tail};
-use super::path::{find_session_file, is_session_id, projects_root, resolve_config_root};
+use super::info::{
+    SessionEntry, SessionInfo, build_info, collect_paged, collect_unpaged, list_dir_entries,
+    read_head_tail,
+};
+use super::options::ListOptions;
+use super::path::{
+    candidate_dirs, candidate_dirs_with_worktrees, find_session_file, is_session_id, projects_root,
+    resolve_config_root,
+};
 
 /// A handle to the on-disk session store rooted at a config directory.
 ///
@@ -62,6 +69,48 @@ impl SessionArchive {
         };
         Ok(build_info(session_id, &ht, found.project_path.as_deref()))
     }
+
+    /// List stored sessions as metadata records, newest first.
+    ///
+    /// # Errors
+    /// Returns [`SessionError`] only on a failure resolving the projects
+    /// root; per-file read failures are skipped, matching the binary.
+    pub async fn list(&self, opts: ListOptions) -> Result<Vec<SessionInfo>, SessionError> {
+        let root = self.projects();
+        let paged = opts.limit.is_some_and(|l| l > 0) || opts.offset > 0;
+        let entries = if let Some(dir) = opts.dir.as_deref() {
+            let cwd = dir.to_string_lossy().into_owned();
+            let mut acc: Vec<SessionEntry> = Vec::new();
+            let dirs = if opts.include_worktrees {
+                candidate_dirs_with_worktrees(&root, &cwd).await
+            } else {
+                candidate_dirs(&root, &cwd)
+                    .await
+                    .into_iter()
+                    .map(|d| (d, cwd.clone()))
+                    .collect()
+            };
+            for (candidate, wt) in dirs {
+                acc.extend(list_dir_entries(&candidate, paged, Some(&wt)).await);
+            }
+            acc
+        } else {
+            let mut acc: Vec<SessionEntry> = Vec::new();
+            if let Ok(mut rd) = tokio::fs::read_dir(&root).await {
+                while let Ok(Some(sub)) = rd.next_entry().await {
+                    if sub.file_type().await.map(|t| t.is_dir()).unwrap_or(false) {
+                        acc.extend(list_dir_entries(&sub.path(), paged, None).await);
+                    }
+                }
+            }
+            acc
+        };
+        Ok(if paged {
+            collect_paged(entries, opts.limit, opts.offset, opts.include_programmatic).await
+        } else {
+            collect_unpaged(entries, opts.include_programmatic).await
+        })
+    }
 }
 
 #[cfg(test)]
@@ -111,5 +160,27 @@ mod tests {
         let info = a.info(id, None).await.expect("ok").expect("some");
         assert_eq!(info.session_id.as_str(), id);
         assert_eq!(info.summary, "the prompt");
+    }
+
+    #[tokio::test]
+    async fn list_returns_sessions_across_all_project_dirs() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path().join("projects");
+        for (dir, id) in [
+            ("-repo-a", "a0000000-0000-4000-8000-000000000001"),
+            ("-repo-b", "a0000000-0000-4000-8000-000000000002"),
+        ] {
+            let d = root.join(dir);
+            tokio::fs::create_dir_all(&d).await.expect("mkdir");
+            tokio::fs::write(
+                d.join(format!("{id}.jsonl")),
+                b"{\"type\":\"user\",\"message\":{\"content\":\"hi\"}}\n",
+            )
+            .await
+            .expect("write");
+        }
+        let a = SessionArchive::with_base(tmp.path());
+        let got = a.list(ListOptions::default()).await.expect("ok");
+        assert_eq!(got.len(), 2);
     }
 }
