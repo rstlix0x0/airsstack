@@ -103,13 +103,6 @@ impl TranscriptEntry {
 
 /// Parse a raw transcript buffer into message entries (`user`/`assistant`/
 /// `system` with a string `uuid`).
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "no non-test caller in this crate invokes this yet"
-    )
-)]
 pub(crate) fn parse_transcript(bytes: &[u8]) -> Vec<TranscriptEntry> {
     let text = String::from_utf8_lossy(bytes);
     let mut out = Vec::new();
@@ -162,13 +155,6 @@ mod parse_tests {
 }
 
 /// Dedup entries by uuid: keep first-appearance order, latest record wins.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "no non-test caller in this crate invokes this yet"
-    )
-)]
 pub(crate) fn dedup_by_uuid(entries: Vec<TranscriptEntry>) -> Vec<TranscriptEntry> {
     let mut pos: HashMap<String, usize> = HashMap::new();
     let mut out: Vec<TranscriptEntry> = Vec::new();
@@ -249,13 +235,6 @@ mod filter_tests {
 
 /// Map filtered entries to `SessionMessage`s and paginate. Entries that fail
 /// to decode through `Message` (never expected post-filter) are skipped.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "no non-test caller in this crate invokes this yet"
-    )
-)]
 pub(crate) fn assemble_messages(
     entries: Vec<TranscriptEntry>,
     include_system: bool,
@@ -345,5 +324,93 @@ mod assemble_tests {
         let paged = assemble_messages(entries, false, Some(1), 1);
         assert_eq!(paged.len(), 1);
         assert_eq!(paged[0].uuid, "a1", "offset 1, limit 1");
+    }
+}
+
+/// Encode a `renameSession` record (`{type:"custom-title",customTitle,sessionId}` + `\n`).
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "wired by SessionArchive::rename, not yet added in this crate"
+    )
+)]
+pub(crate) fn encode_rename_record(session_id: &str, title: &str) -> String {
+    #[derive(Serialize)]
+    struct RenameRecord<'a> {
+        #[serde(rename = "type")]
+        ty: &'a str,
+        #[serde(rename = "customTitle")]
+        custom_title: &'a str,
+        #[serde(rename = "sessionId")]
+        session_id: &'a str,
+    }
+    #[expect(
+        clippy::expect_used,
+        reason = "a struct of &str fields is always representable as JSON"
+    )]
+    let mut s = serde_json::to_string(&RenameRecord {
+        ty: "custom-title",
+        custom_title: title,
+        session_id,
+    })
+    .expect("record serializes");
+    s.push('\n');
+    s
+}
+
+/// Encode a `tagSession` record (`{type:"tag",tag,sessionId}` + `\n`).
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "wired by SessionArchive::tag, not yet added in this crate"
+    )
+)]
+pub(crate) fn encode_tag_record(session_id: &str, tag: &str) -> String {
+    #[derive(Serialize)]
+    struct TagRecord<'a> {
+        #[serde(rename = "type")]
+        ty: &'a str,
+        tag: &'a str,
+        #[serde(rename = "sessionId")]
+        session_id: &'a str,
+    }
+    #[expect(
+        clippy::expect_used,
+        reason = "a struct of &str fields is always representable as JSON"
+    )]
+    let mut s = serde_json::to_string(&TagRecord {
+        ty: "tag",
+        tag,
+        session_id,
+    })
+    .expect("record serializes");
+    s.push('\n');
+    s
+}
+
+#[cfg(test)]
+mod record_tests {
+    #![expect(clippy::expect_used, reason = "test assertions use expect for context")]
+
+    use super::*;
+
+    #[test]
+    fn rename_record_has_type_title_and_id() {
+        let r = encode_rename_record("f28ced56-9bd4-41f8-a37d-2a496c7d0e35", "My Title");
+        assert!(r.ends_with('\n'));
+        let v: serde_json::Value = serde_json::from_str(r.trim_end()).expect("valid json");
+        assert_eq!(v["type"], "custom-title");
+        assert_eq!(v["customTitle"], "My Title");
+        assert_eq!(v["sessionId"], "f28ced56-9bd4-41f8-a37d-2a496c7d0e35");
+    }
+
+    #[test]
+    fn tag_record_has_type_tag_and_id() {
+        let r = encode_tag_record("f28ced56-9bd4-41f8-a37d-2a496c7d0e35", "");
+        let v: serde_json::Value = serde_json::from_str(r.trim_end()).expect("valid json");
+        assert_eq!(v["type"], "tag");
+        assert_eq!(v["tag"], "");
     }
 }

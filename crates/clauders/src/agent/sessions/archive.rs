@@ -8,7 +8,8 @@ use super::info::{
     SessionEntry, SessionInfo, build_info, collect_paged, collect_unpaged, list_dir_entries,
     read_head_tail,
 };
-use super::options::ListOptions;
+use super::message::{SessionMessage, assemble_messages, dedup_by_uuid, parse_transcript};
+use super::options::{ListOptions, MessagesOptions};
 use super::path::{
     candidate_dirs, candidate_dirs_with_worktrees, find_session_file, is_session_id, projects_root,
     resolve_config_root,
@@ -111,6 +112,40 @@ impl SessionArchive {
             collect_unpaged(entries, opts.include_programmatic).await
         })
     }
+
+    /// Read a session's messages as the full flat transcript (user/assistant,
+    /// and system when requested), deduped by uuid and in file order, each
+    /// carrying its `parent_uuid`. A bad uuid or absent session yields an
+    /// empty vector.
+    ///
+    /// This deliberately differs from the official SDK, which returns a
+    /// reconstructed single active thread; clauders returns the full
+    /// transcript and leaves branch reconstruction to the caller.
+    ///
+    /// # Errors
+    /// Returns [`SessionError`] on a genuine read failure.
+    pub async fn messages(
+        &self,
+        session_id: &str,
+        opts: MessagesOptions,
+    ) -> Result<Vec<SessionMessage>, SessionError> {
+        if !is_session_id(session_id) {
+            return Ok(Vec::new());
+        }
+        let root = self.projects();
+        let dir = opts.dir.as_ref().map(|p| p.to_string_lossy().into_owned());
+        let Some(found) = find_session_file(&root, session_id, dir.as_deref()).await else {
+            return Ok(Vec::new());
+        };
+        let bytes = tokio::fs::read(&found.file_path).await?;
+        let entries = dedup_by_uuid(parse_transcript(&bytes));
+        Ok(assemble_messages(
+            entries,
+            opts.include_system_messages,
+            opts.limit,
+            opts.offset,
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -182,5 +217,60 @@ mod tests {
         let a = SessionArchive::with_base(tmp.path());
         let got = a.list(ListOptions::default()).await.expect("ok");
         assert_eq!(got.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn messages_returns_empty_for_bad_uuid_or_absent() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let a = SessionArchive::with_base(tmp.path());
+        assert!(
+            a.messages("not-a-uuid", MessagesOptions::default())
+                .await
+                .expect("ok")
+                .is_empty()
+        );
+        assert!(
+            a.messages(
+                "f28ced56-9bd4-41f8-a37d-2a496c7d0e35",
+                MessagesOptions::default()
+            )
+            .await
+            .expect("ok")
+            .is_empty()
+        );
+    }
+
+    #[tokio::test]
+    async fn messages_returns_the_full_flat_transcript_with_parent_uuid() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let id = "f28ced56-9bd4-41f8-a37d-2a496c7d0e35";
+        let dir = tmp.path().join("projects").join("-repo-a");
+        tokio::fs::create_dir_all(&dir).await.expect("mkdir");
+        // A forked session: u1 -> a1, and u1 -> a2 (a second branch). The flat
+        // contract returns ALL of them (unlike the TS active-thread reader).
+        let jsonl = concat!(
+            r#"{"type":"user","uuid":"u1","parentUuid":null,"sessionId":"s","message":{"role":"user","content":"hi"}}"#,
+            "\n",
+            r#"{"type":"assistant","uuid":"a1","parentUuid":"u1","sessionId":"s","message":{"id":"m1","content":[{"type":"text","text":"one"}]}}"#,
+            "\n",
+            r#"{"type":"assistant","uuid":"a2","parentUuid":"u1","sessionId":"s","message":{"id":"m2","content":[{"type":"text","text":"two"}]}}"#,
+            "\n",
+        );
+        tokio::fs::write(dir.join(format!("{id}.jsonl")), jsonl)
+            .await
+            .expect("write");
+        let a = SessionArchive::with_base(tmp.path());
+        let msgs = a
+            .messages(id, MessagesOptions::default())
+            .await
+            .expect("ok");
+        let ids: Vec<&str> = msgs.iter().map(|m| m.uuid.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec!["u1", "a1", "a2"],
+            "both branches returned, in file order"
+        );
+        assert_eq!(msgs[1].parent_uuid.as_deref(), Some("u1"));
+        assert_eq!(msgs[2].parent_uuid.as_deref(), Some("u1"));
     }
 }

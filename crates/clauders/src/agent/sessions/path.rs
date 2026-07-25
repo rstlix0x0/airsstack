@@ -167,6 +167,73 @@ pub(crate) async fn candidate_dirs_with_worktrees(
     out
 }
 
+/// Append `text` to `path` iff it exists and is non-empty. Returns whether
+/// the append happened. A genuine I/O error (not "absent") propagates.
+pub(crate) async fn append_to_file(path: &Path, text: &str) -> std::io::Result<bool> {
+    use tokio::io::AsyncWriteExt;
+    let mut file = match tokio::fs::OpenOptions::new().append(true).open(path).await {
+        Ok(f) => f,
+        Err(e) if matches!(e.kind(), std::io::ErrorKind::NotFound) => return Ok(false),
+        // ENOTDIR and other "path does not resolve" cases also mean "not here".
+        Err(e) if e.raw_os_error() == Some(20) => return Ok(false),
+        Err(e) => return Err(e),
+    };
+    let meta = file.metadata().await?;
+    if meta.len() == 0 {
+        return Ok(false);
+    }
+    file.write_all(text.as_bytes()).await?;
+    Ok(true)
+}
+
+/// Append `text` to session `session_id`'s file, locating it the way the
+/// binary does. With `dir`, search that cwd's candidate + worktree
+/// directories; otherwise scan every project subdirectory. Errors with
+/// [`SessionError::SessionNotFound`] when no session file matches.
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "wired by SessionArchive::rename/::tag, not yet added in this crate"
+    )
+)]
+pub(crate) async fn append_session_record(
+    root: &Path,
+    session_id: &str,
+    dir: Option<&str>,
+    text: &str,
+) -> Result<(), SessionError> {
+    let file_name = format!("{session_id}.jsonl");
+    if let Some(cwd) = dir {
+        for (candidate, _wt) in candidate_dirs_with_worktrees(root, cwd).await {
+            if append_to_file(&candidate.join(&file_name), text).await? {
+                return Ok(());
+            }
+        }
+        return Err(SessionError::SessionNotFound {
+            session_id: session_id.to_string(),
+            location: format!(" in project directory for {cwd}"),
+        });
+    }
+    let Ok(mut rd) = tokio::fs::read_dir(root).await else {
+        return Err(SessionError::SessionNotFound {
+            session_id: session_id.to_string(),
+            location: " (no projects directory)".to_string(),
+        });
+    };
+    while let Ok(Some(sub)) = rd.next_entry().await {
+        if sub.file_type().await.map(|t| t.is_dir()).unwrap_or(false)
+            && append_to_file(&sub.path().join(&file_name), text).await?
+        {
+            return Ok(());
+        }
+    }
+    Err(SessionError::SessionNotFound {
+        session_id: session_id.to_string(),
+        location: " in any project directory".to_string(),
+    })
+}
+
 /// Locate a session's `.jsonl`. With `dir`, search that cwd's candidate
 /// project directories (and any linked git worktrees); otherwise scan every
 /// subdirectory of `root`. Only a non-empty file counts.
@@ -332,6 +399,56 @@ mod tests {
                 .await
                 .is_empty()
         );
+    }
+
+    #[tokio::test]
+    async fn append_returns_false_for_absent_or_empty_file() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let missing = tmp.path().join("nope.jsonl");
+        assert!(!append_to_file(&missing, "x\n").await.expect("ok"));
+        let empty = tmp.path().join("empty.jsonl");
+        tokio::fs::write(&empty, b"").await.expect("write");
+        assert!(!append_to_file(&empty, "x\n").await.expect("ok"));
+    }
+
+    #[tokio::test]
+    async fn append_writes_to_a_nonempty_file() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let p = tmp.path().join("s.jsonl");
+        tokio::fs::write(&p, b"first\n").await.expect("write");
+        assert!(append_to_file(&p, "second\n").await.expect("ok"));
+        let got = tokio::fs::read_to_string(&p).await.expect("read");
+        assert_eq!(got, "first\nsecond\n");
+    }
+
+    #[tokio::test]
+    async fn appends_to_a_session_found_by_scanning() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path().join("projects");
+        let dir = root.join("-repo-a");
+        tokio::fs::create_dir_all(&dir).await.expect("mkdir");
+        let id = "f28ced56-9bd4-41f8-a37d-2a496c7d0e35";
+        let p = dir.join(format!("{id}.jsonl"));
+        tokio::fs::write(&p, b"first\n").await.expect("write");
+        append_session_record(&root, id, None, "rec\n")
+            .await
+            .expect("appended");
+        assert_eq!(
+            tokio::fs::read_to_string(&p).await.expect("read"),
+            "first\nrec\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn errors_when_no_session_matches() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let root = tmp.path().join("projects");
+        tokio::fs::create_dir_all(&root).await.expect("mkdir");
+        let err =
+            append_session_record(&root, "f28ced56-9bd4-41f8-a37d-2a496c7d0e35", None, "rec\n")
+                .await
+                .expect_err("not found");
+        assert!(matches!(err, SessionError::SessionNotFound { .. }));
     }
 
     #[tokio::test]
