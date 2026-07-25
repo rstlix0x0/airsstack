@@ -51,7 +51,10 @@ pub use permissions::{
 };
 pub use runtime::Runtime;
 pub use runtime::cli::CliRuntime;
-pub use sessions::{ListOptions, SessionArchive, SessionError, SessionInfo};
+pub use sessions::{
+    ListOptions, MessagesOptions, SessionArchive, SessionError, SessionInfo, SessionMessage,
+    SessionPayload,
+};
 pub use stream::MessageStream;
 pub use subagents::{AgentDefinition, AgentDefinitionError, MemorySource};
 pub use system_prompt::SystemPromptConfig;

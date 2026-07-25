@@ -6,10 +6,12 @@
 pub mod archive;
 pub mod error;
 pub mod info;
+pub mod message;
 pub mod options;
 pub mod path;
 
 pub use archive::SessionArchive;
 pub use error::SessionError;
 pub use info::SessionInfo;
-pub use options::ListOptions;
+pub use message::{SessionMessage, SessionPayload};
+pub use options::{ListOptions, MessagesOptions};
