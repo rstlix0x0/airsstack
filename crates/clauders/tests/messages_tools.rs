@@ -13,7 +13,9 @@ use wiremock::matchers::{body_partial_json, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use clauders::messages::tools::{Tool, ToolChoice, ToolResultBlock, ToolUseBlock};
-use clauders::messages::{ContentBlock, MessageContent, MessageRequest, Role, StopReason};
+use clauders::messages::{
+    ContentBlock, ContentBlockParam, MessageContent, MessageRequest, Role, StopReason,
+};
 use clauders::types::{ApiKey, BaseUrl, MaxTokens, ModelId, ToolName};
 
 const TOOL_USE_RESPONSE: &str = r#"{
@@ -104,7 +106,7 @@ async fn tool_round_trip() {
         .add_assistant_text("(tool call) get_weather")
         .add_message(
             Role::User,
-            MessageContent::Blocks(vec![ContentBlock::ToolResult(ToolResultBlock::text(
+            MessageContent::Blocks(vec![ContentBlockParam::ToolResult(ToolResultBlock::text(
                 tool_use_id.clone(),
                 r#"{"temperature":24,"conditions":"sunny"}"#,
             ))]),

@@ -15,7 +15,7 @@
 //!   that lives in `content.rs`.
 //! - HTTP transport or request sending.
 
-use crate::messages::content::ContentBlock;
+use crate::messages::content::ContentBlockParam;
 use crate::types::{ToolName, ToolUseId};
 
 /// A callable function the model may invoke during a generation turn.
@@ -186,7 +186,7 @@ pub enum ToolResultContent {
     /// Plain-text result.
     Text(String),
     /// Structured content blocks.
-    Blocks(Vec<ContentBlock>),
+    Blocks(Vec<ContentBlockParam>),
 }
 
 #[cfg(test)]

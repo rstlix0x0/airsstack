@@ -10,7 +10,7 @@
 //! ```
 
 use clauders::messages::tools::{Tool, ToolChoice, ToolResultBlock};
-use clauders::messages::{ContentBlock, MessageContent, Role};
+use clauders::messages::{ContentBlock, ContentBlockParam, MessageContent, Role};
 use clauders::prelude::*;
 use clauders::types::ToolName;
 
@@ -79,11 +79,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .add_message(
             Role::Assistant,
-            MessageContent::Blocks(assistant_msg.content.clone()),
+            MessageContent::Blocks(vec![ContentBlockParam::ToolUse(tu.clone())]),
         )
         .add_message(
             Role::User,
-            MessageContent::Blocks(vec![ContentBlock::ToolResult(tool_result)]),
+            MessageContent::Blocks(vec![ContentBlockParam::ToolResult(tool_result)]),
         )
         .tools([tool])
         .tool_choice(ToolChoice::Auto)

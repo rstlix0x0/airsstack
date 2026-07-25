@@ -15,7 +15,7 @@
 
 use std::marker::PhantomData;
 
-use crate::messages::content::ContentBlock;
+use crate::messages::content::ContentBlockParam;
 use crate::types::{
     MaxTokens, ModelId, StopSequence, SystemPrompt, Temperature, TopK, TopP, UserId,
 };
@@ -131,7 +131,7 @@ pub enum MessageContent {
     /// Plain text — serialized as a bare JSON string.
     Text(String),
     /// Typed content blocks — serialized as a JSON array.
-    Blocks(Vec<ContentBlock>),
+    Blocks(Vec<ContentBlockParam>),
 }
 
 // ── InputMessage ──────────────────────────────────────────────────────────────
@@ -655,7 +655,7 @@ mod tests {
     )]
 
     use super::*;
-    use crate::messages::content::{ContentBlock, TextBlock};
+    use crate::messages::content::{ContentBlockParam, TextBlock};
     use crate::messages::structured_outputs::OutputConfig;
     use crate::messages::thinking::{ThinkingConfig, ThinkingDisplay};
     use crate::types::{
@@ -1028,7 +1028,7 @@ mod tests {
         let req = base_builder()
             .add_message(
                 Role::User,
-                MessageContent::Blocks(vec![ContentBlock::Text(TextBlock::new("x"))]),
+                MessageContent::Blocks(vec![ContentBlockParam::Text(TextBlock::new("x"))]),
             )
             .build();
 

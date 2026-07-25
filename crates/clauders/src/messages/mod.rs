@@ -47,7 +47,7 @@ pub mod thinking;
 #[doc(inline)]
 pub use accumulator::MessageAccumulator;
 #[doc(inline)]
-pub use content::{ContentBlock, TextBlock, ThinkingBlock};
+pub use content::{ContentBlock, ContentBlockParam, TextBlock, ThinkingBlock};
 #[doc(inline)]
 pub use request::{
     InputMessage, MessageContent, MessageRequest, MessageRequestBuilder, Metadata, Role,
