@@ -19,5 +19,5 @@ pub mod param;
 pub mod text;
 
 pub use block::ContentBlock;
-pub use param::ContentBlockParam;
+pub use param::{ContentBlockParam, UnsendableBlock};
 pub use text::{TextBlock, ThinkingBlock};

@@ -120,7 +120,7 @@ pub struct ToolUseBlock {
 
 /// Content block carrying the result of a tool invocation.
 ///
-/// Appears inside [`crate::messages::ContentBlock::ToolResult`] in a
+/// Appears inside [`crate::messages::ContentBlockParam::ToolResult`] in a
 /// follow-up user turn.
 ///
 /// Use [`ToolResultBlock::text`] for a plain-text result and

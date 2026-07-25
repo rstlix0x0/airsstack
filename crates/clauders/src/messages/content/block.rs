@@ -29,8 +29,6 @@ pub enum ContentBlock {
     Thinking(ThinkingBlock),
     /// A tool invocation produced by the model.
     ToolUse(crate::messages::tools::ToolUseBlock),
-    /// A tool result supplied by the caller in response to a tool invocation.
-    ToolResult(crate::messages::tools::ToolResultBlock),
     /// A block kind this SDK release does not model.
     ///
     /// The API returns block kinds this release has no typed shape for —
@@ -102,5 +100,17 @@ mod tests {
     fn known_block_types_still_decode_with_unknown_arm_present() {
         let block: ContentBlock = serde_json::from_str(r#"{"type":"text","text":"hi"}"#).unwrap();
         assert_eq!(block, ContentBlock::Text(TextBlock::new("hi")));
+    }
+
+    #[test]
+    fn tool_result_is_not_a_response_block() {
+        // The API never returns `tool_result`; if one appears it must land in the
+        // Unknown floor, not a typed variant.
+        let json = r#"{"type":"tool_result","tool_use_id":"toolu_1","content":"ok"}"#;
+        let block: ContentBlock = serde_json::from_str(json).unwrap();
+        match block {
+            ContentBlock::Unknown(v) => assert_eq!(v["type"], "tool_result"),
+            other => panic!("wrong variant: {other:?}"),
+        }
     }
 }

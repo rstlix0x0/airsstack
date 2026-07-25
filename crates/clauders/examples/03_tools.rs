@@ -79,7 +79,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .add_message(
             Role::Assistant,
-            MessageContent::Blocks(vec![ContentBlockParam::ToolUse(tu.clone())]),
+            MessageContent::Blocks(ContentBlockParam::try_from_response(
+                assistant_msg.content.clone(),
+            )?),
         )
         .add_message(
             Role::User,

@@ -204,8 +204,8 @@ identical membership:
 
 | # | Official member | clauders | Status |
 |---|---|---|---|
-| 1 | `text` | `TextBlock` (content.rs:65) | ✅ — but no `citations` field |
-| 2 | `thinking` | `ThinkingBlock` (content.rs:118) | ✅ |
+| 1 | `text` | `TextBlock` (content/text.rs:18) | ✅ — but no `citations` field |
+| 2 | `thinking` | `ThinkingBlock` (content/text.rs:71) | ✅ |
 | 3 | `redacted_thinking` | ❌ | ❌ |
 | 4 | `tool_use` | `ToolUseBlock` (tools.rs:108) | ✅ |
 | 5 | `server_tool_use` | ❌ | ❌ |
@@ -250,13 +250,38 @@ All 12 response members above, **plus** five input-only members:
 High-resolution tier (Fable 5, Mythos 5, Opus 4.8, Opus 4.7, Sonnet 5): 2576 px long edge, 4784 visual
 tokens; standard tier 1568/1568. Automatic, no beta header.
 
-### 3.3 clauders' single shared union
+### 3.3 ✅ Response/request union split — delivered
 
-`ContentBlock` (content.rs:28-53) is one enum of 4 used for **both** directions: `Text`, `Thinking`,
-`ToolUse`, `ToolResult`. That is a defensible Rust simplification (the API tolerates it, since
-`tool_result` is only ever sent and `thinking` is only ever received), but it means the response path
-accepts a block the API never returns and the request path accepts blocks it should not send. Parity
-work should split the union or document the asymmetry explicitly.
+clauders now uses **two** unions, matching the official SDKs' two-direction shape (§3.1, §3.2), joined
+by a fallible carry-forward conversion — not one enum shared by both directions.
+
+`ContentBlock` (`messages/content/block.rs:25-45`) is the response union: `Text`, `Thinking`,
+`ToolUse`, and a payload-carrying `Unknown` fallback (§5.1). It no longer carries `ToolResult` — the
+API never returns that block kind, so a `tool_result` on the response path now decodes into `Unknown`
+rather than a typed variant.
+
+`ContentBlockParam` (`messages/content/param.rs:27-36`) is the request union: `Text`, `Thinking`,
+`ToolUse`, `ToolResult`. It is closed — `#[non_exhaustive]` reserves room for downstream crates only,
+there is no `Unknown` arm — because a caller only ever constructs block kinds this crate names.
+`MessageContent::Blocks` (request.rs:130-135) and `ToolResultContent::Blocks` (tools.rs:185-190) both
+carry `Vec<ContentBlockParam>` now, so sending a response-only block is a compile error rather than the
+runtime "unserializable request block" failure the single shared enum used to allow.
+
+Both unions share their leaf structs — `TextBlock` and `ThinkingBlock` (`messages/content/text.rs`) —
+defined once and reused by each direction rather than duplicated per direction.
+
+The multi-turn carry-forward path — echoing a response's content blocks back into the next request —
+is `TryFrom<ContentBlock> for ContentBlockParam` (`messages/content/param.rs:69-87`), with a `Vec`
+convenience, `ContentBlockParam::try_from_response` (`messages/content/param.rs:111-115`). `Text`,
+`Thinking`, and `ToolUse` convert; a response-only block — today only `Unknown` (redacted thinking,
+server-tool blocks, and any other kind this release does not model) — fails with `UnsendableBlock`,
+which names the block's wire `type` (`messages/content/param.rs:57-59`). The conversion is
+all-or-nothing: `try_from_response` fails the whole batch on the first unsendable block instead of
+silently dropping it.
+
+This closes §12 row 7. `ContentBlockParam`'s membership is still the pragmatic subset already in scope
+before the split — no `image` or `document` — which is tracked separately as a deliberate divergence,
+§12 row 24, and as capability row 9.
 
 ### 3.4 ✅ `Role::System` — delivered
 
@@ -522,7 +547,7 @@ behavior is the row beneath each one, added 2026-07-21.
 
 | Scenario | Python | TypeScript | clauders (pre-fix, `afd1ab8`) | clauders now (`f0aab9d`) |
 |---|---|---|---|---|
-| Unknown `type` on a content block | Coerced into the **first union variant** (`TextBlock`), unknown keys retained on `__pydantic_extra__`; `.type` preserved verbatim (`_models.py:578 construct_type`, fallback loop `:638-642`) | **No validation at all** — `defaultParseResponse` (`internal/parse.ts:18`) returns raw parsed JSON; the object arrives intact and simply fails to narrow (`messages.ts:847`) | **`Error::Serde`, whole `Message` lost** (content.rs:28-39 closed `#[serde(tag = "type")]`) | ✅ `ContentBlock::Unknown(Value)` + `#[serde(skip_serializing)]` (content.rs:51-52) — payload retained, echo-back refused |
+| Unknown `type` on a content block | Coerced into the **first union variant** (`TextBlock`), unknown keys retained on `__pydantic_extra__`; `.type` preserved verbatim (`_models.py:578 construct_type`, fallback loop `:638-642`) | **No validation at all** — `defaultParseResponse` (`internal/parse.ts:18`) returns raw parsed JSON; the object arrives intact and simply fails to narrow (`messages.ts:847`) | **`Error::Serde`, whole `Message` lost** (content.rs:28-39 closed `#[serde(tag = "type")]`) | ✅ `ContentBlock::Unknown(Value)` + `#[serde(skip_serializing)]` (content/block.rs:43-44) — payload retained, echo-back refused |
 | Unknown `type` on a content-block delta | Coerced to `TextDelta`; accumulator no-ops on it | Passed through untouched; accumulator `default: checkNever(...)` no-ops (`MessageStream.ts:651`) | **`Error::Serde`, stream terminated** (streaming.rs:109-133, 293-304) | ✅ `ContentDelta::Unknown(Value)`, accumulator no-ops (streaming.rs:146-179, accumulator.rs:234) |
 | Unknown SSE `event:` name | **Silently skipped** — allowlist chain in `_streaming.py:86`, no branch matches, nothing yielded | **Silently skipped** — same allowlist shape in `core/streaming.ts:51-142` | **`Error::Serde`, stream terminated** (streaming.rs:309-314) | ✅ `StreamEvent::Unknown(Value)`, yielded not dropped (streaming.rs:340-378) — clauders dispatches on `data.type`, not the `event:` name |
 | Unknown field on a known object | Retained (`model_config = ConfigDict(extra="allow")`, `_models.py:107`) | Retained (no stripping) | Ignored — serde default. ✅ | unchanged ✅ |
@@ -585,9 +610,12 @@ not `Copy`, so the bare-string enums lose that derive. And a **known** discrimin
 to satisfy its variant is absorbed by the fallback rather than raising an error — deliberate, and pinned
 by test.
 
-`ContentBlock` is the one asymmetry: it alone also derives `Serialize` and is used on the request path,
-so its unknown arm carries `#[serde(skip_serializing)]` and an attempt to echo an unknown block back
-surfaces as `Error::Serde`. The other nine are `Deserialize`-only.
+`ContentBlock` is the one asymmetry: it alone also derives `Serialize`, so its unknown arm carries
+`#[serde(skip_serializing)]` — an `Unknown` block cannot be re-serialized. Since the content-block
+split it is no longer used on the request path (that path now carries `ContentBlockParam`, which has no
+`Unknown` arm); echoing a response-only block back is prevented at compile time by the
+`TryFrom<ContentBlock> for ContentBlockParam` conversion, which returns `UnsendableBlock` rather than
+surfacing a runtime `Error::Serde`. The other nine are `Deserialize`-only.
 
 Unrecognized SSE **event names** get the same treatment — surfaced as `StreamEvent::Unknown`, never an
 error. The tolerance stops there: a payload that is not an object, or an object whose `type` matches a
@@ -630,7 +658,7 @@ The official `ToolUnion` is 19 members (`messages.ts:2277`), versioned by date s
 |---|---|---|---|---|
 | `cache_control: ephemeral` on content blocks | ✅ | ✅ | `CacheControl::ephemeral` (types/caching.rs:73-85) | ✅ |
 | 5-minute / 1-hour TTL tiers | ✅ `'5m' \| '1h'` | ✅ same | `CacheTtl::{FiveMinutes,OneHour}` (types/caching.rs:33-40) | ✅ |
-| Carriers: system segment / text / tool / tool_use / tool_result | ✅ | ✅ | system.rs:149, content.rs:72, tools.rs:57/118/152 | ✅ |
+| Carriers: system segment / text / tool / tool_use / tool_result | ✅ | ✅ | system.rs:149, content/text.rs:25, tools.rs:57/118/152 | ✅ |
 | Cache-aware usage counters | ✅ | ✅ | `Usage.cache_creation/read` (response.rs:122-125) | ✅ |
 | `cache_creation` per-tier breakdown | ✅ | ✅ | `CacheCreation` (response.rs:94-100) | ✅ |
 | Top-level `cache_control` (auto-place on last cacheable block) | ✅ | ✅ | `MessageRequest.cache_control` (request.rs:249-252), `.cache_control()` builder setter (request.rs:586) | ✅ |
@@ -850,7 +878,7 @@ Python and TypeScript blind-append and ignore `index`. See §4.3 — it is grade
 
 | # | Item | Class | Why here |
 |---|---|---|---|
-| 7 | Split the shared `ContentBlock` union into response (12 members) and param (17 members) directions (§3.3) | 🟡 structural | Prerequisite for the taxonomy work in #8/#9/#14; today one 4-member enum serves both directions, so the request path accepts blocks it must not send and the response path accepts one the API never returns. |
+| 7 | Split the shared `ContentBlock` union into response and request-param directions (§3.3) | ✅ **delivered** | Two unions now: `ContentBlock` (response — `Text`/`Thinking`/`ToolUse`/`Unknown`) and `ContentBlockParam` (request — `Text`/`Thinking`/`ToolUse`/`ToolResult`, closed, no `Unknown`), joined by a fallible `TryFrom<ContentBlock> for ContentBlockParam` carry-forward conversion that fails with `UnsendableBlock` on a response-only block. Sending a response-only block is now a compile error, not a runtime failure. Prerequisite work for rows 8/9/14 is unblocked, not itself finished — see row 24 for the request union's still-pragmatic member count. |
 
 ### Capability
 
@@ -889,6 +917,7 @@ carries it, because that row also carries the defect it replaced. Row 3 is 🔶 
 | 20 | A duplicate `message_start` replaces the snapshot and resets the JSON buffers (§4.5) | 🔶 divergence | All three official SDKs differ — TypeScript throws, Python ignores the second event and interleaves its blocks into the first message, Go replaces. clauders follows Go; Python's interleaving is the outcome worth avoiding outright. |
 | 21 | `message_delta` writes `stop_reason`/`stop_sequence` only when present (§4.4) | 🔶 divergence | Python, TypeScript and Go all assign unconditionally, including overwriting a resolved value with `null`. The guard prevents a stray later delta from clobbering a resolved `stop_reason`. |
 | 23 | `ModelCapabilities.context_management` is a flatten dated-strategy map, not named optional fields (§9.1) | 🔶 divergence | Both official SDKs hardcode `clear_thinking_20251015?` / `clear_tool_uses_20250919?` / `compact_20260112?` as named fields. clauders captures every dated key in a `BTreeMap<String, CapabilitySupport>` instead — no data is lost, but field-access code ported from Python or TypeScript must switch to a map lookup, and a caller gets forward compatibility with new dated keys the pinned SDKs would need a new field for. |
+| 24 | `ContentBlockParam`'s membership is the pragmatic subset — `text`/`thinking`/`tool_use`/`tool_result` — not official's larger request-block superset (§3.2, §3.3) | 🔶 divergence | Both official SDKs' request unions are a 17-member superset of the 12-member response union, adding `image`, `document`, `search_result`, `tool_result`, and `mid_conversation_system`. clauders' request union is closed to the four block kinds already modelled today; `image` and `document` — vision and PDF input — are the two everyday members still missing, tracked separately as capability row 9. Not a defect: nothing sent today is malformed by the narrower membership, and widening the enum later is additive, not a breaking change to what already ships. |
 
 ---
 
