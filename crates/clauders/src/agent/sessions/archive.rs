@@ -8,11 +8,14 @@ use super::info::{
     SessionEntry, SessionInfo, build_info, collect_paged, collect_unpaged, list_dir_entries,
     read_head_tail,
 };
-use super::message::{SessionMessage, assemble_messages, dedup_by_uuid, parse_transcript};
+use super::message::{
+    SessionMessage, assemble_messages, dedup_by_uuid, encode_rename_record, encode_tag_record,
+    parse_transcript,
+};
 use super::options::{ListOptions, MessagesOptions};
 use super::path::{
-    candidate_dirs, candidate_dirs_with_worktrees, find_session_file, is_session_id, projects_root,
-    resolve_config_root,
+    append_session_record, candidate_dirs, candidate_dirs_with_worktrees, find_session_file,
+    is_session_id, projects_root, resolve_config_root,
 };
 
 /// A handle to the on-disk session store rooted at a config directory.
@@ -146,6 +149,63 @@ impl SessionArchive {
             opts.offset,
         ))
     }
+
+    /// Set a session's custom title by appending a title record.
+    ///
+    /// # Errors
+    /// [`SessionError::InvalidSessionId`] for a non-UUID id;
+    /// [`SessionError::EmptyValue`] for a blank title;
+    /// [`SessionError::SessionNotFound`] when no such session file exists.
+    pub async fn rename(
+        &self,
+        session_id: &str,
+        title: &str,
+        dir: Option<&str>,
+    ) -> Result<(), SessionError> {
+        if !is_session_id(session_id) {
+            return Err(SessionError::InvalidSessionId(session_id.to_string()));
+        }
+        let trimmed = title.trim();
+        if trimmed.is_empty() {
+            return Err(SessionError::EmptyValue(
+                "title must be non-empty".to_string(),
+            ));
+        }
+        let record = encode_rename_record(session_id, trimmed);
+        append_session_record(&self.projects(), session_id, dir, &record).await
+    }
+
+    /// Set or clear a session's tag. `Some(tag)` sets it (trimmed);
+    /// `None` clears it (an empty-tag record the reader treats as absent).
+    ///
+    /// # Errors
+    /// [`SessionError::InvalidSessionId`] for a non-UUID id;
+    /// [`SessionError::EmptyValue`] when `Some` trims to empty;
+    /// [`SessionError::SessionNotFound`] when no such session file exists.
+    pub async fn tag(
+        &self,
+        session_id: &str,
+        tag: Option<&str>,
+        dir: Option<&str>,
+    ) -> Result<(), SessionError> {
+        if !is_session_id(session_id) {
+            return Err(SessionError::InvalidSessionId(session_id.to_string()));
+        }
+        let value = match tag {
+            Some(t) => {
+                let trimmed = t.trim();
+                if trimmed.is_empty() {
+                    return Err(SessionError::EmptyValue(
+                        "tag must be non-empty (use None to clear)".to_string(),
+                    ));
+                }
+                trimmed.to_string()
+            }
+            None => String::new(),
+        };
+        let record = encode_tag_record(session_id, &value);
+        append_session_record(&self.projects(), session_id, dir, &record).await
+    }
 }
 
 #[cfg(test)]
@@ -272,5 +332,70 @@ mod tests {
         );
         assert_eq!(msgs[1].parent_uuid.as_deref(), Some("u1"));
         assert_eq!(msgs[2].parent_uuid.as_deref(), Some("u1"));
+    }
+
+    #[tokio::test]
+    async fn rename_rejects_bad_uuid_and_empty_title() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let a = SessionArchive::with_base(tmp.path());
+        assert!(matches!(
+            a.rename("bad", "t", None).await,
+            Err(SessionError::InvalidSessionId(_))
+        ));
+        assert!(matches!(
+            a.rename("f28ced56-9bd4-41f8-a37d-2a496c7d0e35", "   ", None)
+                .await,
+            Err(SessionError::EmptyValue(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn rename_then_info_reflects_the_title() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let id = "f28ced56-9bd4-41f8-a37d-2a496c7d0e35";
+        let dir = tmp.path().join("projects").join("-repo-a");
+        tokio::fs::create_dir_all(&dir).await.expect("mkdir");
+        tokio::fs::write(
+            dir.join(format!("{id}.jsonl")),
+            b"{\"type\":\"user\",\"message\":{\"content\":\"q\"}}\n",
+        )
+        .await
+        .expect("write");
+        let a = SessionArchive::with_base(tmp.path());
+        a.rename(id, "Renamed", None).await.expect("rename");
+        let info = a.info(id, None).await.expect("ok").expect("some");
+        assert_eq!(info.custom_title.as_deref(), Some("Renamed"));
+        assert_eq!(info.summary, "Renamed");
+    }
+
+    #[tokio::test]
+    async fn tag_sets_then_clears() {
+        let tmp = tempfile::tempdir().expect("tmp");
+        let id = "f28ced56-9bd4-41f8-a37d-2a496c7d0e35";
+        let dir = tmp.path().join("projects").join("-repo-a");
+        tokio::fs::create_dir_all(&dir).await.expect("mkdir");
+        tokio::fs::write(
+            dir.join(format!("{id}.jsonl")),
+            b"{\"type\":\"user\",\"message\":{\"content\":\"q\"}}\n",
+        )
+        .await
+        .expect("write");
+        let a = SessionArchive::with_base(tmp.path());
+        a.tag(id, Some("important"), None).await.expect("tag");
+        assert_eq!(
+            a.info(id, None)
+                .await
+                .expect("ok")
+                .expect("some")
+                .tag
+                .as_deref(),
+            Some("important")
+        );
+        a.tag(id, None, None).await.expect("clear tag"); // clear
+        assert_eq!(a.info(id, None).await.expect("ok").expect("some").tag, None);
+        assert!(matches!(
+            a.tag(id, Some("  "), None).await,
+            Err(SessionError::EmptyValue(_))
+        ));
     }
 }

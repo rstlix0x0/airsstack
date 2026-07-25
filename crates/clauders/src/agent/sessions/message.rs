@@ -328,13 +328,6 @@ mod assemble_tests {
 }
 
 /// Encode a `renameSession` record (`{type:"custom-title",customTitle,sessionId}` + `\n`).
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "wired by SessionArchive::rename, not yet added in this crate"
-    )
-)]
 pub(crate) fn encode_rename_record(session_id: &str, title: &str) -> String {
     #[derive(Serialize)]
     struct RenameRecord<'a> {
@@ -360,13 +353,6 @@ pub(crate) fn encode_rename_record(session_id: &str, title: &str) -> String {
 }
 
 /// Encode a `tagSession` record (`{type:"tag",tag,sessionId}` + `\n`).
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "wired by SessionArchive::tag, not yet added in this crate"
-    )
-)]
 pub(crate) fn encode_tag_record(session_id: &str, tag: &str) -> String {
     #[derive(Serialize)]
     struct TagRecord<'a> {

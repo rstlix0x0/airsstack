@@ -190,13 +190,6 @@ pub(crate) async fn append_to_file(path: &Path, text: &str) -> std::io::Result<b
 /// binary does. With `dir`, search that cwd's candidate + worktree
 /// directories; otherwise scan every project subdirectory. Errors with
 /// [`SessionError::SessionNotFound`] when no session file matches.
-#[cfg_attr(
-    not(test),
-    expect(
-        dead_code,
-        reason = "wired by SessionArchive::rename/::tag, not yet added in this crate"
-    )
-)]
 pub(crate) async fn append_session_record(
     root: &Path,
     session_id: &str,
