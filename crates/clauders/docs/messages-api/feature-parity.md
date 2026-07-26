@@ -233,8 +233,8 @@ All 12 response members above, **plus** five input-only members:
 
 | Official input-only member | clauders | Status |
 |---|---|---|
-| `image` | ❌ | ❌ — no vision |
-| `document` | ❌ | ❌ — no PDF |
+| `image` | `ImageBlock` (`content/image.rs:59`), via `ContentBlockParam::Image` (`content/param.rs:37`) | ✅ — `base64`/`url` sources typed; Files API `file` source (beta) intentionally omitted |
+| `document` | `DocumentBlock` (`content/document.rs:81`), via `ContentBlockParam::Document` (`content/param.rs:39`) | ✅ — `base64`/`text`/`url` sources typed; `content` (embedded-content) source retained as raw `serde_json::Value` |
 | `search_result` | ❌ | ❌ |
 | `tool_result` | `ToolResultBlock` (tools.rs:141) | ✅ |
 | `mid_conversation_system` | ❌ | ❌ |
@@ -885,7 +885,7 @@ Python and TypeScript blind-append and ignore `index`. See §4.3 — it is grade
 | # | Item | Class | Why here |
 |---|---|---|---|
 | 8 | Response blocks: `redacted_thinking`, `server_tool_use`, the five `*_tool_result` kinds, `container_upload` (§3.1) | ❌ capability | Largely subsumed by #2 — once unknown blocks stop being fatal, these become progressive typing work. |
-| 9 | Vision (`image`) + PDF (`document`) input blocks (§3.2) | ❌ capability | The most-requested everyday base-SDK feature. |
+| 9 | Vision (`image`) + PDF (`document`) input blocks (§3.2) | ✅ **delivered** | `ContentBlockParam` gained `Image(ImageBlock)` and `Document(DocumentBlock)` (`content/param.rs:37,39`). Image sources: `base64` (`ImageMediaType` closed to jpeg/png/gif/webp) and `url`; the Files API `file` source (beta) is omitted. Document sources: `base64` (`PdfMediaType::ApplicationPdf`), `text` (`PlainTextMediaType::TextPlain`), and `url` are fully typed; the `content` embedded-content source is kept as raw `serde_json::Value` — a bounded reduction, not a gap. `DocumentBlock` also carries `citations: Option<CitationsConfig>`, `context`, and `title`. |
 | 10 | Response diagnostics: typed `pause_turn`, `stop_details`, `container`, `usage.{output_tokens_details,server_tool_use,service_tier,inference_geo}` (§8) | ✅ **delivered** | `StopReason::PauseTurn` is now a typed variant (`Unknown` retained for values a future release adds), and `Message.stop_details` / `Message.container` / `Usage.{output_tokens_details,server_tool_use,service_tier,inference_geo}` all exist (response.rs). A caller can act on a paused server-tool turn, a refusal category, or a container id through the type system rather than matching `Unknown("pause_turn")` or reading nothing at all. |
 | 11 | Models API `capabilities` / `max_input_tokens` / `max_tokens` (§9) | ✅ **delivered** | `ModelInfo` now decodes `max_input_tokens`, `max_tokens` (both `Option<u32>`), and `capabilities: Option<ModelCapabilities>` (models/types.rs:70-78). Eight of the nine `ModelCapabilities` fields match the official named-field shape one-for-one; the ninth, `context_management`, is delivered but shaped as a dated-strategy map rather than named fields — a deliberate divergence, not a gap, recorded separately as row 23. |
 | 12 | GA request params: `service_tier`, `inference_geo`, `container`, top-level `cache_control` (§2, §7) | ✅ **delivered** | All four are builder setters on `MessageRequest` (request.rs:565-589), each serialized only when set. Top-level `cache_control` reuses the existing per-block `CacheControl` type (§7): clauders sends the ephemeral breakpoint and the server auto-places it. |

@@ -15,9 +15,15 @@
 //!   and `response.rs` respectively.
 
 pub mod block;
+pub mod document;
+pub mod image;
 pub mod param;
 pub mod text;
 
 pub use block::ContentBlock;
+pub use document::{
+    CitationsConfig, DocumentBlock, DocumentSource, PdfMediaType, PlainTextMediaType,
+};
+pub use image::{ImageBlock, ImageMediaType, ImageSource};
 pub use param::{ContentBlockParam, UnsendableBlock};
 pub use text::{TextBlock, ThinkingBlock};

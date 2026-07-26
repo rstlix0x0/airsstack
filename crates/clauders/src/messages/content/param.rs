@@ -33,6 +33,10 @@ pub enum ContentBlockParam {
     ToolUse(ToolUseBlock),
     /// A tool result the caller supplies in a follow-up user turn.
     ToolResult(ToolResultBlock),
+    /// An image block for vision input.
+    Image(crate::messages::content::image::ImageBlock),
+    /// A document block for PDF/text input.
+    Document(crate::messages::content::document::DocumentBlock),
 }
 
 /// Error returned when a response-only [`ContentBlock`] cannot be sent as a
@@ -171,6 +175,39 @@ mod tests {
         let err = ContentBlockParam::try_from_response(blocks)
             .expect_err("a mixed vec with an unsendable block fails");
         assert_eq!(err.block_type(), "server_tool_use");
+    }
+
+    #[test]
+    fn image_param_serializes_with_type_tag() {
+        use crate::messages::content::image::{ImageBlock, ImageMediaType, ImageSource};
+        let block = ContentBlockParam::Image(ImageBlock {
+            source: ImageSource::Base64 {
+                media_type: ImageMediaType::Png,
+                data: "AAAA".into(),
+            },
+            cache_control: None,
+        });
+        let j = serde_json::to_value(&block).unwrap();
+        assert_eq!(j["type"], "image");
+        assert_eq!(j["source"]["type"], "base64");
+    }
+
+    #[test]
+    fn document_param_serializes_with_type_tag() {
+        use crate::messages::content::document::{DocumentBlock, DocumentSource, PdfMediaType};
+        let block = ContentBlockParam::Document(DocumentBlock {
+            source: DocumentSource::Base64 {
+                media_type: PdfMediaType::ApplicationPdf,
+                data: "JVBER".into(),
+            },
+            cache_control: None,
+            citations: None,
+            context: None,
+            title: None,
+        });
+        let j = serde_json::to_value(&block).unwrap();
+        assert_eq!(j["type"], "document");
+        assert_eq!(j["source"]["type"], "base64");
     }
 
     #[test]

@@ -1042,4 +1042,37 @@ mod tests {
         assert_eq!(content[0]["type"], "text");
         assert_eq!(content[0]["text"], "x");
     }
+
+    #[test]
+    fn request_with_image_and_document_blocks_serializes() {
+        use crate::messages::content::document::{DocumentBlock, DocumentSource, PdfMediaType};
+        use crate::messages::content::image::{ImageBlock, ImageMediaType, ImageSource};
+        use crate::messages::{ContentBlockParam, InputMessage, MessageContent, Role};
+
+        let msg = InputMessage {
+            role: Role::User,
+            content: MessageContent::Blocks(vec![
+                ContentBlockParam::Image(ImageBlock {
+                    source: ImageSource::Base64 {
+                        media_type: ImageMediaType::Png,
+                        data: "AAAA".into(),
+                    },
+                    cache_control: None,
+                }),
+                ContentBlockParam::Document(DocumentBlock {
+                    source: DocumentSource::Base64 {
+                        media_type: PdfMediaType::ApplicationPdf,
+                        data: "JVBER".into(),
+                    },
+                    cache_control: None,
+                    citations: None,
+                    context: None,
+                    title: None,
+                }),
+            ]),
+        };
+        let j = serde_json::to_value(&msg).unwrap();
+        assert_eq!(j["content"][0]["type"], "image");
+        assert_eq!(j["content"][1]["type"], "document");
+    }
 }
