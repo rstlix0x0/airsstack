@@ -256,6 +256,14 @@ impl MessageAccumulator {
                     target.signature = Some(signature.clone());
                 }
             }
+            ContentDelta::CitationsDelta { citation } => {
+                if let ContentBlock::Text(target) = block {
+                    target
+                        .citations
+                        .get_or_insert_with(Vec::new)
+                        .push(citation.clone());
+                }
+            }
             ContentDelta::InputJsonDelta { .. } | ContentDelta::Unknown(_) => {}
         }
     }
@@ -559,6 +567,28 @@ mod tests {
         match &msg.content[0] {
             ContentBlock::Text(tb) => assert_eq!(tb.text, "foobar"),
             other => panic!("expected text block, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn citations_delta_accumulates_onto_text_block() {
+        let mut acc = started(&[r#"{"type":"text","text":""}"#]);
+        acc.accumulate(&event(
+            r#"{"type":"content_block_delta","index":0,"delta":{"type":"citations_delta",
+                "citation":{"type":"page_location","cited_text":"x","document_index":0,
+                "start_page_number":1,"end_page_number":2}}}"#,
+        ))
+        .unwrap();
+        acc.accumulate(&event(
+            r#"{"type":"content_block_delta","index":0,"delta":{"type":"citations_delta",
+                "citation":{"type":"page_location","cited_text":"y","document_index":0,
+                "start_page_number":3,"end_page_number":4}}}"#,
+        ))
+        .unwrap();
+        let msg = acc.finish().unwrap();
+        match &msg.content[0] {
+            ContentBlock::Text(tb) => assert_eq!(tb.citations.as_ref().unwrap().len(), 2),
+            other => panic!("wrong block: {other:?}"),
         }
     }
 

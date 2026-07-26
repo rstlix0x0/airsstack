@@ -49,8 +49,8 @@ pub use accumulator::MessageAccumulator;
 #[doc(inline)]
 pub use content::{
     CitationsConfig, ContentBlock, ContentBlockParam, DocumentBlock, DocumentSource, ImageBlock,
-    ImageMediaType, ImageSource, PdfMediaType, PlainTextMediaType, TextBlock, ThinkingBlock,
-    UnsendableBlock,
+    ImageMediaType, ImageSource, PdfMediaType, PlainTextMediaType, TextBlock, TextCitation,
+    ThinkingBlock, UnsendableBlock,
 };
 #[doc(inline)]
 pub use request::{

@@ -15,6 +15,7 @@
 //!   and `response.rs` respectively.
 
 pub mod block;
+pub mod citation;
 pub mod document;
 pub mod image;
 pub mod param;
@@ -22,6 +23,7 @@ pub mod server_tool;
 pub mod text;
 
 pub use block::ContentBlock;
+pub use citation::TextCitation;
 pub use document::{
     CitationsConfig, DocumentBlock, DocumentSource, PdfMediaType, PlainTextMediaType,
 };

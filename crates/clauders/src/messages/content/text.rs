@@ -23,6 +23,9 @@ pub struct TextBlock {
     /// When set, this block marks a prompt-caching boundary.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub cache_control: Option<crate::types::CacheControl>,
+    /// Citations backing this text, if the response carried any.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub citations: Option<Vec<crate::messages::content::citation::TextCitation>>,
 }
 
 impl TextBlock {
@@ -32,6 +35,7 @@ impl TextBlock {
         Self {
             text: s.into(),
             cache_control: None,
+            citations: None,
         }
     }
 
@@ -107,5 +111,26 @@ mod tests {
         let j = serde_json::to_string(&original).unwrap();
         let back: TextBlock = serde_json::from_str(&j).unwrap();
         assert_eq!(back, original);
+    }
+
+    #[test]
+    fn text_block_decodes_citations() {
+        use crate::messages::content::citation::TextCitation;
+        let json = r#"{"text":"hi","citations":[
+            {"type":"page_location","cited_text":"x","document_index":0,
+             "start_page_number":1,"end_page_number":2}]}"#;
+        let b: TextBlock = serde_json::from_str(json).unwrap();
+        assert_eq!(b.citations.as_ref().unwrap().len(), 1);
+        assert!(matches!(
+            b.citations.unwrap()[0],
+            TextCitation::PageLocation { .. }
+        ));
+    }
+
+    #[test]
+    fn text_block_without_citations_omits_field() {
+        let b = TextBlock::new("hi");
+        let j = serde_json::to_string(&b).unwrap();
+        assert_eq!(j, r#"{"text":"hi"}"#);
     }
 }

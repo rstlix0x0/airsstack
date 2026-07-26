@@ -170,6 +170,11 @@ pub enum ContentDelta {
         /// The partial JSON string to append to the tool input buffer.
         partial_json: String,
     },
+    /// An incremental citation attached to a text block.
+    CitationsDelta {
+        /// The citation to append to the block's `citations`.
+        citation: crate::messages::content::citation::TextCitation,
+    },
     /// A delta kind this SDK release does not recognize.
     ///
     /// The Anthropic API may add delta kinds at any time. Rather than
@@ -715,12 +720,15 @@ mod tests {
 
     #[test]
     fn content_delta_unknown_variant_retains_payload() {
-        let json = r#"{"type":"citations_delta","citation":{"cited_text":"x"}}"#;
+        // `citations_delta` used to be this fixture's stand-in for an
+        // unrecognized tag; it is now a modelled variant (`CitationsDelta`),
+        // so this uses a tag that stays unmodeled instead.
+        let json = r#"{"type":"future_delta","payload":{"cited_text":"x"}}"#;
         let d: ContentDelta = serde_json::from_str(json).unwrap();
         match d {
             ContentDelta::Unknown(v) => {
-                assert_eq!(v["type"], "citations_delta");
-                assert_eq!(v["citation"]["cited_text"], "x");
+                assert_eq!(v["type"], "future_delta");
+                assert_eq!(v["payload"]["cited_text"], "x");
             }
             other => panic!("wrong variant: {other:?}"),
         }
@@ -739,6 +747,15 @@ mod tests {
         // behavior is deliberate, not an oversight.
         let d: ContentDelta = serde_json::from_str(r#"{"type":"text_delta"}"#).unwrap();
         assert!(matches!(d, ContentDelta::Unknown(_)));
+    }
+
+    #[test]
+    fn citations_delta_decodes() {
+        let json = r#"{"type":"citations_delta","citation":
+            {"type":"page_location","cited_text":"x","document_index":0,
+             "start_page_number":1,"end_page_number":2}}"#;
+        let d: ContentDelta = serde_json::from_str(json).unwrap();
+        assert!(matches!(d, ContentDelta::CitationsDelta { .. }));
     }
 
     // ── MessageMetaDelta + UsageDelta serde ────────────────────────────────────
