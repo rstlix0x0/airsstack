@@ -12,6 +12,10 @@ use crate::agent::types::SessionId;
 /// dropped. Unknown fields within a variant are tolerated (forward-compat).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "Result carries the widened inbound Usage/ResultMessage fields; boxing would change match ergonomics for every caller and is deferred to a dedicated pass over these frame types"
+)]
 pub enum Message {
     /// An assistant turn (model output).
     Assistant(AssistantMessage),
@@ -162,12 +166,16 @@ pub struct StreamEvent {
     pub event: serde_json::Value,
 }
 
-/// Token usage counters reported on a result frame.
+/// Token usage counters reported on a result or assistant frame.
 ///
-/// Defined locally rather than reusing `messages::Usage` because the `agent`
-/// feature does not enable the `messages` feature; the fields are a tolerant
-/// subset and unknown fields are ignored.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+/// A tolerant subset: the stable counters are typed; the evolving remainder
+/// (`iterations`, `speed`, and any future field) is preserved in
+/// [`Usage::extra`]. Unknown fields are never an error.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[expect(
+    clippy::derive_partial_eq_without_eq,
+    reason = "every field is Eq-capable today so clippy suggests deriving Eq; Eq is withheld deliberately to keep the type non-Eq as these frames gain float-valued counters"
+)]
 pub struct Usage {
     /// Input tokens consumed.
     #[serde(default)]
@@ -181,6 +189,21 @@ pub struct Usage {
     /// Input tokens served from the prompt cache on this turn, when reported.
     #[serde(default)]
     pub cache_read_input_tokens: Option<u64>,
+    /// Nested cache-creation breakdown (`ephemeral_*_input_tokens`), opaque.
+    #[serde(default)]
+    pub cache_creation: Option<serde_json::Value>,
+    /// Nested server-tool usage (`web_search_requests`, …), opaque.
+    #[serde(default)]
+    pub server_tool_use: Option<serde_json::Value>,
+    /// Service tier that served the request, when reported.
+    #[serde(default)]
+    pub service_tier: Option<String>,
+    /// Inference geography, when reported.
+    #[serde(default)]
+    pub inference_geo: Option<String>,
+    /// Forward-compatible extras (`iterations`, `speed`, …).
+    #[serde(flatten)]
+    pub extra: serde_json::Value,
 }
 
 /// Pull the `content` array out of the binary's nested `message` object.
@@ -221,6 +244,27 @@ mod tests {
         let u: Usage = serde_json::from_str(json).expect("usage");
         assert_eq!(u.cache_creation_input_tokens, None);
         assert_eq!(u.cache_read_input_tokens, None);
+    }
+
+    #[test]
+    fn usage_carries_extended_counters_and_extra() {
+        // captured: claude -p "say hi" --output-format stream-json --verbose
+        let json = r#"{"input_tokens":2,"cache_creation_input_tokens":25595,"cache_read_input_tokens":0,
+          "output_tokens":6,"server_tool_use":{"web_search_requests":0,"web_fetch_requests":0},
+          "service_tier":"standard","cache_creation":{"ephemeral_1h_input_tokens":25595,"ephemeral_5m_input_tokens":0},
+          "inference_geo":"not_available",
+          "iterations":[{"input_tokens":2,"type":"message"}],"speed":"standard"}"#;
+        let u: Usage = serde_json::from_str(json).expect("usage");
+        assert_eq!(u.service_tier.as_deref(), Some("standard"));
+        assert_eq!(u.inference_geo.as_deref(), Some("not_available"));
+        assert!(u.cache_creation.is_some());
+        assert!(u.server_tool_use.is_some());
+        // fields the struct does not type survive in extra
+        assert!(u.extra.get("iterations").is_some());
+        assert_eq!(
+            u.extra.get("speed").and_then(|v| v.as_str()),
+            Some("standard")
+        );
     }
 
     #[test]

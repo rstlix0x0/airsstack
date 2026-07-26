@@ -6,6 +6,7 @@ mod initialize;
 mod interrupt;
 mod introspection;
 mod mcp;
+mod message_id;
 mod prompt;
 mod session_control;
 mod session_id;
@@ -22,6 +23,7 @@ pub use mcp::{
     McpServerConfig, McpStatus, ServerConnection, ServerStatus, SetMcpPermissionModeResult,
     SetMcpServersResult,
 };
+pub use message_id::{InvalidMessageId, MessageId};
 pub use prompt::Prompt;
 pub use session_control::SessionControl;
 pub use session_id::SessionId;

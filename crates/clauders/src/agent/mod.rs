@@ -16,6 +16,7 @@ pub mod error;
 pub mod hooks;
 pub mod mcp;
 pub mod message;
+mod model_usage;
 pub mod options;
 pub mod permissions;
 pub mod process;
@@ -44,6 +45,7 @@ pub use mcp::{
 pub use message::{
     AssistantMessage, Message, ResultMessage, StreamEvent, SystemMessage, Usage, UserMessage,
 };
+pub use model_usage::ModelUsage;
 pub use options::{Options, OptionsBuilder};
 pub use permissions::{
     MatchedAskRule, PermissionBehavior, PermissionContext, PermissionDecision, PermissionMode,

@@ -166,11 +166,18 @@ fn session_args(options: &Options) -> Vec<String> {
                 args.push("--fork-session".to_string());
             }
         }
-        SessionControl::Resume { id, fork } => {
+        SessionControl::Resume {
+            id,
+            fork,
+            resume_at,
+        } => {
             args.push("--resume".to_string());
             args.push(id.as_str().to_string());
             if *fork {
                 args.push("--fork-session".to_string());
+            }
+            if let Some(at) = resume_at {
+                args.push(format!("--resume-session-at={}", at.as_str()));
             }
         }
     }
@@ -384,6 +391,7 @@ mod tests {
             .session(SessionControl::Resume {
                 id: SessionId::new("sess_42"),
                 fork: false,
+                resume_at: None,
             })
             .build();
         let argv = build_argv(&opts);
@@ -402,6 +410,7 @@ mod tests {
             .session(SessionControl::Resume {
                 id: SessionId::new("sess_99"),
                 fork: true,
+                resume_at: None,
             })
             .build();
         let argv = build_argv(&opts);
@@ -411,6 +420,58 @@ mod tests {
             .expect("--resume present");
         assert_eq!(argv.get(idx + 1).map(String::as_str), Some("sess_99"));
         assert!(argv.iter().any(|a| a == "--fork-session"));
+    }
+
+    #[test]
+    fn resume_at_lowers_to_equals_flag_alongside_resume() {
+        use crate::agent::types::{MessageId, SessionControl, SessionId};
+        let opts = Options::builder()
+            .session(SessionControl::Resume {
+                id: SessionId::new("sess_1"),
+                fork: false,
+                resume_at: Some(MessageId::new("m-uuid").expect("valid")),
+            })
+            .build();
+        let argv = build_argv(&opts);
+        assert!(argv.iter().any(|a| a == "--resume"));
+        assert!(
+            argv.iter().any(|a| a == "--resume-session-at=m-uuid"),
+            "got: {}",
+            argv.join(" ")
+        );
+    }
+
+    #[test]
+    fn no_resume_at_emits_no_flag() {
+        use crate::agent::types::{SessionControl, SessionId};
+        let opts = Options::builder()
+            .session(SessionControl::Resume {
+                id: SessionId::new("sess_1"),
+                fork: false,
+                resume_at: None,
+            })
+            .build();
+        assert!(
+            !build_argv(&opts)
+                .iter()
+                .any(|a| a.starts_with("--resume-session-at")),
+            "resume_at None must emit no flag"
+        );
+    }
+
+    #[test]
+    fn resume_at_coexists_with_fork() {
+        use crate::agent::types::{MessageId, SessionControl, SessionId};
+        let opts = Options::builder()
+            .session(SessionControl::Resume {
+                id: SessionId::new("sess_1"),
+                fork: true,
+                resume_at: Some(MessageId::new("m2").expect("valid")),
+            })
+            .build();
+        let argv = build_argv(&opts);
+        assert!(argv.iter().any(|a| a == "--fork-session"));
+        assert!(argv.iter().any(|a| a == "--resume-session-at=m2"));
     }
 
     #[test]
@@ -604,6 +665,7 @@ mod tests {
             .session(SessionControl::Resume {
                 id: SessionId::new("sess_1"),
                 fork: false,
+                resume_at: None,
             })
             .build();
         let resuming_argv = build_argv(&resuming);

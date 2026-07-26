@@ -816,6 +816,7 @@ mod tests {
             .session(SessionControl::Resume {
                 id: SessionId::new("sess_x"),
                 fork: true,
+                resume_at: None,
             })
             .build();
         assert_eq!(
@@ -823,6 +824,7 @@ mod tests {
             SessionControl::Resume {
                 id: SessionId::new("sess_x"),
                 fork: true,
+                resume_at: None,
             }
         );
     }
