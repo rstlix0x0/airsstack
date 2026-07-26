@@ -31,6 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }),
         cache_control: None,
         strict: None,
+        eager_input_streaming: None,
     };
 
     // First turn: ask a question that triggers a tool call.

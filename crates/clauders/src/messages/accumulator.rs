@@ -221,7 +221,7 @@ impl MessageAccumulator {
             // snapshot and parsed in one pass at content_block_stop.
             let addresses_tool_block = matches!(
                 self.snapshot.as_ref().and_then(|s| s.content.get(idx)),
-                Some(ContentBlock::ToolUse(_))
+                Some(ContentBlock::ToolUse(_) | ContentBlock::ServerToolUse(_))
             );
             if addresses_tool_block {
                 if let Some(buffer) = self.json_bufs.get_mut(idx) {
@@ -302,10 +302,10 @@ impl MessageAccumulator {
             })?;
         buffer.clear();
 
-        if let Some(ContentBlock::ToolUse(target)) =
-            self.snapshot.as_mut().and_then(|s| s.content.get_mut(idx))
-        {
-            target.input = parsed;
+        match self.snapshot.as_mut().and_then(|s| s.content.get_mut(idx)) {
+            Some(ContentBlock::ToolUse(target)) => target.input = parsed,
+            Some(ContentBlock::ServerToolUse(target)) => target.input = parsed,
+            _ => {}
         }
         Ok(())
     }
@@ -689,6 +689,8 @@ mod tests {
         r#"{"type":"tool_use","id":"toolu_01","name":"get_weather","input":{}}"#;
     const TOOL_BLOCK_2: &str =
         r#"{"type":"tool_use","id":"toolu_02","name":"get_time","input":{}}"#;
+    const SERVER_TOOL_USE_BLOCK: &str =
+        r#"{"type":"server_tool_use","id":"srvtoolu_01","name":"web_search","input":{}}"#;
 
     fn json_delta(index: usize, fragment: &str) -> StreamEvent {
         event(&format!(
@@ -717,6 +719,22 @@ mod tests {
                 assert_eq!(tu.input, serde_json::json!({"city": "Paris"}));
             }
             other => panic!("expected tool-use block, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn server_tool_use_input_json_buffers_across_deltas_and_parses_at_stop() {
+        let mut acc = started(&[SERVER_TOOL_USE_BLOCK]);
+        acc.accumulate(&json_delta(0, r#"{"query":"#)).unwrap();
+        acc.accumulate(&json_delta(0, r#""rust"}"#)).unwrap();
+        acc.accumulate(&block_stop(0)).unwrap();
+
+        let msg = acc.finish().unwrap();
+        match &msg.content[0] {
+            ContentBlock::ServerToolUse(su) => {
+                assert_eq!(su.input, serde_json::json!({"query": "rust"}));
+            }
+            other => panic!("expected server-tool-use block, got {other:?}"),
         }
     }
 

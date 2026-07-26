@@ -72,6 +72,7 @@ async fn tool_round_trip() {
         }),
         cache_control: None,
         strict: None,
+        eager_input_streaming: None,
     };
 
     let req1 = MessageRequest::builder()
