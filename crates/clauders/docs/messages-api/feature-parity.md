@@ -61,12 +61,12 @@ Paths in the Python column are relative to `src/anthropic/`; TypeScript to `src/
 | Prompt caching (per-block, TTL tiers, usage counters) | ✅ parity (minus top-level auto-place) |
 | JSON-schema structured output | ✅ parity (minus typed-parse helper) |
 | System prompt (string + segments + per-segment cache) | ✅ parity |
-| **Streaming accumulation** | ✅ parity on all five modelled delta kinds — with 5 recorded divergences (§12 rows 3, 18-21) and 2 gaps owned elsewhere: `citations_delta` (row 14), `server_tool_use` input gating (row 8) |
+| **Streaming accumulation** | ✅ parity on all five modelled delta kinds — with 5 recorded divergences (§12 rows 3, 18-21) and 2 gaps owned elsewhere: `citations_delta` (row 14), `input_json_delta` gating still checks `ContentBlock::ToolUse` only, so `ServerToolUse` arguments still stream unbuffered even though the block is now typed (§4.2) |
 | **Forward compatibility (every server-decoded enum)** | ✅ parity — payload-carrying unknown arm on all ten; `pause_turn` no longer fails |
 | **`thinking` / `output_config.effort`** | ✅ parity — both request params delivered |
 | **Response diagnostics (`container`, `stop_details`, typed `pause_turn`, usage sub-objects)** | ✅ parity — all delivered (§8, §8.1, §8.3) |
 | **`message_delta` usage merge (input-side counters, `stop_details`)** | ✅ parity — overwrite-cumulative, matching Python/TypeScript (§4.4) |
-| Response content-block taxonomy (12 official response members) | 🟡 4 of 12 |
+| Response content-block taxonomy (12 official response members) | ✅ 12 of 12 |
 | Request content-block taxonomy (17 official param members) | 🟡 4 of 17 — no vision, no PDF |
 | Models API (`capabilities`, `max_input_tokens`, `max_tokens`) | ✅ delivered — one divergence: `context_management`'s dated strategies are a flatten map, not named fields (§9.1) |
 | GA request params (`service_tier`, `inference_geo`, `container`, top-level `cache_control`) | ✅ delivered — all four are builder setters, serialized when set (§2) |
@@ -78,8 +78,9 @@ Paths in the Python column are relative to `src/anthropic/`; TypeScript to `src/
 accumulation and forward compatibility**, the two runtime defects the prior revision found. The
 `thinking` and `output_config.effort` request parameters, the GA request params
 (`service_tier`/`inference_geo`/`container`/top-level `cache_control`), `Role::System`, and the Models
-API capability-discovery surface are all delivered; what remains is content-block taxonomy breadth
-(4 of 12 / 4 of 17) and the server-side/Anthropic-defined tool tier, not correctness.
+API capability-discovery surface are all delivered; the response content-block taxonomy is now 12 of
+12 — what remains is request-side content-block breadth (4 of 17) and the server-side/Anthropic-defined
+tool tier, not correctness.
 
 ---
 
@@ -206,16 +207,16 @@ identical membership:
 |---|---|---|---|
 | 1 | `text` | `TextBlock` (content/text.rs:18) | ✅ — but no `citations` field |
 | 2 | `thinking` | `ThinkingBlock` (content/text.rs:71) | ✅ |
-| 3 | `redacted_thinking` | ❌ | ❌ |
+| 3 | `redacted_thinking` | `RedactedThinkingBlock` (content/server_tool.rs:62) | ✅ |
 | 4 | `tool_use` | `ToolUseBlock` (tools.rs:108) | ✅ |
-| 5 | `server_tool_use` | ❌ | ❌ |
-| 6 | `web_search_tool_result` | ❌ | ❌ |
-| 7 | `web_fetch_tool_result` | ❌ | ❌ |
-| 8 | `code_execution_tool_result` | ❌ | ❌ |
-| 9 | `bash_code_execution_tool_result` | ❌ | ❌ |
-| 10 | `text_editor_code_execution_tool_result` | ❌ | ❌ |
-| 11 | `tool_search_tool_result` | ❌ | ❌ |
-| 12 | `container_upload` | ❌ | ❌ |
+| 5 | `server_tool_use` | `ServerToolUseBlock` (content/server_tool.rs:69) | ✅ — `name` closed to the seven official server-tool names (`ServerToolName`, content/server_tool.rs:43); an unrecognized `name` falls to `ContentBlock::Unknown` rather than failing the block |
+| 6 | `web_search_tool_result` | `WebSearchToolResultBlock` (content/server_tool.rs:90) | ✅ |
+| 7 | `web_fetch_tool_result` | `WebFetchToolResultBlock` (content/server_tool.rs:102) | ✅ |
+| 8 | `code_execution_tool_result` | `CodeExecutionToolResultBlock` (content/server_tool.rs:114) | ✅ |
+| 9 | `bash_code_execution_tool_result` | `BashCodeExecutionToolResultBlock` (content/server_tool.rs:123) | ✅ |
+| 10 | `text_editor_code_execution_tool_result` | `TextEditorCodeExecutionToolResultBlock` (content/server_tool.rs:132) | ✅ |
+| 11 | `tool_search_tool_result` | `ToolSearchToolResultBlock` (content/server_tool.rs:141) | ✅ |
+| 12 | `container_upload` | `ContainerUploadBlock` (content/server_tool.rs:83) | ✅ |
 
 Additional block types the API emits on GA paths that are **not** in the SDK response union (they arrive
 via beta surfaces or fallback flows): `fallback` (`{type, from{model}, to{model}}`) and `connector_text`.
@@ -255,10 +256,11 @@ tokens; standard tier 1568/1568. Automatic, no beta header.
 clauders now uses **two** unions, matching the official SDKs' two-direction shape (§3.1, §3.2), joined
 by a fallible carry-forward conversion — not one enum shared by both directions.
 
-`ContentBlock` (`messages/content/block.rs:25-45`) is the response union: `Text`, `Thinking`,
-`ToolUse`, and a payload-carrying `Unknown` fallback (§5.1). It no longer carries `ToolResult` — the
-API never returns that block kind, so a `tool_result` on the response path now decodes into `Unknown`
-rather than a typed variant.
+`ContentBlock` (`messages/content/block.rs:27-68`) is the response union: `Text`, `Thinking`,
+`ToolUse`, the nine response-only variants delivered by §3.1 row 3 and rows 5-12 (`content/server_tool.rs`),
+and a payload-carrying `Unknown` fallback (§5.1). It no longer carries `ToolResult` — the API never
+returns that block kind, so a `tool_result` on the response path now decodes into `Unknown` rather than
+a typed variant.
 
 `ContentBlockParam` (`messages/content/param.rs:27-36`) is the request union: `Text`, `Thinking`,
 `ToolUse`, `ToolResult`. It is closed — `#[non_exhaustive]` reserves room for downstream crates only,
@@ -271,13 +273,13 @@ Both unions share their leaf structs — `TextBlock` and `ThinkingBlock` (`messa
 defined once and reused by each direction rather than duplicated per direction.
 
 The multi-turn carry-forward path — echoing a response's content blocks back into the next request —
-is `TryFrom<ContentBlock> for ContentBlockParam` (`messages/content/param.rs:69-87`), with a `Vec`
-convenience, `ContentBlockParam::try_from_response` (`messages/content/param.rs:111-115`). `Text`,
-`Thinking`, and `ToolUse` convert; a response-only block — today only `Unknown` (redacted thinking,
-server-tool blocks, and any other kind this release does not model) — fails with `UnsendableBlock`,
-which names the block's wire `type` (`messages/content/param.rs:57-59`). The conversion is
-all-or-nothing: `try_from_response` fails the whole batch on the first unsendable block instead of
-silently dropping it.
+is `TryFrom<ContentBlock> for ContentBlockParam` (`messages/content/param.rs:80-119`), with a `Vec`
+convenience, `ContentBlockParam::try_from_response` (`messages/content/param.rs:143-147`). `Text`,
+`Thinking`, and `ToolUse` convert; the nine response-only blocks (§3.1 row 3, rows 5-12) and `Unknown`
+each fail with `UnsendableBlock`, which names the block's wire `type` — one `Err` arm per response-only
+block, built via the private `UnsendableBlock::of` constructor (`messages/content/param.rs:72-77`). The
+conversion is all-or-nothing: `try_from_response` fails the whole batch on the first unsendable block
+instead of silently dropping it.
 
 This closes §12 row 7. `ContentBlockParam`'s membership is still the pragmatic subset already in scope
 before the split — no `image` or `document` — which is tracked separately as a deliberate divergence,
@@ -416,7 +418,7 @@ pinned source):
 | empty tool buffer | Python leaves the start-event `input`; TS substitutes `{}` | leaves the start-event `input` (accumulator.rs:262-264) | ✅ follows Python; identical in practice, the API opens the block with `"input": {}` |
 | malformed tool JSON | both raise (non-beta) | `Error::Serde` (accumulator.rs:265-269) | ✅ |
 | `citations_delta` | accumulate onto `TextBlock.citations` | no-op (accumulator.rs:234) | ❌ §12 row 14 |
-| gating of `input_json_delta` | `tool_use` **or** `server_tool_use` | `ContentBlock::ToolUse` only (accumulator.rs:197-200) | ❌ §12 row 8 — `server_tool_use` is unmodelled, so its arguments are dropped |
+| gating of `input_json_delta` | `tool_use` **or** `server_tool_use` | `ContentBlock::ToolUse` only (accumulator.rs:197-200) | ❌ untracked — `ServerToolUse` is now a typed `ContentBlock` variant (§3.1 row 5), but the accumulator's gate was not widened to include it, so its streamed arguments are still dropped |
 | truncated buffer, no `content_block_stop` | Python's last eager parse salvages **complete** key/value pairs (`{"a": 1,` → `{"a": 1}`); TS same on `.input` read, though `finalMessage()` throws first | never parsed, `input` stays at the start-event value | 🔶 §12 row 19 — reachable only on an already-broken stream |
 
 ### 4.3 ⚠️→🔶 Index handling — fixed, by deliberate divergence
@@ -862,7 +864,7 @@ Python and TypeScript blind-append and ignore `index`. See §4.3 — it is grade
 
 | # | Item | Class | Why here |
 |---|---|---|---|
-| 1 | Streaming accumulator: buffer `input_json_delta`, concat `thinking_delta`, replace on `signature_delta` (§4.2) | ✅ **delivered** | Was: silent wrong data, streaming tool use unusable with no signal of failure. Now handled in `MessageAccumulator`; end state matches Python/TS per-rule (§4.2 delivered-state table). Four rows in §4.2's delivered-state table are not ✅: two gaps assigned elsewhere — `citations_delta` (row 14) and `server_tool_use` input gating (row 8) — and two recorded divergences, rows 18 and 19. |
+| 1 | Streaming accumulator: buffer `input_json_delta`, concat `thinking_delta`, replace on `signature_delta` (§4.2) | ✅ **delivered** | Was: silent wrong data, streaming tool use unusable with no signal of failure. Now handled in `MessageAccumulator`; end state matches Python/TS per-rule (§4.2 delivered-state table). Four rows in §4.2's delivered-state table are not ✅: one gap assigned elsewhere — `citations_delta` (row 14) — one untracked gap — `input_json_delta` gating still checks `ContentBlock::ToolUse` only, so `ServerToolUse` arguments still stream unbuffered even though the block is now typed (§4.2) — and two recorded divergences, rows 18 and 19. |
 | 2 | Unknown-variant tolerance on `ContentBlock` / `ContentDelta` / `StreamEvent` / **`StopReason`**; skip or surface — never error on — unknown SSE event names (§5, §5.1) | ✅ **delivered** | Was: hard decode failure on values the API emits **today**, violating the documented versioning contract, with `pause_turn` failing the entire `Message`. Now every one carries a payload-carrying `Unknown` arm + `#[non_exhaustive]`; `pause_turn` decodes as `StopReason::Unknown("pause_turn")` (§8.1). Payload fidelity matches TypeScript and exceeds Python, which mis-types the container (§5.1). |
 | 3 | Index handling on `content_block_start`, instead of padding with fabricated `TextBlock::new("")` (§4.3) | 🔶 **delivered, diverging** | The fabricated-placeholder defect is gone. But clauders **asserts** `index == content.len()` and returns `Error::Stream`, following Go; Python and TypeScript blind-append and never read `index`. Against a conforming server the behaviors are indistinguishable; on a malformed stream clauders reports where the pinned SDKs silently misalign. Deliberate — see §4.3 for the full three-way comparison. |
 | 4 | Unknown arms on the remaining server-decoded enums: `BatchStatus`, `MessageKind`, `BatchKind`, `DeletedBatchKind`, `ModelInfoKind`, and payload retention on `ErrorType` (§5.1) | ✅ **delivered** | Was the same failure mode as #2, not yet triggered. `BatchStatus` is the plausible grower; the rest are single-valued today. `ErrorType` is the exception — a presence-only `#[serde(other)]` arm already kept it from hard-failing, so its gap is payload retention only. `SystemSegmentKind` is **not** in scope: it is `Serialize`-only, so an unknown arm there is unreachable in both directions. Applying the §5.1 policy uniformly is cheaper than re-deciding per enum. |
@@ -884,7 +886,7 @@ Python and TypeScript blind-append and ignore `index`. See §4.3 — it is grade
 
 | # | Item | Class | Why here |
 |---|---|---|---|
-| 8 | Response blocks: `redacted_thinking`, `server_tool_use`, the five `*_tool_result` kinds, `container_upload` (§3.1) | ❌ capability | Largely subsumed by #2 — once unknown blocks stop being fatal, these become progressive typing work. |
+| 8 | Response blocks: `redacted_thinking`, `server_tool_use`, the six `*_tool_result` kinds, `container_upload` (§3.1) | ✅ **delivered** | All nine now decode as typed `ContentBlock` variants (`content/server_tool.rs`) instead of falling to `Unknown`. Each models its stable outer fields; the tool-specific result body stays `serde_json::Value` — a typed envelope, not full modeling of every server-tool result shape. `server_tool_use.name` is closed to the seven official server-tool names (`ServerToolName`); a `name` outside that set, or any wholly unmodeled block, still falls to `ContentBlock::Unknown` rather than failing decode — the graceful-degradation floor from #2 is unchanged. `ToolCaller` (`content/server_tool.rs:16`) models `direct` and the two dated `code_execution` server-tool callers, carried by `ServerToolUseBlock`, `WebSearchToolResultBlock`, and `WebFetchToolResultBlock`. |
 | 9 | Vision (`image`) + PDF (`document`) input blocks (§3.2) | ✅ **delivered** | `ContentBlockParam` gained `Image(ImageBlock)` and `Document(DocumentBlock)` (`content/param.rs:37,39`). Image sources: `base64` (`ImageMediaType` closed to jpeg/png/gif/webp) and `url`; the Files API `file` source (beta) is omitted. Document sources: `base64` (`PdfMediaType::ApplicationPdf`), `text` (`PlainTextMediaType::TextPlain`), and `url` are fully typed; the `content` embedded-content source is kept as raw `serde_json::Value` — a bounded reduction, not a gap. `DocumentBlock` also carries `citations: Option<CitationsConfig>`, `context`, and `title`. |
 | 10 | Response diagnostics: typed `pause_turn`, `stop_details`, `container`, `usage.{output_tokens_details,server_tool_use,service_tier,inference_geo}` (§8) | ✅ **delivered** | `StopReason::PauseTurn` is now a typed variant (`Unknown` retained for values a future release adds), and `Message.stop_details` / `Message.container` / `Usage.{output_tokens_details,server_tool_use,service_tier,inference_geo}` all exist (response.rs). A caller can act on a paused server-tool turn, a refusal category, or a container id through the type system rather than matching `Unknown("pause_turn")` or reading nothing at all. |
 | 11 | Models API `capabilities` / `max_input_tokens` / `max_tokens` (§9) | ✅ **delivered** | `ModelInfo` now decodes `max_input_tokens`, `max_tokens` (both `Option<u32>`), and `capabilities: Option<ModelCapabilities>` (models/types.rs:70-78). Eight of the nine `ModelCapabilities` fields match the official named-field shape one-for-one; the ninth, `context_management`, is delivered but shaped as a dated-strategy map rather than named fields — a deliberate divergence, not a gap, recorded separately as row 23. |

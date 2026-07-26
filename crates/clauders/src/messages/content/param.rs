@@ -68,6 +68,13 @@ impl UnsendableBlock {
     pub fn block_type(&self) -> &str {
         &self.block_type
     }
+
+    /// Construct from a static wire `type` for a response-only block variant.
+    fn of(block_type: &str) -> Self {
+        Self {
+            block_type: block_type.to_owned(),
+        }
+    }
 }
 
 impl TryFrom<crate::messages::content::ContentBlock> for ContentBlockParam {
@@ -79,6 +86,27 @@ impl TryFrom<crate::messages::content::ContentBlock> for ContentBlockParam {
             ContentBlock::Text(t) => Ok(Self::Text(t)),
             ContentBlock::Thinking(t) => Ok(Self::Thinking(t)),
             ContentBlock::ToolUse(t) => Ok(Self::ToolUse(t)),
+            ContentBlock::RedactedThinking(_) => Err(UnsendableBlock::of("redacted_thinking")),
+            ContentBlock::ServerToolUse(_) => Err(UnsendableBlock::of("server_tool_use")),
+            ContentBlock::WebSearchToolResult(_) => {
+                Err(UnsendableBlock::of("web_search_tool_result"))
+            }
+            ContentBlock::WebFetchToolResult(_) => {
+                Err(UnsendableBlock::of("web_fetch_tool_result"))
+            }
+            ContentBlock::CodeExecutionToolResult(_) => {
+                Err(UnsendableBlock::of("code_execution_tool_result"))
+            }
+            ContentBlock::BashCodeExecutionToolResult(_) => {
+                Err(UnsendableBlock::of("bash_code_execution_tool_result"))
+            }
+            ContentBlock::TextEditorCodeExecutionToolResult(_) => Err(UnsendableBlock::of(
+                "text_editor_code_execution_tool_result",
+            )),
+            ContentBlock::ToolSearchToolResult(_) => {
+                Err(UnsendableBlock::of("tool_search_tool_result"))
+            }
+            ContentBlock::ContainerUpload(_) => Err(UnsendableBlock::of("container_upload")),
             ContentBlock::Unknown(v) => Err(UnsendableBlock {
                 block_type: v
                     .get("type")
@@ -208,6 +236,20 @@ mod tests {
         let j = serde_json::to_value(&block).unwrap();
         assert_eq!(j["type"], "document");
         assert_eq!(j["source"]["type"], "base64");
+    }
+
+    #[test]
+    fn server_tool_use_block_is_unsendable() {
+        use crate::messages::content::ContentBlock;
+        use crate::messages::content::server_tool::{ServerToolName, ServerToolUseBlock};
+        let block = ContentBlock::ServerToolUse(ServerToolUseBlock {
+            id: "srvtoolu_1".into(),
+            name: ServerToolName::WebSearch,
+            input: serde_json::json!({}),
+            caller: None,
+        });
+        let err = ContentBlockParam::try_from(block).unwrap_err();
+        assert_eq!(err.block_type(), "server_tool_use");
     }
 
     #[test]

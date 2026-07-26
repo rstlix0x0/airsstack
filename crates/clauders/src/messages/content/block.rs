@@ -4,6 +4,11 @@
 //! apart from the request union in [`super::param`]. Leaf structs come from
 //! [`super::text`] and [`crate::messages::tools`].
 
+use crate::messages::content::server_tool::{
+    BashCodeExecutionToolResultBlock, CodeExecutionToolResultBlock, ContainerUploadBlock,
+    RedactedThinkingBlock, ServerToolUseBlock, TextEditorCodeExecutionToolResultBlock,
+    ToolSearchToolResultBlock, WebFetchToolResultBlock, WebSearchToolResultBlock,
+};
 use crate::messages::content::text::{TextBlock, ThinkingBlock};
 
 /// Tagged union of content block shapes the Messages API returns in a response.
@@ -29,13 +34,34 @@ pub enum ContentBlock {
     Thinking(ThinkingBlock),
     /// A tool invocation produced by the model.
     ToolUse(crate::messages::tools::ToolUseBlock),
+    /// Redacted extended-thinking output.
+    RedactedThinking(RedactedThinkingBlock),
+    /// A server-tool invocation produced by the model.
+    ServerToolUse(ServerToolUseBlock),
+    /// Result of a `web_search` server-tool invocation.
+    WebSearchToolResult(WebSearchToolResultBlock),
+    /// Result of a `web_fetch` server-tool invocation.
+    WebFetchToolResult(WebFetchToolResultBlock),
+    /// Result of a `code_execution` server-tool invocation.
+    CodeExecutionToolResult(CodeExecutionToolResultBlock),
+    /// Result of a `bash_code_execution` server-tool invocation.
+    BashCodeExecutionToolResult(BashCodeExecutionToolResultBlock),
+    /// Result of a `text_editor_code_execution` server-tool invocation.
+    TextEditorCodeExecutionToolResult(TextEditorCodeExecutionToolResultBlock),
+    /// Result of a `tool_search` server-tool invocation.
+    ToolSearchToolResult(ToolSearchToolResultBlock),
+    /// A file uploaded to the model's container.
+    ContainerUpload(ContainerUploadBlock),
     /// A block kind this SDK release does not model.
     ///
-    /// The API returns block kinds this release has no typed shape for —
-    /// server-tool invocations and their results, redacted thinking, and
-    /// container uploads among them. The raw JSON object is retained here so
-    /// the surrounding response stays decodable and the block can still be
-    /// inspected.
+    /// Catches two cases: a block kind this release has no typed shape for at
+    /// all, and a block whose `type` this release *does* model but whose body
+    /// fails its typed decode (for example a `server_tool_use` whose `name` is
+    /// outside the closed [`ServerToolName`] set). In both the raw JSON object
+    /// is retained here so the surrounding response stays decodable and the
+    /// block can still be inspected.
+    ///
+    /// [`ServerToolName`]: crate::messages::content::server_tool::ServerToolName
     ///
     /// This variant is **deserialize-only**. Attempting to serialize it — by
     /// putting it back into a request — is an error rather than a silent
@@ -112,5 +138,32 @@ mod tests {
             ContentBlock::Unknown(v) => assert_eq!(v["type"], "tool_result"),
             other => panic!("wrong variant: {other:?}"),
         }
+    }
+
+    #[test]
+    fn server_tool_use_now_decodes_typed_not_unknown() {
+        let json =
+            r#"{"type":"server_tool_use","id":"srvtoolu_01","name":"web_search","input":{}}"#;
+        let block: ContentBlock = serde_json::from_str(json).unwrap();
+        match block {
+            ContentBlock::ServerToolUse(b) => assert_eq!(b.id, "srvtoolu_01"),
+            other => panic!("wrong variant: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn redacted_thinking_now_decodes_typed() {
+        let json = r#"{"type":"redacted_thinking","data":"enc"}"#;
+        let block: ContentBlock = serde_json::from_str(json).unwrap();
+        assert!(matches!(block, ContentBlock::RedactedThinking(_)));
+    }
+
+    #[test]
+    fn unknown_name_server_tool_use_falls_back_to_unknown_floor() {
+        // A server_tool_use with a name outside the closed set fails the typed
+        // arm and is retained by the Unknown floor.
+        let json = r#"{"type":"server_tool_use","id":"x","name":"future_tool","input":{}}"#;
+        let block: ContentBlock = serde_json::from_str(json).unwrap();
+        assert!(matches!(block, ContentBlock::Unknown(_)));
     }
 }

@@ -18,6 +18,7 @@ pub mod block;
 pub mod document;
 pub mod image;
 pub mod param;
+pub mod server_tool;
 pub mod text;
 
 pub use block::ContentBlock;
@@ -26,4 +27,10 @@ pub use document::{
 };
 pub use image::{ImageBlock, ImageMediaType, ImageSource};
 pub use param::{ContentBlockParam, UnsendableBlock};
+pub use server_tool::{
+    BashCodeExecutionToolResultBlock, CodeExecutionToolResultBlock, ContainerUploadBlock,
+    RedactedThinkingBlock, ServerToolName, ServerToolUseBlock,
+    TextEditorCodeExecutionToolResultBlock, ToolCaller, ToolSearchToolResultBlock,
+    WebFetchToolResultBlock, WebSearchToolResultBlock,
+};
 pub use text::{TextBlock, ThinkingBlock};
