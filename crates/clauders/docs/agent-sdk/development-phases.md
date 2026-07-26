@@ -240,6 +240,12 @@ returns may hang the binary, which blocks on the correlated response. The TypeSc
 the official SDKs bound this. **Source-verify before designing a fix** — the claim that they bound it
 is not verified.
 
+**Verified (v2.1.218):** the official SDK's `Query.handleControlRequest` awaits the handler with no
+timeout and no `Promise.race`; `AbortSignal.timeout` never feeds that path — the per-request
+`AbortController` is aborted only by an inbound `control_cancel_request`. clauders already mirrors this
+(`dispatch.rs` awaits the handler; `in_flight` dedups; `CancelSignal` cancels on
+`control_cancel_request`). Parity already met — closed, no code. Adding a timeout would be a divergence.
+
 ---
 
 ## Phase 5 — startup options not wired

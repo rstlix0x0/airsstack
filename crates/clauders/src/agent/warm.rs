@@ -88,6 +88,14 @@ mod tests {
             usage: None,
             session_id: SessionId::new("s1"),
             num_turns: 1,
+            model_usage: std::collections::HashMap::new(),
+            permission_denials: Vec::new(),
+            duration_ms: None,
+            duration_api_ms: None,
+            ttft_ms: None,
+            terminal_reason: None,
+            uuid: None,
+            extra: serde_json::Value::Null,
         })
     }
 

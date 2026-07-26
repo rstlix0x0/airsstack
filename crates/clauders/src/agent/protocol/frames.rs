@@ -36,6 +36,10 @@ use crate::agent::message::Message;
 /// message.
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "the Message variant carries the widened inbound Usage/ResultMessage/AssistantMessage frame fields; boxing would change match ergonomics for every caller and is deferred to a dedicated pass over these frame types"
+)]
 pub enum InboundFrame {
     /// A reply to one of our outbound control requests.
     ControlResponse(ControlResponse),
