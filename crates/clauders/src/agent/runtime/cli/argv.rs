@@ -1,5 +1,6 @@
 //! Mapping session options to the backend's argument vector.
 
+use crate::agent::error::AgentError;
 use crate::agent::options::Options;
 use crate::agent::permissions::PermissionMode;
 use crate::agent::system_prompt::SystemPromptConfig;
@@ -10,7 +11,11 @@ use crate::agent::types::{SessionControl, SessionPersistence, SettingsSource};
 /// Caller-supplied `executable_args` come first, then the SDK-managed
 /// stream-protocol flags, then mapped option fields. `cwd` and `env` are not
 /// argv — they are applied to the process spawn config.
-pub(super) fn build_argv(options: &Options) -> Vec<String> {
+#[expect(
+    clippy::unnecessary_wraps,
+    reason = "signature carries AgentError now so a conflicting option combination (sandbox vs. a settings file path) can report an error without a second signature change; no mapping returns Err yet"
+)]
+pub(super) fn build_argv(options: &Options) -> Result<Vec<String>, AgentError> {
     let mut argv: Vec<String> = options.executable_args.clone();
 
     argv.push("--output-format".to_string());
@@ -108,22 +113,55 @@ pub(super) fn build_argv(options: &Options) -> Vec<String> {
             SettingsSource::Inline(value) => value.to_string(),
         });
     }
+    argv.extend(trailing_flag_args(options));
+    argv.extend(session_args(options));
+    Ok(argv)
+}
+
+/// Map the remaining scalar/presence flags — spend ceiling, partial-message
+/// and hook-event streaming, reasoning effort, settings sources, beta flags,
+/// and local plugin directories — to argv.
+fn trailing_flag_args(options: &Options) -> Vec<String> {
+    let mut args = Vec::new();
     if let Some(budget) = options.max_budget_usd {
-        argv.push("--max-budget-usd".to_string());
-        argv.push(budget.get().to_string());
+        args.push("--max-budget-usd".to_string());
+        args.push(budget.get().to_string());
     }
     if options.include_partial_messages {
-        argv.push("--include-partial-messages".to_string());
+        args.push("--include-partial-messages".to_string());
     }
     if options.include_hook_events {
-        argv.push("--include-hook-events".to_string());
+        args.push("--include-hook-events".to_string());
     }
     if let Some(effort) = options.effort {
-        argv.push("--effort".to_string());
-        argv.push(effort.as_str().to_string());
+        args.push("--effort".to_string());
+        args.push(effort.as_str().to_string());
     }
-    argv.extend(session_args(options));
-    argv
+    if !options.setting_sources.is_empty() {
+        let csv = options
+            .setting_sources
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join(",");
+        args.push(format!("--setting-sources={csv}"));
+    }
+    if !options.betas.is_empty() {
+        args.push("--betas".to_string());
+        args.push(options.betas.join(","));
+    }
+    for plugin in &options.plugins {
+        args.push(
+            if plugin.skip_mcp_discovery {
+                "--plugin-dir-no-mcp"
+            } else {
+                "--plugin-dir"
+            }
+            .to_string(),
+        );
+        args.push(plugin.path.to_string_lossy().into_owned());
+    }
+    args
 }
 
 /// The backend's camelCase wire spelling for a permission mode.
@@ -196,7 +234,7 @@ mod tests {
 
     #[test]
     fn always_emits_the_streaming_protocol_flags() {
-        let argv = build_argv(&Options::default());
+        let argv = build_argv(&Options::default()).expect("build argv");
         let joined = argv.join(" ");
         assert!(joined.contains("--output-format stream-json"));
         assert!(joined.contains("--input-format stream-json"));
@@ -219,7 +257,7 @@ mod tests {
                 serde_json::json!({"command": "node"}),
             )])
             .build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         assert_eq!(argv.first().map(String::as_str), Some("--mcp-debug"));
         let joined = argv.join(" ");
         assert!(joined.contains("--model claude-sonnet-4-5"));
@@ -254,7 +292,7 @@ mod tests {
 
     #[test]
     fn omits_permission_prompt_tool_without_policy() {
-        let argv = build_argv(&Options::default());
+        let argv = build_argv(&Options::default()).expect("build argv");
         assert!(!argv.iter().any(|a| a == "--permission-prompt-tool"));
     }
 
@@ -264,7 +302,7 @@ mod tests {
         let opts = Options::builder()
             .sdk_mcp_server(SdkMcpServer::builder("calc").build())
             .build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         let joined = argv.join(" ");
         assert!(joined.contains("--mcp-config"), "got: {joined}");
         // The declaration carries the server name and the sdk type marker.
@@ -293,7 +331,7 @@ mod tests {
         }
 
         let opts = Options::builder().permission_policy(Arc::new(P)).build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         let joined = argv.join(" ");
         assert!(
             joined.contains("--permission-prompt-tool stdio"),
@@ -306,7 +344,7 @@ mod tests {
         let opts = Options::builder()
             .system_prompt_preset(Some("extra rules".to_owned()), true)
             .build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         let joined = argv.join(" ");
         assert!(
             joined.contains("--append-system-prompt extra rules"),
@@ -322,7 +360,7 @@ mod tests {
 
     #[test]
     fn none_emits_no_system_prompt_flag() {
-        let argv = build_argv(&Options::default());
+        let argv = build_argv(&Options::default()).expect("build argv");
         assert!(!argv.iter().any(|a| a == "--system-prompt"));
         assert!(!argv.iter().any(|a| a == "--append-system-prompt"));
     }
@@ -334,7 +372,7 @@ mod tests {
 
     #[test]
     fn omits_agents_flag_when_map_empty() {
-        let argv = build_argv(&Options::builder().build());
+        let argv = build_argv(&Options::builder().build()).expect("build argv");
         assert!(agents_flag_value(&argv).is_none());
     }
 
@@ -346,7 +384,7 @@ mod tests {
             .expect("valid")
             .with_model(ModelId::claude_haiku_4_5());
         let opts = Options::builder().agent("reviewer", reviewer).build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         let json = agents_flag_value(&argv).expect("--agents present");
         let parsed: serde_json::Value = serde_json::from_str(json).expect("valid json");
         assert_eq!(parsed["reviewer"]["description"], "reviewer");
@@ -356,7 +394,7 @@ mod tests {
 
     #[test]
     fn new_session_emits_no_session_flags() {
-        let argv = build_argv(&Options::default());
+        let argv = build_argv(&Options::default()).expect("build argv");
         assert!(!argv.iter().any(|a| a == "--continue"));
         assert!(!argv.iter().any(|a| a == "--resume"));
         assert!(!argv.iter().any(|a| a == "--fork-session"));
@@ -368,7 +406,7 @@ mod tests {
         let opts = Options::builder()
             .session(SessionControl::Continue { fork: false })
             .build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         assert!(argv.iter().any(|a| a == "--continue"));
         assert!(!argv.iter().any(|a| a == "--fork-session"));
     }
@@ -379,7 +417,7 @@ mod tests {
         let opts = Options::builder()
             .session(SessionControl::Continue { fork: true })
             .build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         assert!(argv.iter().any(|a| a == "--continue"));
         assert!(argv.iter().any(|a| a == "--fork-session"));
     }
@@ -394,7 +432,7 @@ mod tests {
                 resume_at: None,
             })
             .build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         let idx = argv
             .iter()
             .position(|a| a == "--resume")
@@ -413,7 +451,7 @@ mod tests {
                 resume_at: None,
             })
             .build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         let idx = argv
             .iter()
             .position(|a| a == "--resume")
@@ -432,7 +470,7 @@ mod tests {
                 resume_at: Some(MessageId::new("m-uuid").expect("valid")),
             })
             .build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         assert!(argv.iter().any(|a| a == "--resume"));
         assert!(
             argv.iter().any(|a| a == "--resume-session-at=m-uuid"),
@@ -453,6 +491,7 @@ mod tests {
             .build();
         assert!(
             !build_argv(&opts)
+                .expect("build argv")
                 .iter()
                 .any(|a| a.starts_with("--resume-session-at")),
             "resume_at None must emit no flag"
@@ -469,7 +508,7 @@ mod tests {
                 resume_at: Some(MessageId::new("m2").expect("valid")),
             })
             .build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         assert!(argv.iter().any(|a| a == "--fork-session"));
         assert!(argv.iter().any(|a| a == "--resume-session-at=m2"));
     }
@@ -480,7 +519,7 @@ mod tests {
         let opts = Options::builder()
             .fallback_model(ModelId::custom("claude-haiku-4-5").expect("model"))
             .build();
-        let joined = build_argv(&opts).join(" ");
+        let joined = build_argv(&opts).expect("build argv").join(" ");
         assert!(
             joined.contains("--fallback-model claude-haiku-4-5"),
             "got: {joined}"
@@ -491,17 +530,23 @@ mod tests {
     fn strict_mcp_config_emits_presence_flag_only_when_true() {
         assert!(
             !build_argv(&Options::default())
+                .expect("build argv")
                 .iter()
                 .any(|a| a == "--strict-mcp-config")
         );
         let opts = Options::builder().strict_mcp_config(true).build();
-        assert!(build_argv(&opts).iter().any(|a| a == "--strict-mcp-config"));
+        assert!(
+            build_argv(&opts)
+                .expect("build argv")
+                .iter()
+                .any(|a| a == "--strict-mcp-config")
+        );
     }
 
     #[test]
     fn add_dirs_emit_one_flag_with_each_directory_as_a_value() {
         let opts = Options::builder().add_dir("/a").add_dir("/b").build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         let idx = argv
             .iter()
             .position(|a| a == "--add-dir")
@@ -515,7 +560,7 @@ mod tests {
     #[test]
     fn settings_path_and_inline_lower_to_the_flag_argument() {
         let p = Options::builder().settings_path("/etc/s.json").build();
-        let pa = build_argv(&p);
+        let pa = build_argv(&p).expect("build argv");
         let pi = pa
             .iter()
             .position(|a| a == "--settings")
@@ -525,7 +570,7 @@ mod tests {
         let i = Options::builder()
             .settings_inline(serde_json::json!({ "k": 1 }))
             .build();
-        let ia = build_argv(&i);
+        let ia = build_argv(&i).expect("build argv");
         let ii = ia
             .iter()
             .position(|a| a == "--settings")
@@ -539,7 +584,7 @@ mod tests {
         let opts = Options::builder()
             .max_budget_usd(BudgetUsd::new(5.0).expect("positive"))
             .build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         let idx = argv
             .iter()
             .position(|a| a == "--max-budget-usd")
@@ -551,12 +596,14 @@ mod tests {
     fn include_partial_messages_emits_presence_flag() {
         assert!(
             !build_argv(&Options::default())
+                .expect("build argv")
                 .iter()
                 .any(|a| a == "--include-partial-messages")
         );
         let opts = Options::builder().include_partial_messages(true).build();
         assert!(
             build_argv(&opts)
+                .expect("build argv")
                 .iter()
                 .any(|a| a == "--include-partial-messages")
         );
@@ -567,7 +614,7 @@ mod tests {
         let opts = Options::builder()
             .permission_prompt_tool_name("mcp__gate__approve")
             .build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         let idx = argv
             .iter()
             .position(|a| a == "--permission-prompt-tool")
@@ -602,7 +649,7 @@ mod tests {
             .permission_policy(Arc::new(P))
             .permission_prompt_tool_name("mcp__gate__approve")
             .build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         let joined = argv.join(" ");
         assert!(
             joined.contains("--permission-prompt-tool mcp__gate__approve"),
@@ -622,6 +669,7 @@ mod tests {
             .build();
         assert!(
             build_argv(&opts)
+                .expect("build argv")
                 .iter()
                 .any(|a| a == "--permission-prompt-tool")
         );
@@ -631,12 +679,14 @@ mod tests {
     fn include_hook_events_emits_presence_flag() {
         assert!(
             !build_argv(&Options::default())
+                .expect("build argv")
                 .iter()
                 .any(|a| a == "--include-hook-events")
         );
         let opts = Options::builder().include_hook_events(true).build();
         assert!(
             build_argv(&opts)
+                .expect("build argv")
                 .iter()
                 .any(|a| a == "--include-hook-events")
         );
@@ -648,7 +698,7 @@ mod tests {
         let opts = Options::builder()
             .session_id(SessionId::new("sess_7"))
             .build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         let idx = argv
             .iter()
             .position(|a| a == "--session-id")
@@ -668,7 +718,7 @@ mod tests {
                 resume_at: None,
             })
             .build();
-        let resuming_argv = build_argv(&resuming);
+        let resuming_argv = build_argv(&resuming).expect("build argv");
         assert!(!resuming_argv.iter().any(|a| a == "--session-id"));
         let idx = resuming_argv
             .iter()
@@ -683,7 +733,7 @@ mod tests {
             .session_id(SessionId::new("sess_7"))
             .session(SessionControl::Continue { fork: false })
             .build();
-        let continuing_argv = build_argv(&continuing);
+        let continuing_argv = build_argv(&continuing).expect("build argv");
         assert!(!continuing_argv.iter().any(|a| a == "--session-id"));
         assert!(continuing_argv.iter().any(|a| a == "--continue"));
     }
@@ -692,6 +742,7 @@ mod tests {
     fn omits_session_id_flag_when_unset() {
         assert!(
             !build_argv(&Options::default())
+                .expect("build argv")
                 .iter()
                 .any(|a| a == "--session-id")
         );
@@ -704,6 +755,7 @@ mod tests {
         // Default (Enabled) emits nothing.
         assert!(
             !build_argv(&Options::default())
+                .expect("build argv")
                 .iter()
                 .any(|a| a == "--no-session-persistence")
         );
@@ -713,6 +765,7 @@ mod tests {
             .build();
         assert!(
             build_argv(&opts)
+                .expect("build argv")
                 .iter()
                 .any(|a| a == "--no-session-persistence")
         );
@@ -722,10 +775,75 @@ mod tests {
     fn lowers_effort_when_set_and_omits_when_none() {
         use crate::agent::types::EffortLevel;
 
-        let with = build_argv(&Options::builder().effort(EffortLevel::High).build());
+        let with =
+            build_argv(&Options::builder().effort(EffortLevel::High).build()).expect("build argv");
         assert!(with.join(" ").contains("--effort high"));
 
-        let without = build_argv(&Options::default());
+        let without = build_argv(&Options::default()).expect("build argv");
         assert!(!without.join(" ").contains("--effort"));
+    }
+
+    #[test]
+    fn lowers_setting_sources_as_csv_equals_form() {
+        use crate::agent::types::SettingSource;
+        let opts = Options::builder()
+            .setting_sources([
+                SettingSource::User,
+                SettingSource::Project,
+                SettingSource::Local,
+            ])
+            .build();
+        let argv = build_argv(&opts).expect("build argv");
+        assert!(
+            argv.contains(&"--setting-sources=user,project,local".to_string()),
+            "got: {argv:?}"
+        );
+    }
+
+    #[test]
+    fn omits_setting_sources_when_empty() {
+        let argv = build_argv(&Options::default()).expect("build argv");
+        assert!(
+            !argv.iter().any(|a| a.starts_with("--setting-sources")),
+            "got: {argv:?}"
+        );
+    }
+
+    #[test]
+    fn lowers_betas_as_space_form_comma_joined() {
+        let opts = Options::builder()
+            .betas(["a".to_string(), "b".to_string()])
+            .build();
+        let argv = build_argv(&opts).expect("build argv");
+        let i = argv
+            .iter()
+            .position(|a| a == "--betas")
+            .expect("--betas present");
+        assert_eq!(argv[i + 1], "a,b");
+    }
+
+    #[test]
+    fn omits_betas_when_empty() {
+        let argv = build_argv(&Options::default()).expect("build argv");
+        assert!(!argv.iter().any(|a| a == "--betas"), "got: {argv:?}");
+    }
+
+    #[test]
+    fn lowers_plugins_choosing_flag_by_skip_mcp_discovery() {
+        use crate::agent::types::PluginSpec;
+        let opts = Options::builder()
+            .plugin(PluginSpec {
+                path: "/one".into(),
+                skip_mcp_discovery: false,
+            })
+            .plugin(PluginSpec {
+                path: "/two".into(),
+                skip_mcp_discovery: true,
+            })
+            .build();
+        let argv = build_argv(&opts).expect("build argv");
+        let joined = argv.join(" ");
+        assert!(joined.contains("--plugin-dir /one"), "got: {joined}");
+        assert!(joined.contains("--plugin-dir-no-mcp /two"), "got: {joined}");
     }
 }

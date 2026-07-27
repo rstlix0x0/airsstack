@@ -70,7 +70,7 @@ impl CliRuntime {
 
         let cfg = ProcessConfig {
             program,
-            args: build_argv(&options),
+            args: build_argv(&options)?,
             cwd: options.cwd.clone(),
             env: options.env.clone(),
             shutdown_grace: options.shutdown_grace,
