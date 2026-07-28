@@ -33,8 +33,8 @@ use crate::types::{BatchId, CustomRequestId};
 ///     .add(
 ///         CustomRequestId::new("r1").unwrap(),
 ///         MessageRequest::builder()
-///             .model(ModelId::claude_sonnet_4_5())
-///             .max_tokens(MaxTokens::new(16).unwrap())
+///             .model(ModelId::claude_sonnet_5())
+///             .max_tokens(MaxTokens::new(16))
 ///             .add_user_text("hello")
 ///             .build(),
 ///     )
@@ -122,16 +122,22 @@ pub struct Batch {
 }
 
 /// Discriminator for the batch object type field.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum BatchKind {
     /// Standard message batch.
     MessageBatch,
+    /// A discriminant this SDK release does not recognize; carries the raw
+    /// wire value.
+    #[serde(untagged)]
+    Unknown(String),
 }
 
 /// Processing status of a batch.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum BatchStatus {
     /// Requests are still being processed.
     InProgress,
@@ -139,6 +145,11 @@ pub enum BatchStatus {
     Canceling,
     /// All requests have finished (succeeded, errored, canceled, or expired).
     Ended,
+    /// A status this SDK release does not recognize; carries the raw wire
+    /// value. The batch lifecycle has gained states before, and an
+    /// unrecognized one must not fail the whole batch record.
+    #[serde(untagged)]
+    Unknown(String),
 }
 
 /// Counts of requests in each final or intermediate state.
@@ -190,7 +201,7 @@ pub enum BatchResult {
     /// The request completed successfully; `message` holds the response.
     Succeeded {
         /// Decoded message response.
-        message: Message,
+        message: Box<Message>,
     },
     /// The request failed with an API error.
     Errored {
@@ -214,11 +225,16 @@ pub struct DeletedMessageBatch {
 }
 
 /// Discriminator for the deletion response type field.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum DeletedBatchKind {
     /// Confirms the resource was a message batch.
     MessageBatchDeleted,
+    /// A discriminant this SDK release does not recognize; carries the raw
+    /// wire value.
+    #[serde(untagged)]
+    Unknown(String),
 }
 
 #[cfg(test)]
@@ -240,7 +256,7 @@ mod tests {
         use crate::types::{MaxTokens, ModelId};
         MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(8).unwrap())
+            .max_tokens(MaxTokens::new(8))
             .add_user_text("hi")
             .build()
     }
@@ -395,5 +411,31 @@ mod tests {
         let deleted: DeletedMessageBatch = serde_json::from_str(json).unwrap();
         assert_eq!(deleted.id.as_str(), "msgbatch_01");
         assert_eq!(deleted.kind, DeletedBatchKind::MessageBatchDeleted);
+    }
+
+    // ── Unknown discriminant fallback ───────────────────────────────────────
+
+    #[test]
+    fn unknown_batch_status_decodes_with_payload() {
+        let s: BatchStatus = serde_json::from_str(r#""some_future_status""#).unwrap();
+        assert_eq!(s, BatchStatus::Unknown("some_future_status".into()));
+    }
+
+    #[test]
+    fn known_batch_status_still_decodes() {
+        let s: BatchStatus = serde_json::from_str(r#""in_progress""#).unwrap();
+        assert_eq!(s, BatchStatus::InProgress);
+    }
+
+    #[test]
+    fn unknown_batch_kind_decodes_with_payload() {
+        let k: BatchKind = serde_json::from_str(r#""future_batch""#).unwrap();
+        assert_eq!(k, BatchKind::Unknown("future_batch".into()));
+    }
+
+    #[test]
+    fn unknown_deleted_batch_kind_decodes_with_payload() {
+        let k: DeletedBatchKind = serde_json::from_str(r#""future_deleted""#).unwrap();
+        assert_eq!(k, DeletedBatchKind::Unknown("future_deleted".into()));
     }
 }

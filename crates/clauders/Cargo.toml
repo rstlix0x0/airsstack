@@ -45,6 +45,8 @@ futures-util = { workspace = true }
 trybuild     = { workspace = true }
 insta        = { workspace = true }
 tempfile     = { workspace = true }
+base64       = { workspace = true }
+ratatui      = { workspace = true }
 
 [[bin]]
 name              = "clauders-agent-testchild"
@@ -52,12 +54,44 @@ path              = "src/bin/clauders-agent-testchild.rs"
 
 [[example]]
 name             = "01_hello"
+path             = "examples/messages/01_hello/main.rs"
 
 [[example]]
 name             = "02_streaming"
+path             = "examples/messages/02_streaming/main.rs"
 
 [[example]]
 name             = "03_tools"
+path             = "examples/messages/03_tools/main.rs"
 
 [[example]]
 name             = "04_caching"
+path             = "examples/messages/04_caching/main.rs"
+
+[[example]]
+name             = "05_structured_output"
+path             = "examples/messages/05_structured_output/main.rs"
+
+[[example]]
+name             = "06_thinking"
+path             = "examples/messages/06_thinking/main.rs"
+
+[[example]]
+name             = "07_agentic_tool_loop"
+path             = "examples/messages/07_agentic_tool_loop/main.rs"
+
+[[example]]
+name             = "08_vision"
+path             = "examples/messages/08_vision/main.rs"
+
+[[example]]
+name             = "09_document_citations"
+path             = "examples/messages/09_document_citations/main.rs"
+
+[[example]]
+name             = "10_batches"
+path             = "examples/messages/10_batches/main.rs"
+
+[[example]]
+name             = "11_coding_agent"
+path             = "examples/messages/11_coding_agent/main.rs"

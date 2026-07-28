@@ -11,6 +11,7 @@
 //! - Define [`ModelList`], the paginated list wrapper returned by
 //!   `GET /v1/models`.
 
+use crate::models::capabilities::ModelCapabilities;
 use crate::types::ModelId;
 
 /// The kind of object returned in a models list entry.
@@ -26,11 +27,16 @@ use crate::types::ModelId;
 /// let k: ModelInfoKind = serde_json::from_str(r#""model""#).unwrap();
 /// assert_eq!(k, ModelInfoKind::Model);
 /// ```
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum ModelInfoKind {
     /// A Claude model.
     Model,
+    /// A discriminant this SDK release does not recognize; carries the raw
+    /// wire value.
+    #[serde(untagged)]
+    Unknown(String),
 }
 
 /// Metadata record for a single Claude model.
@@ -61,6 +67,15 @@ pub struct ModelInfo {
     /// Object kind; always `"model"` in current API responses.
     #[serde(rename = "type")]
     pub kind: ModelInfoKind,
+    /// Maximum input context-window size in tokens, when the API reports it.
+    #[serde(default)]
+    pub max_input_tokens: Option<u32>,
+    /// Maximum `max_tokens` value for this model, when the API reports it.
+    #[serde(default)]
+    pub max_tokens: Option<u32>,
+    /// Capability-discovery record, when the API reports it.
+    #[serde(default)]
+    pub capabilities: Option<ModelCapabilities>,
 }
 
 /// Paginated list of [`ModelInfo`] records returned by `GET /v1/models`.
@@ -135,6 +150,49 @@ mod tests {
         assert!(!list.has_more);
         assert!(list.first_id.is_none());
         assert!(list.last_id.is_none());
+    }
+
+    #[test]
+    fn unknown_model_info_kind_decodes_with_payload() {
+        let k: ModelInfoKind = serde_json::from_str(r#""future_kind""#).unwrap();
+        assert_eq!(k, ModelInfoKind::Unknown("future_kind".into()));
+    }
+
+    #[test]
+    fn model_info_decodes_token_limits() {
+        let json = r#"{
+            "id":"claude-sonnet-4-5","display_name":"Claude Sonnet 4.5",
+            "created_at":"2025-09-01T00:00:00Z","type":"model",
+            "max_input_tokens":200000,"max_tokens":64000
+        }"#;
+        let info: ModelInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(info.max_input_tokens, Some(200_000));
+        assert_eq!(info.max_tokens, Some(64_000));
+    }
+
+    #[test]
+    fn model_info_token_limits_default_to_none() {
+        let json = r#"{"id":"m","display_name":"m","created_at":"t","type":"model"}"#;
+        let info: ModelInfo = serde_json::from_str(json).unwrap();
+        assert_eq!(info.max_input_tokens, None);
+        assert_eq!(info.max_tokens, None);
+    }
+
+    #[test]
+    fn model_info_decodes_capabilities() {
+        let json = r#"{
+            "id":"claude-sonnet-4-5","display_name":"S","created_at":"t","type":"model",
+            "capabilities":{"batch":{"supported":true},"citations":{"supported":true},
+                "code_execution":{"supported":true},"image_input":{"supported":true},
+                "pdf_input":{"supported":true},"structured_outputs":{"supported":true},
+                "context_management":{"supported":true},
+                "effort":{"low":{"supported":true},"medium":{"supported":true},
+                    "high":{"supported":true},"max":{"supported":true},"supported":true},
+                "thinking":{"supported":true,
+                    "types":{"adaptive":{"supported":true},"enabled":{"supported":true}}}}
+        }"#;
+        let info: ModelInfo = serde_json::from_str(json).unwrap();
+        assert!(info.capabilities.unwrap().batch.supported);
     }
 
     #[test]

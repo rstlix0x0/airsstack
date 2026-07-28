@@ -72,7 +72,7 @@ async fn structured_output_round_trip() {
 
     let req = MessageRequest::builder()
         .model(ModelId::claude_sonnet_4_5())
-        .max_tokens(MaxTokens::new(64).unwrap())
+        .max_tokens(MaxTokens::new(64))
         .output_config(OutputConfig::json_schema(schema))
         .add_user_text("Return a JSON object with name and age for Alice who is 30.")
         .build();
@@ -109,7 +109,7 @@ async fn refusal_surfaces_as_stop_reason() {
 
     let req = MessageRequest::builder()
         .model(ModelId::claude_sonnet_4_5())
-        .max_tokens(MaxTokens::new(64).unwrap())
+        .max_tokens(MaxTokens::new(64))
         .output_config(OutputConfig::json_schema(serde_json::json!({})))
         .add_user_text("Produce something the model refuses.")
         .build();

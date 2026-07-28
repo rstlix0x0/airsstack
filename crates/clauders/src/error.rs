@@ -62,9 +62,10 @@ pub struct ApiErrorBody {
 /// Anthropic error category enum.
 ///
 /// Forward-compatible via [`ErrorType::Unknown`]: error categories the
-/// Anthropic API adds after this SDK release deserialize as `Unknown`
-/// rather than failing the envelope decode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+/// Anthropic API adds after this SDK release deserialize as `Unknown`,
+/// which retains the raw category string, rather than failing the
+/// envelope decode.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum ErrorType {
@@ -84,14 +85,15 @@ pub enum ErrorType {
     ApiError,
     /// Service temporarily overloaded (HTTP 529).
     OverloadedError,
-    /// Category not recognized by this SDK release.
-    #[serde(other)]
-    Unknown,
+    /// Category not recognized by this SDK release; carries the raw
+    /// category string so it can be logged or matched by the caller.
+    #[serde(untagged)]
+    Unknown(String),
 }
 
 impl std::fmt::Display for ErrorType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let s = match self {
+        let s: &str = match self {
             Self::InvalidRequestError => "invalid_request_error",
             Self::AuthenticationError => "authentication_error",
             Self::PermissionError => "permission_error",
@@ -100,7 +102,7 @@ impl std::fmt::Display for ErrorType {
             Self::RateLimitError => "rate_limit_error",
             Self::ApiError => "api_error",
             Self::OverloadedError => "overloaded_error",
-            Self::Unknown => "unknown",
+            Self::Unknown(raw) => raw,
         };
         f.write_str(s)
     }
@@ -115,7 +117,7 @@ impl ApiError {
     #[must_use]
     pub const fn is_retryable(&self) -> bool {
         matches!(
-            self.body.kind,
+            &self.body.kind,
             ErrorType::RateLimitError | ErrorType::OverloadedError | ErrorType::ApiError
         )
     }
@@ -297,7 +299,7 @@ mod tests {
     fn error_type_serde_unknown_falls_back() {
         let j = r#"{"type":"weirdo_error","message":"oh no"}"#;
         let body: ApiErrorBody = serde_json::from_str(j).unwrap();
-        assert_eq!(body.kind, ErrorType::Unknown);
+        assert_eq!(body.kind, ErrorType::Unknown("weirdo_error".into()));
         assert_eq!(body.message, "oh no");
     }
 
@@ -311,7 +313,10 @@ mod tests {
     #[test]
     fn error_type_display_matches_wire() {
         assert_eq!(format!("{}", ErrorType::RateLimitError), "rate_limit_error");
-        assert_eq!(format!("{}", ErrorType::Unknown), "unknown");
+        assert_eq!(
+            format!("{}", ErrorType::Unknown("weirdo_error".into())),
+            "weirdo_error"
+        );
     }
 
     #[test]
@@ -374,6 +379,20 @@ mod tests {
         assert!(!e.is_retryable());
         assert!(e.retry_after().is_none());
         assert!(e.request_id().is_none());
+    }
+
+    #[test]
+    fn unknown_error_type_retains_the_raw_category() {
+        let e: ErrorType = serde_json::from_str(r#""some_future_error""#).unwrap();
+        assert_eq!(e, ErrorType::Unknown("some_future_error".into()));
+        assert_eq!(e.to_string(), "some_future_error");
+    }
+
+    #[test]
+    fn known_error_types_still_decode_and_display() {
+        let e: ErrorType = serde_json::from_str(r#""rate_limit_error""#).unwrap();
+        assert_eq!(e, ErrorType::RateLimitError);
+        assert_eq!(e.to_string(), "rate_limit_error");
     }
 
     #[test]

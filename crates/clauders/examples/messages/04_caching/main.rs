@@ -16,7 +16,7 @@ use clauders::prelude::*;
 use clauders::types::{CacheControl, SystemPrompt, SystemSegment};
 
 // Stand-in for a long, stable system prompt.
-const BASE_SYSTEM: &str = include_str!("../README.md");
+const BASE_SYSTEM: &str = include_str!("../../../README.md");
 // Repeat count chosen so the cached prefix clears the server's ~1024-token
 // minimum; the README is a few hundred tokens, so four copies is ample.
 const SYSTEM_REPEATS: usize = 4;
@@ -25,7 +25,7 @@ const SYSTEM_REPEATS: usize = 4;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_key = ApiKey::new(std::env::var("ANTHROPIC_API_KEY")?)?;
     let client = Client::builder()?.api_key(api_key).build()?;
-    let max_tokens = MaxTokens::new(64)?;
+    let max_tokens = MaxTokens::new(64);
     let system_text = BASE_SYSTEM.repeat(SYSTEM_REPEATS);
 
     // The system prefix is identical on both requests, so the second call

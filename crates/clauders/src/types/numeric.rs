@@ -2,41 +2,37 @@
 
 /// Maximum number of tokens to generate in the response.
 ///
-/// Valid range: any non-zero `u32`. The SDK does not impose an upper bound
-/// here because per-model output caps shift with each Anthropic release
-/// (e.g. Sonnet 4.5 accepts up to 64 000, Haiku 4.5 up to 8 192). The
-/// server is the authoritative source for the model-specific limit;
-/// requesting more than a given model supports returns an `invalid_request_error`.
+/// Any `u32` is valid, including `0`: the API documents `max_tokens: 0` as
+/// the way to populate the prompt cache without generating a response.
+///
+/// The SDK imposes no upper bound because per-model output caps shift with
+/// each Anthropic release (e.g. Sonnet 4.5 accepts up to 64 000, Haiku 4.5
+/// up to 8 192). The server is the authoritative source for the
+/// model-specific limit; requesting more than a given model supports returns
+/// an `invalid_request_error`.
 ///
 /// # Examples
 ///
 /// ```
 /// use clauders::types::MaxTokens;
-/// assert_eq!(MaxTokens::new(1024).expect("non-zero").get(), 1024);
-/// assert!(MaxTokens::new(0).is_err());
+/// assert_eq!(MaxTokens::new(1024).get(), 1024);
+/// // Zero is the documented prompt-cache pre-warm value.
+/// assert_eq!(MaxTokens::new(0).get(), 0);
 /// // Large values are accepted at the SDK layer — the server validates
 /// // the per-model cap.
-/// assert!(MaxTokens::new(200_000).is_ok());
+/// assert_eq!(MaxTokens::new(200_000).get(), 200_000);
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(transparent)]
 pub struct MaxTokens(u32);
 
-/// Reason [`MaxTokens::new`] can reject input.
-#[derive(Debug, Clone, Copy, thiserror::Error, PartialEq, Eq)]
-#[error("max_tokens must be >= 1 (got 0)")]
-pub struct InvalidMaxTokens;
-
 impl MaxTokens {
-    /// Validate and wrap a `u32` as `MaxTokens`.
+    /// Wrap a `u32` as `MaxTokens`.
     ///
-    /// # Errors
-    /// Returns [`InvalidMaxTokens`] when `n` is `0`.
-    pub const fn new(n: u32) -> Result<Self, InvalidMaxTokens> {
-        if n == 0 {
-            return Err(InvalidMaxTokens);
-        }
-        Ok(Self(n))
+    /// Infallible: every `u32` is a valid `max_tokens`, including `0`.
+    #[must_use]
+    pub const fn new(n: u32) -> Self {
+        Self(n)
     }
 
     /// Borrow the inner value for wire-format use.
@@ -176,13 +172,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn max_tokens_rejects_zero_accepts_any_positive() {
-        assert!(MaxTokens::new(0).is_err());
-        assert!(MaxTokens::new(1).is_ok());
-        assert!(MaxTokens::new(32_000).is_ok());
-        assert!(MaxTokens::new(64_000).is_ok());
-        assert!(MaxTokens::new(200_000).is_ok());
-        assert_eq!(MaxTokens::new(1024).unwrap().get(), 1024);
+    fn max_tokens_accepts_zero_for_cache_prewarm() {
+        assert_eq!(
+            MaxTokens::new(0).get(),
+            0,
+            "max_tokens: 0 is the documented prompt-cache pre-warm call"
+        );
+        assert_eq!(MaxTokens::new(1).get(), 1);
+        assert_eq!(MaxTokens::new(32_000).get(), 32_000);
+        assert_eq!(MaxTokens::new(200_000).get(), 200_000);
+    }
+
+    #[test]
+    fn max_tokens_zero_reaches_the_wire() {
+        use crate::messages::MessageRequest;
+        use crate::types::ModelId;
+
+        let req = MessageRequest::builder()
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(MaxTokens::new(0))
+            .add_user_text("warm the cache")
+            .build();
+
+        let j = serde_json::to_value(&req).unwrap();
+        assert_eq!(
+            j["max_tokens"], 0,
+            "max_tokens: 0 must reach the wire, not be dropped or rejected"
+        );
     }
 
     #[test]
@@ -214,7 +230,7 @@ mod tests {
 
     #[test]
     fn serde_transparent_round_trips() {
-        let mt = MaxTokens::new(1024).unwrap();
+        let mt = MaxTokens::new(1024);
         let j = serde_json::to_string(&mt).unwrap();
         assert_eq!(j, "1024");
         let back: MaxTokens = serde_json::from_str(&j).unwrap();

@@ -9,8 +9,8 @@
 //!     .api_key(ApiKey::new(std::env::var("ANTHROPIC_API_KEY").unwrap()).unwrap())
 //!     .build()?;
 //! let req = MessageRequest::builder()
-//!     .model(ModelId::claude_sonnet_4_5())
-//!     .max_tokens(MaxTokens::new(1024).unwrap())
+//!     .model(ModelId::claude_sonnet_5())
+//!     .max_tokens(MaxTokens::new(1024))
 //!     .add_user_text("Say hi.")
 //!     .build();
 //! let msg = client.messages().create(req).await?;

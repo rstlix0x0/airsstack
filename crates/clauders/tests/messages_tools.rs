@@ -13,7 +13,9 @@ use wiremock::matchers::{body_partial_json, method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use clauders::messages::tools::{Tool, ToolChoice, ToolResultBlock, ToolUseBlock};
-use clauders::messages::{ContentBlock, MessageContent, MessageRequest, Role, StopReason};
+use clauders::messages::{
+    ContentBlock, ContentBlockParam, MessageContent, MessageRequest, Role, StopReason,
+};
 use clauders::types::{ApiKey, BaseUrl, MaxTokens, ModelId, ToolName};
 
 const TOOL_USE_RESPONSE: &str = r#"{
@@ -70,11 +72,12 @@ async fn tool_round_trip() {
         }),
         cache_control: None,
         strict: None,
+        eager_input_streaming: None,
     };
 
     let req1 = MessageRequest::builder()
         .model(ModelId::claude_sonnet_4_5())
-        .max_tokens(MaxTokens::new(256).unwrap())
+        .max_tokens(MaxTokens::new(256))
         .tools([tool])
         .tool_choice(ToolChoice::Auto)
         .add_user_text("What is the weather in Paris?")
@@ -99,12 +102,12 @@ async fn tool_round_trip() {
 
     let req2 = MessageRequest::builder()
         .model(ModelId::claude_sonnet_4_5())
-        .max_tokens(MaxTokens::new(256).unwrap())
+        .max_tokens(MaxTokens::new(256))
         .add_user_text("What is the weather in Paris?")
         .add_assistant_text("(tool call) get_weather")
         .add_message(
             Role::User,
-            MessageContent::Blocks(vec![ContentBlock::ToolResult(ToolResultBlock::text(
+            MessageContent::Blocks(vec![ContentBlockParam::ToolResult(ToolResultBlock::text(
                 tool_use_id.clone(),
                 r#"{"temperature":24,"conditions":"sunny"}"#,
             ))]),

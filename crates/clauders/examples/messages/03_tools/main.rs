@@ -10,7 +10,7 @@
 //! ```
 
 use clauders::messages::tools::{Tool, ToolChoice, ToolResultBlock};
-use clauders::messages::{ContentBlock, MessageContent, Role};
+use clauders::messages::{ContentBlock, ContentBlockParam, MessageContent, Role};
 use clauders::prelude::*;
 use clauders::types::ToolName;
 
@@ -18,7 +18,7 @@ use clauders::types::ToolName;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api_key = ApiKey::new(std::env::var("ANTHROPIC_API_KEY")?)?;
     let client = Client::builder()?.api_key(api_key).build()?;
-    let max_tokens = MaxTokens::new(1024)?;
+    let max_tokens = MaxTokens::new(1024);
     let tool_name = ToolName::new("get_weather")?;
 
     let tool = Tool {
@@ -31,6 +31,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }),
         cache_control: None,
         strict: None,
+        eager_input_streaming: None,
     };
 
     // First turn: ask a question that triggers a tool call.
@@ -79,11 +80,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .add_message(
             Role::Assistant,
-            MessageContent::Blocks(assistant_msg.content.clone()),
+            MessageContent::Blocks(ContentBlockParam::try_from_response(
+                assistant_msg.content.clone(),
+            )?),
         )
         .add_message(
             Role::User,
-            MessageContent::Blocks(vec![ContentBlock::ToolResult(tool_result)]),
+            MessageContent::Blocks(vec![ContentBlockParam::ToolResult(tool_result)]),
         )
         .tools([tool])
         .tool_choice(ToolChoice::Auto)

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members  = ["crates/airs-transport", "crates/clauders", "crates/openrouter-rs"]
+members  = ["coding-agent-workspace","crates/airs-transport", "crates/clauders", "crates/openrouter-rs"]
 
 [workspace.package]
 edition       = "2024"
@@ -41,6 +41,8 @@ wiremock           = "0.6.5"
 insta              = "1.47.2"
 trybuild           = "1"
 tempfile           = "3.23.0"
+base64             = "0.22.1"
+ratatui            = "0.29.0"
 # Internal workspace members — path for local builds, version for publish-readiness.
 # Members inherit these with `{ workspace = true }`. Paths are relative to the workspace root.
 # (clauders has no entry: nothing else depends on it.)

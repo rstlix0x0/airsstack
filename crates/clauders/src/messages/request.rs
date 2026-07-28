@@ -15,7 +15,7 @@
 
 use std::marker::PhantomData;
 
-use crate::messages::content::ContentBlock;
+use crate::messages::content::ContentBlockParam;
 use crate::types::{
     MaxTokens, ModelId, StopSequence, SystemPrompt, Temperature, TopK, TopP, UserId,
 };
@@ -58,6 +58,64 @@ pub enum Role {
     User,
     /// A message from the assistant.
     Assistant,
+    /// A mid-conversation system message (GA on current models).
+    System,
+}
+
+// ── Request-side value types ────────────────────────────────────────────────
+
+/// Request-side service-tier selector.
+///
+/// Distinct from the response-side [`crate::messages::UsageServiceTier`], which
+/// reports the tier that actually served the request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RequestServiceTier {
+    /// Let the server choose the tier.
+    Auto,
+    /// Use only the standard tier; never fall back.
+    StandardOnly,
+}
+
+/// Geographic region selector for inference (`inference_geo` request param).
+///
+/// Open-valued: any region string the workspace accepts. When unset, the
+/// workspace's `default_inference_geo` is used.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(transparent)]
+pub struct InferenceGeo(String);
+
+impl InferenceGeo {
+    /// Wrap a region identifier.
+    #[must_use]
+    pub fn new(region: impl Into<String>) -> Self {
+        Self(region.into())
+    }
+
+    /// Borrow the region identifier.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+/// Identifier of a code-execution container to reuse (`container` request param).
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(transparent)]
+pub struct ContainerId(String);
+
+impl ContainerId {
+    /// Wrap a container identifier.
+    #[must_use]
+    pub fn new(id: impl Into<String>) -> Self {
+        Self(id.into())
+    }
+
+    /// Borrow the container identifier.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 // ── MessageContent ────────────────────────────────────────────────────────────
@@ -73,7 +131,7 @@ pub enum MessageContent {
     /// Plain text — serialized as a bare JSON string.
     Text(String),
     /// Typed content blocks — serialized as a JSON array.
-    Blocks(Vec<ContentBlock>),
+    Blocks(Vec<ContentBlockParam>),
 }
 
 // ── InputMessage ──────────────────────────────────────────────────────────────
@@ -134,12 +192,12 @@ pub struct Metadata {
 /// use clauders::types::{MaxTokens, ModelId};
 ///
 /// let req = MessageRequest::builder()
-///     .model(ModelId::claude_sonnet_4_5())
-///     .max_tokens(MaxTokens::new(1024).unwrap())
+///     .model(ModelId::claude_sonnet_5())
+///     .max_tokens(MaxTokens::new(1024))
 ///     .add_user_text("Hello, Claude")
 ///     .build();
 ///
-/// assert_eq!(req.model.as_str(), "claude-sonnet-4-5");
+/// assert_eq!(req.model.as_str(), "claude-sonnet-5");
 /// ```
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct MessageRequest {
@@ -176,6 +234,22 @@ pub struct MessageRequest {
     /// Output-shape constraint applied to the response.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_config: Option<crate::messages::structured_outputs::OutputConfig>,
+    /// Extended-thinking configuration for this request.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<crate::messages::thinking::ThinkingConfig>,
+    /// Service-tier selector.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub service_tier: Option<RequestServiceTier>,
+    /// Geographic inference region.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inference_geo: Option<InferenceGeo>,
+    /// Code-execution container to reuse.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container: Option<ContainerId>,
+    /// Top-level cache-control breakpoint; the server auto-places it on the
+    /// last cacheable block.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_control: Option<crate::types::CacheControl>,
     /// Whether to stream the response. Managed by the resource layer;
     /// callers should not set this directly.
     #[doc(hidden)]
@@ -213,7 +287,13 @@ struct MessageRequestFields {
     metadata: Option<Metadata>,
     tools: Vec<crate::messages::tools::Tool>,
     tool_choice: Option<crate::messages::tools::ToolChoice>,
-    output_config: Option<crate::messages::structured_outputs::OutputConfig>,
+    output_format: Option<crate::messages::structured_outputs::OutputFormat>,
+    effort: Option<crate::types::EffortLevel>,
+    thinking: Option<crate::messages::thinking::ThinkingConfig>,
+    service_tier: Option<RequestServiceTier>,
+    inference_geo: Option<InferenceGeo>,
+    container: Option<ContainerId>,
+    cache_control: Option<crate::types::CacheControl>,
 }
 
 impl MessageRequestFields {
@@ -230,7 +310,13 @@ impl MessageRequestFields {
             metadata: None,
             tools: Vec::new(),
             tool_choice: None,
-            output_config: None,
+            output_format: None,
+            effort: None,
+            thinking: None,
+            service_tier: None,
+            inference_geo: None,
+            container: None,
+            cache_control: None,
         }
     }
 }
@@ -311,6 +397,16 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
         self
     }
 
+    /// Append a `system`-role text message to the conversation.
+    #[must_use]
+    pub fn add_system_text(mut self, text: impl Into<String>) -> Self {
+        self.fields.messages.push(InputMessage {
+            role: Role::System,
+            content: MessageContent::Text(text.into()),
+        });
+        self
+    }
+
     /// Append a message with an explicit role and content.
     #[must_use]
     pub fn add_message(mut self, role: Role, content: MessageContent) -> Self {
@@ -326,6 +422,18 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
     }
 
     /// Set the sampling temperature.
+    ///
+    /// # Deprecated
+    ///
+    /// Models released after Claude Opus 4.6 do not support setting
+    /// `temperature`. A value of `1.0` is accepted for backwards
+    /// compatibility; any other value is rejected with a 400. Prefer
+    /// `output_config.effort` to influence generation on current models.
+    #[deprecated(
+        note = "Models released after Claude Opus 4.6 do not support setting temperature; \
+                only 1.0 is accepted, any other value is rejected with a 400. \
+                Prefer output_config.effort."
+    )]
     #[must_use]
     pub const fn temperature(mut self, temperature: Temperature) -> Self {
         self.fields.temperature = Some(temperature);
@@ -333,6 +441,16 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
     }
 
     /// Set the top-p nucleus sampling probability.
+    ///
+    /// # Deprecated
+    ///
+    /// Models released after Claude Opus 4.6 do not support setting `top_p`.
+    /// A value `>= 0.99` is accepted for backwards compatibility; anything
+    /// lower is rejected with a 400.
+    #[deprecated(
+        note = "Models released after Claude Opus 4.6 do not support setting top_p; \
+                only values >= 0.99 are accepted, anything lower is rejected with a 400."
+    )]
     #[must_use]
     pub const fn top_p(mut self, top_p: TopP) -> Self {
         self.fields.top_p = Some(top_p);
@@ -340,6 +458,13 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
     }
 
     /// Set the top-k sampling parameter.
+    ///
+    /// # Deprecated
+    ///
+    /// Models released after Claude Opus 4.6 do not accept `top_k` at all;
+    /// any value is rejected with a 400.
+    #[deprecated(note = "Models released after Claude Opus 4.6 do not accept top_k; \
+                any value is rejected with a 400.")]
     #[must_use]
     pub const fn top_k(mut self, top_k: TopK) -> Self {
         self.fields.top_k = Some(top_k);
@@ -381,10 +506,85 @@ impl<M: sealed::BuilderModelState, Mt: sealed::BuilderMaxTokensState> MessageReq
         self
     }
 
-    /// Constrain the response to a JSON Schema.
+    /// Set the output configuration.
+    ///
+    /// This setter names **both** slots the configuration carries, so it
+    /// assigns both — including clearing `effort` when the supplied value
+    /// does not set it. Every setter on this builder assigns exactly the
+    /// slots it names, so ordering is predictable:
+    ///
+    /// ```
+    /// use clauders::messages::{MessageRequest, structured_outputs::OutputConfig};
+    /// use clauders::types::{EffortLevel, MaxTokens, ModelId};
+    ///
+    /// // output_config() last: it assigns both slots, so effort is cleared.
+    /// let req = MessageRequest::builder()
+    ///     .model(ModelId::claude_sonnet_5())
+    ///     .max_tokens(MaxTokens::new(64))
+    ///     .effort(EffortLevel::High)
+    ///     .output_config(OutputConfig::json_schema(serde_json::json!({"type": "object"})))
+    ///     .build();
+    /// let j = serde_json::to_value(&req).unwrap();
+    /// assert!(j["output_config"].get("effort").is_none());
+    ///
+    /// // effort() last: it names only its own slot, so both survive.
+    /// let req = MessageRequest::builder()
+    ///     .model(ModelId::claude_sonnet_5())
+    ///     .max_tokens(MaxTokens::new(64))
+    ///     .output_config(OutputConfig::json_schema(serde_json::json!({"type": "object"})))
+    ///     .effort(EffortLevel::High)
+    ///     .build();
+    /// let j = serde_json::to_value(&req).unwrap();
+    /// assert_eq!(j["output_config"]["effort"], "high");
+    /// ```
     #[must_use]
     pub fn output_config(mut self, c: crate::messages::structured_outputs::OutputConfig) -> Self {
-        self.fields.output_config = Some(c);
+        self.fields.output_format = c.format;
+        self.fields.effort = c.effort;
+        self
+    }
+
+    /// Set how much reasoning effort the model should spend.
+    ///
+    /// Assigns only the effort slot, leaving any output format untouched.
+    #[must_use]
+    pub const fn effort(mut self, effort: crate::types::EffortLevel) -> Self {
+        self.fields.effort = Some(effort);
+        self
+    }
+
+    /// Set the extended-thinking configuration.
+    #[must_use]
+    pub const fn thinking(mut self, thinking: crate::messages::thinking::ThinkingConfig) -> Self {
+        self.fields.thinking = Some(thinking);
+        self
+    }
+
+    /// Set the service-tier selector.
+    #[must_use]
+    pub const fn service_tier(mut self, tier: RequestServiceTier) -> Self {
+        self.fields.service_tier = Some(tier);
+        self
+    }
+
+    /// Set the geographic inference region.
+    #[must_use]
+    pub fn inference_geo(mut self, geo: InferenceGeo) -> Self {
+        self.fields.inference_geo = Some(geo);
+        self
+    }
+
+    /// Set the code-execution container to reuse.
+    #[must_use]
+    pub fn container(mut self, container: ContainerId) -> Self {
+        self.fields.container = Some(container);
+        self
+    }
+
+    /// Set the top-level cache-control breakpoint.
+    #[must_use]
+    pub const fn cache_control(mut self, cache_control: crate::types::CacheControl) -> Self {
+        self.fields.cache_control = Some(cache_control);
         self
     }
 }
@@ -417,6 +617,13 @@ impl MessageRequestBuilder<Present, Present> {
             .max_tokens
             .expect("invariant: type-state Present guarantees max_tokens is set");
 
+        let output_config = match (self.fields.output_format, self.fields.effort) {
+            (None, None) => None,
+            (format, effort) => {
+                Some(crate::messages::structured_outputs::OutputConfig { format, effort })
+            }
+        };
+
         MessageRequest {
             model,
             max_tokens,
@@ -429,7 +636,12 @@ impl MessageRequestBuilder<Present, Present> {
             metadata: self.fields.metadata,
             tools: self.fields.tools,
             tool_choice: self.fields.tool_choice,
-            output_config: self.fields.output_config,
+            output_config,
+            thinking: self.fields.thinking,
+            service_tier: self.fields.service_tier,
+            inference_geo: self.fields.inference_geo,
+            container: self.fields.container,
+            cache_control: self.fields.cache_control,
             stream: false,
         }
     }
@@ -443,16 +655,27 @@ mod tests {
     )]
 
     use super::*;
-    use crate::messages::content::{ContentBlock, TextBlock};
+    use crate::messages::content::{ContentBlockParam, TextBlock};
+    use crate::messages::structured_outputs::OutputConfig;
+    use crate::messages::thinking::{ThinkingConfig, ThinkingDisplay};
     use crate::types::{
-        MaxTokens, ModelId, StopSequence, SystemPrompt, Temperature, TopK, TopP, UserId,
+        EffortLevel, MaxTokens, ModelId, StopSequence, SystemPrompt, Temperature, TopK, TopP,
+        UserId,
     };
+
+    /// A builder with the two required slots (model + `max_tokens`) filled,
+    /// for the many tests that only vary the optional fields.
+    fn base_builder() -> MessageRequestBuilder<Present, Present> {
+        MessageRequest::builder()
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(MaxTokens::new(64))
+    }
 
     #[test]
     fn builder_round_trips_minimal_request() {
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(1024).unwrap())
+            .max_tokens(MaxTokens::new(1024))
             .add_user_text("Hello, Claude")
             .build();
 
@@ -466,7 +689,7 @@ mod tests {
     fn serializes_minimal_request_correctly() {
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(1024).unwrap())
+            .max_tokens(MaxTokens::new(1024))
             .add_user_text("Hello, Claude")
             .build();
 
@@ -480,11 +703,15 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        deprecated,
+        reason = "pins the wire shape of parameters that are deprecated but still serialized"
+    )]
     fn serializes_fully_populated_request_with_all_optional_fields_present() {
         let user_id = UserId::new("user-42").unwrap();
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(512).unwrap())
+            .max_tokens(MaxTokens::new(512))
             .system(SystemPrompt::text("You are terse."))
             .temperature(Temperature::new(0.7).unwrap())
             .top_p(TopP::new(0.9).unwrap())
@@ -520,11 +747,7 @@ mod tests {
 
     #[test]
     fn serializes_minimal_request_omits_all_optional_fields() {
-        let req = MessageRequest::builder()
-            .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
-            .add_user_text("Hi")
-            .build();
+        let req = base_builder().add_user_text("Hi").build();
 
         let j: serde_json::Value = serde_json::to_value(&req).unwrap();
 
@@ -540,12 +763,46 @@ mod tests {
     }
 
     #[test]
+    fn add_system_text_emits_system_role_on_the_wire() {
+        let req = base_builder().add_system_text("operator note").build();
+        let j = serde_json::to_string(&req).unwrap();
+        assert!(j.contains(r#""role":"system""#), "got: {j}");
+    }
+
+    #[test]
+    fn system_role_serializes_lowercase() {
+        assert_eq!(serde_json::to_string(&Role::System).unwrap(), r#""system""#);
+    }
+
+    #[test]
+    fn request_service_tier_serializes_snake_case() {
+        assert_eq!(
+            serde_json::to_string(&RequestServiceTier::Auto).unwrap(),
+            r#""auto""#
+        );
+        assert_eq!(
+            serde_json::to_string(&RequestServiceTier::StandardOnly).unwrap(),
+            r#""standard_only""#
+        );
+    }
+
+    #[test]
+    fn inference_geo_and_container_id_serialize_transparently() {
+        assert_eq!(
+            serde_json::to_string(&InferenceGeo::new("us")).unwrap(),
+            r#""us""#
+        );
+        assert_eq!(
+            serde_json::to_string(&ContainerId::new("c_42")).unwrap(),
+            r#""c_42""#
+        );
+    }
+
+    #[test]
     fn stop_sequences_accepts_array_literal() {
         // Verify that an array (not Vec) is accepted by the setter.
         // This compiles only if the setter takes impl IntoIterator.
-        let req = MessageRequest::builder()
-            .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
+        let req = base_builder()
             .stop_sequences([StopSequence::new("STOP").unwrap()])
             .add_user_text("Hi")
             .build();
@@ -559,9 +816,7 @@ mod tests {
         use crate::messages::structured_outputs::OutputConfig;
 
         let schema = serde_json::json!({"type": "object"});
-        let req = MessageRequest::builder()
-            .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
+        let req = base_builder()
             .output_config(OutputConfig::json_schema(schema.clone()))
             .add_user_text("Hi")
             .build();
@@ -579,11 +834,7 @@ mod tests {
 
     #[test]
     fn output_config_omitted_when_unset() {
-        let req = MessageRequest::builder()
-            .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
-            .add_user_text("Hi")
-            .build();
+        let req = base_builder().add_user_text("Hi").build();
 
         let j: serde_json::Value = serde_json::to_value(&req).unwrap();
         assert!(
@@ -603,7 +854,7 @@ mod tests {
         let req = MessageRequest::builder()
             .output_config(OutputConfig::json_schema(schema.clone()))
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
+            .max_tokens(MaxTokens::new(64))
             .add_user_text("Hi")
             .build();
 
@@ -619,13 +870,165 @@ mod tests {
     }
 
     #[test]
-    fn message_content_blocks_serializes_as_json_array() {
+    fn effort_alone_produces_an_output_config() {
+        let req = base_builder()
+            .effort(EffortLevel::High)
+            .add_user_text("Hi")
+            .build();
+
+        let j = serde_json::to_value(&req).unwrap();
+        assert_eq!(j["output_config"], serde_json::json!({"effort": "high"}));
+    }
+
+    #[test]
+    fn output_config_is_absent_when_neither_slot_is_set() {
+        let req = base_builder().add_user_text("Hi").build();
+
+        let j = serde_json::to_value(&req).unwrap();
+        assert!(
+            j.get("output_config").is_none(),
+            "an empty output_config must be omitted, never sent as {{}}"
+        );
+    }
+
+    #[test]
+    fn output_config_after_effort_assigns_both_slots_and_clears_effort() {
+        let req = base_builder()
+            .effort(EffortLevel::High)
+            .output_config(OutputConfig::json_schema(
+                serde_json::json!({"type": "object"}),
+            ))
+            .add_user_text("Hi")
+            .build();
+
+        let j = serde_json::to_value(&req).unwrap();
+        assert_eq!(j["output_config"]["format"]["type"], "json_schema");
+        assert!(
+            j["output_config"].get("effort").is_none(),
+            "output_config() names both slots, so it assigns both: effort is cleared"
+        );
+    }
+
+    #[test]
+    fn effort_after_output_config_keeps_both() {
+        let req = base_builder()
+            .output_config(OutputConfig::json_schema(
+                serde_json::json!({"type": "object"}),
+            ))
+            .effort(EffortLevel::High)
+            .add_user_text("Hi")
+            .build();
+
+        let j = serde_json::to_value(&req).unwrap();
+        assert_eq!(j["output_config"]["format"]["type"], "json_schema");
+        assert_eq!(j["output_config"]["effort"], "high");
+    }
+
+    #[test]
+    fn output_config_carrying_both_halves_survives_intact() {
+        let req = base_builder()
+            .output_config(
+                OutputConfig::json_schema(serde_json::json!({"type": "object"}))
+                    .with_effort(EffortLevel::Max),
+            )
+            .add_user_text("Hi")
+            .build();
+
+        let j = serde_json::to_value(&req).unwrap();
+        assert_eq!(j["output_config"]["format"]["type"], "json_schema");
+        assert_eq!(j["output_config"]["effort"], "max");
+    }
+
+    #[test]
+    fn thinking_is_absent_when_unset() {
+        let req = base_builder().add_user_text("Hi").build();
+
+        let j = serde_json::to_value(&req).unwrap();
+        assert!(
+            j.get("thinking").is_none(),
+            "thinking must be absent when never set"
+        );
+    }
+
+    #[test]
+    fn thinking_reaches_the_request_body() {
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
+            .max_tokens(MaxTokens::new(4096))
+            .thinking(ThinkingConfig::enabled_with_display(
+                1024,
+                ThinkingDisplay::Omitted,
+            ))
+            .add_user_text("Hi")
+            .build();
+
+        let j = serde_json::to_value(&req).unwrap();
+        assert_eq!(j["thinking"]["type"], "enabled");
+        assert_eq!(j["thinking"]["budget_tokens"], 1024);
+        assert_eq!(j["thinking"]["display"], "omitted");
+    }
+
+    #[test]
+    fn a_batched_request_carries_thinking() {
+        use crate::messages::BatchRequest;
+        use crate::types::CustomRequestId;
+
+        let batch = BatchRequest::builder()
+            .add(
+                CustomRequestId::new("r1").unwrap(),
+                MessageRequest::builder()
+                    .model(ModelId::claude_sonnet_4_5())
+                    .max_tokens(MaxTokens::new(4096))
+                    .thinking(ThinkingConfig::adaptive_with_display(
+                        ThinkingDisplay::Omitted,
+                    ))
+                    .add_user_text("Hi")
+                    .build(),
+            )
+            .build();
+
+        let j = serde_json::to_value(&batch).unwrap();
+        let params = &j["requests"][0]["params"];
+        assert_eq!(
+            params["thinking"]["type"], "adaptive",
+            "thinking must reach the batch path through the wrapped MessageRequest"
+        );
+        assert_eq!(params["thinking"]["display"], "omitted");
+    }
+
+    #[test]
+    fn ga_request_params_serialize_when_set() {
+        let req = base_builder()
+            .service_tier(RequestServiceTier::StandardOnly)
+            .inference_geo(InferenceGeo::new("us"))
+            .container(ContainerId::new("c_1"))
+            .cache_control(crate::types::CacheControl::ephemeral())
+            .build();
+        let j = serde_json::to_string(&req).unwrap();
+        assert!(j.contains(r#""service_tier":"standard_only""#), "got: {j}");
+        assert!(j.contains(r#""inference_geo":"us""#), "got: {j}");
+        assert!(j.contains(r#""container":"c_1""#), "got: {j}");
+        assert!(
+            j.contains(r#""cache_control":{"type":"ephemeral"}"#),
+            "got: {j}"
+        );
+    }
+
+    #[test]
+    fn ga_request_params_are_skipped_when_unset() {
+        let j = serde_json::to_string(&base_builder().build()).unwrap();
+        assert!(!j.contains("service_tier"), "got: {j}");
+        assert!(!j.contains("inference_geo"), "got: {j}");
+        assert!(!j.contains("container"), "got: {j}");
+        assert!(!j.contains("cache_control"), "got: {j}");
+    }
+
+    #[test]
+    fn message_content_blocks_serializes_as_json_array() {
+        let req = base_builder()
             .add_message(
                 Role::User,
-                MessageContent::Blocks(vec![ContentBlock::Text(TextBlock::new("x"))]),
+                MessageContent::Blocks(vec![ContentBlockParam::Text(TextBlock::new("x"))]),
             )
             .build();
 
@@ -638,5 +1041,38 @@ mod tests {
         );
         assert_eq!(content[0]["type"], "text");
         assert_eq!(content[0]["text"], "x");
+    }
+
+    #[test]
+    fn request_with_image_and_document_blocks_serializes() {
+        use crate::messages::content::document::{DocumentBlock, DocumentSource, PdfMediaType};
+        use crate::messages::content::image::{ImageBlock, ImageMediaType, ImageSource};
+        use crate::messages::{ContentBlockParam, InputMessage, MessageContent, Role};
+
+        let msg = InputMessage {
+            role: Role::User,
+            content: MessageContent::Blocks(vec![
+                ContentBlockParam::Image(ImageBlock {
+                    source: ImageSource::Base64 {
+                        media_type: ImageMediaType::Png,
+                        data: "AAAA".into(),
+                    },
+                    cache_control: None,
+                }),
+                ContentBlockParam::Document(DocumentBlock {
+                    source: DocumentSource::Base64 {
+                        media_type: PdfMediaType::ApplicationPdf,
+                        data: "JVBER".into(),
+                    },
+                    cache_control: None,
+                    citations: None,
+                    context: None,
+                    title: None,
+                }),
+            ]),
+        };
+        let j = serde_json::to_value(&msg).unwrap();
+        assert_eq!(j["content"][0]["type"], "image");
+        assert_eq!(j["content"][1]["type"], "document");
     }
 }

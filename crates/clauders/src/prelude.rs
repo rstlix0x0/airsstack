@@ -11,6 +11,8 @@ pub use crate::types::{
 };
 pub use crate::{ApiError, BuildError, Client, Error, TransportError};
 
-pub use crate::messages::{ContentBlock, Message, MessageRequest, Role, StopReason};
+pub use crate::messages::{
+    ContentBlock, ContentBlockParam, Message, MessageRequest, Role, StopReason,
+};
 
 pub use crate::messages::{MessageStream, StreamEvent};

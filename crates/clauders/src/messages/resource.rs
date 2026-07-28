@@ -37,6 +37,90 @@ use super::response::Message;
 /// segment-resolution semantics documented on that method).
 const MESSAGES_PATH: &str = "v1/messages";
 
+/// Models for which `thinking.type = "enabled"` is deprecated in favour of
+/// `"adaptive"`. Matches the list both official SDKs carry.
+const MODELS_TO_WARN_WITH_THINKING_ENABLED: [&str; 2] =
+    ["claude-opus-4-6", "claude-mythos-preview"];
+
+/// Whether this request pairs a listed model with `thinking.type = "enabled"`.
+///
+/// Split from the emitter so the condition is unit-testable without
+/// capturing log output.
+fn should_warn_deprecated_thinking(req: &MessageRequest) -> bool {
+    MODELS_TO_WARN_WITH_THINKING_ENABLED.contains(&req.model.as_str())
+        && matches!(
+            req.thinking,
+            Some(crate::messages::thinking::ThinkingConfig::Enabled { .. })
+        )
+}
+
+/// Emit the deprecation warning when [`should_warn_deprecated_thinking`] holds.
+fn warn_if_deprecated_thinking(req: &MessageRequest) {
+    if should_warn_deprecated_thinking(req) {
+        tracing::warn!(
+            model = req.model.as_str(),
+            "Using Claude with this model and 'thinking.type=enabled' is deprecated. \
+             Use 'thinking.type=adaptive' instead which results in better model \
+             performance in our testing: \
+             https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking"
+        );
+    }
+}
+
+/// Model → end-of-life date. Verbatim copy of the table both official SDKs
+/// carry. The value is a display string, not a parsed date, so the emitted
+/// warning text matches the SDKs byte-for-byte. Hand-maintained: it drifts
+/// from the upstream list until manually updated, exactly as the SDK tables
+/// do. Alias pairs (e.g. `-latest` / dated) are both listed on purpose — the
+/// lookup matches the literal model string a caller sends.
+const DEPRECATED_MODELS: &[(&str, &str)] = &[
+    ("claude-1.3", "November 6th, 2024"),
+    ("claude-1.3-100k", "November 6th, 2024"),
+    ("claude-instant-1.1", "November 6th, 2024"),
+    ("claude-instant-1.1-100k", "November 6th, 2024"),
+    ("claude-instant-1.2", "November 6th, 2024"),
+    ("claude-3-sonnet-20240229", "July 21st, 2025"),
+    ("claude-3-opus-20240229", "January 5th, 2026"),
+    ("claude-2.1", "July 21st, 2025"),
+    ("claude-2.0", "July 21st, 2025"),
+    ("claude-3-7-sonnet-latest", "February 19th, 2026"),
+    ("claude-3-7-sonnet-20250219", "February 19th, 2026"),
+    ("claude-3-5-haiku-latest", "February 19th, 2026"),
+    ("claude-3-5-haiku-20241022", "February 19th, 2026"),
+    ("claude-opus-4-0", "June 15th, 2026"),
+    ("claude-opus-4-20250514", "June 15th, 2026"),
+    ("claude-sonnet-4-0", "June 15th, 2026"),
+    ("claude-sonnet-4-20250514", "June 15th, 2026"),
+    ("claude-opus-4-1", "August 5th, 2026"),
+    ("claude-opus-4-1-20250805", "August 5th, 2026"),
+    ("claude-mythos-preview", "June 30th, 2026"),
+];
+
+/// The end-of-life date if `req`'s model is deprecated, else `None`.
+///
+/// Split from the emitter so the decision is unit-testable without capturing
+/// log output, mirroring [`should_warn_deprecated_thinking`].
+fn deprecated_model_eol(req: &MessageRequest) -> Option<&'static str> {
+    DEPRECATED_MODELS
+        .iter()
+        .find(|(model, _)| *model == req.model.as_str())
+        .map(|(_, date)| *date)
+}
+
+/// Emit the deprecation warning when the request names a deprecated model.
+fn warn_if_deprecated_model(req: &MessageRequest) {
+    if let Some(date) = deprecated_model_eol(req) {
+        let model = req.model.as_str();
+        tracing::warn!(
+            model,
+            "The model '{model}' is deprecated and will reach end-of-life on \
+             {date}.\nPlease migrate to a newer model. Visit \
+             https://docs.anthropic.com/en/docs/resources/model-deprecations for \
+             more information."
+        );
+    }
+}
+
 /// Short-lived handle for the Messages API, borrowing a `Client<T>`.
 ///
 /// Obtain via [`Client::messages`]; do not construct directly.
@@ -52,8 +136,8 @@ const MESSAGES_PATH: &str = "v1/messages";
 ///     .api_key(ApiKey::new("sk-ant-…").unwrap())
 ///     .build()?;
 /// let req = MessageRequest::builder()
-///     .model(ModelId::claude_sonnet_4_5())
-///     .max_tokens(MaxTokens::new(1024).unwrap())
+///     .model(ModelId::claude_sonnet_5())
+///     .max_tokens(MaxTokens::new(1024))
 ///     .add_user_text("Hello!")
 ///     .build();
 /// let msg = client.messages().create(req).await?;
@@ -80,6 +164,8 @@ impl<T: HttpTransport> MessagesResource<'_, T> {
     /// - [`Error::InvalidRequest`] — the configured base URL cannot be joined
     ///   with the messages path, or the HTTP request cannot be constructed.
     pub async fn create(&self, req: MessageRequest) -> Result<Message, Error> {
+        warn_if_deprecated_thinking(&req);
+        warn_if_deprecated_model(&req);
         let raw = self.send_request(req).await?;
         self.decode_response(raw).await
     }
@@ -173,6 +259,8 @@ impl<T: HttpTransport> MessagesResource<'_, T> {
         &self,
         mut req: MessageRequest,
     ) -> Result<super::streaming::MessageStream, Error> {
+        warn_if_deprecated_thinking(&req);
+        warn_if_deprecated_model(&req);
         req.stream = true;
 
         let body = serde_json::to_vec(&req).map_err(|e| Error::Serde {
@@ -419,7 +507,7 @@ mod tests {
     fn minimal_request() -> MessageRequest {
         MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
+            .max_tokens(MaxTokens::new(64))
             .add_user_text("hello")
             .build()
     }
@@ -468,6 +556,11 @@ mod tests {
         }
     }
 
+    // `create_with_unserializable_content_surfaces_typed_serde_error` was removed
+    // with the content-block union split: a request now carries `ContentBlockParam`,
+    // which has no `Unknown` arm, so an unserializable request block can no longer be
+    // constructed. The failure it exercised is now a compile error, not a runtime one.
+
     // ── count_tokens ─────────────────────────────────────────────────────────
 
     #[tokio::test]
@@ -510,5 +603,97 @@ mod tests {
             Error::Api(e) => assert_eq!(e.status, StatusCode::BAD_REQUEST),
             other => panic!("expected Error::Api, got {other:?}"),
         }
+    }
+
+    // ── deprecated thinking warning ─────────────────────────────────────────
+
+    use super::{deprecated_model_eol, should_warn_deprecated_thinking};
+    use crate::messages::thinking::ThinkingConfig;
+
+    // `ModelId::custom` is the fallible free-form constructor; the crate has
+    // no `ModelId::new`. The named constructors (`claude_sonnet_4_5` etc.)
+    // do not cover the two deprecated models this test needs.
+    fn req(model: &str, thinking: Option<ThinkingConfig>) -> MessageRequest {
+        let b = MessageRequest::builder()
+            .model(ModelId::custom(model).unwrap())
+            .max_tokens(MaxTokens::new(64))
+            .add_user_text("Hi");
+        match thinking {
+            Some(t) => b.thinking(t).build(),
+            None => b.build(),
+        }
+    }
+
+    #[test]
+    fn warns_for_enabled_thinking_on_a_listed_model() {
+        assert!(should_warn_deprecated_thinking(&req(
+            "claude-opus-4-6",
+            Some(ThinkingConfig::enabled(1024))
+        )));
+        assert!(should_warn_deprecated_thinking(&req(
+            "claude-mythos-preview",
+            Some(ThinkingConfig::enabled(1024))
+        )));
+    }
+
+    #[test]
+    fn does_not_warn_for_adaptive_or_disabled_on_a_listed_model() {
+        assert!(!should_warn_deprecated_thinking(&req(
+            "claude-opus-4-6",
+            Some(ThinkingConfig::adaptive())
+        )));
+        assert!(!should_warn_deprecated_thinking(&req(
+            "claude-opus-4-6",
+            Some(ThinkingConfig::disabled())
+        )));
+    }
+
+    #[test]
+    fn does_not_warn_when_thinking_is_unset() {
+        assert!(!should_warn_deprecated_thinking(&req(
+            "claude-opus-4-6",
+            None
+        )));
+    }
+
+    #[test]
+    fn does_not_warn_for_an_unlisted_model() {
+        assert!(!should_warn_deprecated_thinking(&req(
+            "claude-sonnet-4-5",
+            Some(ThinkingConfig::enabled(1024))
+        )));
+    }
+
+    // ── deprecated model warning ────────────────────────────────────────────
+
+    #[test]
+    fn eol_for_a_listed_model_returns_its_exact_date() {
+        assert_eq!(
+            deprecated_model_eol(&req("claude-opus-4-1", None)),
+            Some("August 5th, 2026")
+        );
+    }
+
+    #[test]
+    fn eol_for_a_second_listed_model_returns_its_own_date() {
+        // guards against a single hard-coded return value
+        assert_eq!(
+            deprecated_model_eol(&req("claude-3-opus-20240229", None)),
+            Some("January 5th, 2026")
+        );
+    }
+
+    #[test]
+    fn eol_for_a_current_model_returns_none() {
+        assert_eq!(deprecated_model_eol(&req("claude-sonnet-5", None)), None);
+    }
+
+    #[test]
+    fn deprecated_and_thinking_warnings_are_independent() {
+        // `claude-mythos-preview` is in BOTH tables; both predicates must fire
+        // so wiring one warning never suppresses the other.
+        let r = req("claude-mythos-preview", Some(ThinkingConfig::enabled(1024)));
+        assert_eq!(deprecated_model_eol(&r), Some("June 30th, 2026"));
+        assert!(should_warn_deprecated_thinking(&r));
     }
 }
