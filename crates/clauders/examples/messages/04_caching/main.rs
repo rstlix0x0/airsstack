@@ -16,7 +16,7 @@ use clauders::prelude::*;
 use clauders::types::{CacheControl, SystemPrompt, SystemSegment};
 
 // Stand-in for a long, stable system prompt.
-const BASE_SYSTEM: &str = include_str!("../README.md");
+const BASE_SYSTEM: &str = include_str!("../../../README.md");
 // Repeat count chosen so the cached prefix clears the server's ~1024-token
 // minimum; the README is a few hundred tokens, so four copies is ample.
 const SYSTEM_REPEATS: usize = 4;
