@@ -1,10 +1,30 @@
-//! Reasoning-effort level for a `claude` session.
+//! Reasoning-effort level shared by the Messages API and the Agent SDK.
 
 use serde::Serialize;
 
-/// Reasoning-effort level for a `claude` session, lowered to the CLI's
-/// `--effort <level>` flag. The five values are the complete set the binary
-/// (`v2.1.209`) accepts.
+/// How much reasoning effort a model should spend.
+///
+/// The same five levels serve both pillars of this crate:
+///
+/// - the Messages API sends the value as `output_config.effort`, using the
+///   lowercase form produced by [`Serialize`];
+/// - the Agent SDK lowers it to the `claude` CLI's `--effort <level>` flag
+///   via [`EffortLevel::as_str`].
+///
+/// Both forms are the same five lowercase strings, so the two pillars cannot
+/// drift apart.
+///
+/// # Examples
+///
+/// ```
+/// use clauders::types::EffortLevel;
+///
+/// assert_eq!(EffortLevel::Xhigh.as_str(), "xhigh");
+/// assert_eq!(
+///     serde_json::to_value(EffortLevel::Xhigh).unwrap(),
+///     serde_json::json!("xhigh")
+/// );
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum EffortLevel {
@@ -21,8 +41,11 @@ pub enum EffortLevel {
 }
 
 impl EffortLevel {
-    /// The CLI flag value for this level
+    /// This level as its wire string
     /// (`low` / `medium` / `high` / `xhigh` / `max`).
+    ///
+    /// Identical to the value [`Serialize`] produces, so it is equally the
+    /// `output_config.effort` JSON value and the `--effort` CLI argument.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -62,5 +85,17 @@ mod tests {
             let serialized = serde_json::to_value(level).expect("serialize");
             assert_eq!(serialized, serde_json::json!(level.as_str()));
         }
+    }
+
+    /// Both pillars name one type, so their wire forms cannot drift apart.
+    #[test]
+    fn effort_level_is_reachable_from_both_pillars() {
+        let from_types = crate::types::EffortLevel::Xhigh;
+        let from_agent = crate::agent::EffortLevel::Xhigh;
+        assert_eq!(from_types, from_agent);
+        assert_eq!(
+            serde_json::to_value(from_types).expect("serialize"),
+            serde_json::json!("xhigh")
+        );
     }
 }

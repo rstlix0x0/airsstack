@@ -37,13 +37,16 @@ pub struct TokenCount {
 
 /// Serialization projection for `POST /v1/messages/count_tokens`.
 ///
-/// The count-tokens endpoint accepts only a strict subset of the fields in a
-/// full messages request. This struct borrows from a [`MessageRequest`] and
+/// The count-tokens endpoint accepts only a subset of the fields in a full
+/// messages request. This struct borrows from a [`MessageRequest`] and
 /// serializes only the accepted fields, avoiding a rejection by the API.
 ///
 /// The fields omitted (relative to `MessageRequest`) are:
 /// `max_tokens`, `temperature`, `top_p`, `top_k`, `stop_sequences`,
 /// `metadata`, and `stream`.
+///
+/// `thinking` and `output_config` **are** forwarded: the endpoint accepts
+/// both, and thinking in particular changes the resulting count.
 #[derive(serde::Serialize)]
 pub(crate) struct CountTokensBody<'a> {
     /// Model to estimate token usage for.
@@ -59,6 +62,12 @@ pub(crate) struct CountTokensBody<'a> {
     /// Tool-choice policy.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) tool_choice: Option<&'a crate::messages::tools::ToolChoice>,
+    /// Extended-thinking configuration, which affects the count.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) thinking: Option<&'a crate::messages::thinking::ThinkingConfig>,
+    /// Output configuration (format and/or reasoning effort).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) output_config: Option<&'a crate::messages::structured_outputs::OutputConfig>,
 }
 
 impl<'a> CountTokensBody<'a> {
@@ -75,6 +84,8 @@ impl<'a> CountTokensBody<'a> {
             system: req.system.as_ref(),
             tools: &req.tools,
             tool_choice: req.tool_choice.as_ref(),
+            thinking: req.thinking.as_ref(),
+            output_config: req.output_config.as_ref(),
         }
     }
 }
@@ -100,7 +111,7 @@ mod tests {
     fn count_tokens_body_includes_model_and_messages() {
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(256).unwrap())
+            .max_tokens(MaxTokens::new(256))
             .add_user_text("Hello")
             .build();
 
@@ -115,7 +126,7 @@ mod tests {
     fn count_tokens_body_omits_max_tokens() {
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(1024).unwrap())
+            .max_tokens(MaxTokens::new(1024))
             .add_user_text("Hello")
             .build();
 
@@ -129,10 +140,14 @@ mod tests {
     }
 
     #[test]
+    #[expect(
+        deprecated,
+        reason = "asserts a deprecated parameter is excluded from the count-tokens projection"
+    )]
     fn count_tokens_body_omits_temperature_and_stream() {
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
+            .max_tokens(MaxTokens::new(64))
             .temperature(Temperature::new(0.5).unwrap())
             .add_user_text("Hi")
             .build();
@@ -157,7 +172,7 @@ mod tests {
 
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
+            .max_tokens(MaxTokens::new(64))
             .system(SystemPrompt::text("You are terse."))
             .add_user_text("Hi")
             .build();
@@ -172,10 +187,66 @@ mod tests {
     }
 
     #[test]
+    fn count_tokens_body_includes_thinking_when_present() {
+        use crate::messages::thinking::ThinkingConfig;
+
+        let req = MessageRequest::builder()
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(MaxTokens::new(4096))
+            .thinking(ThinkingConfig::enabled(1024))
+            .add_user_text("Hi")
+            .build();
+
+        let body = CountTokensBody::from_request(&req);
+        let json: serde_json::Value = serde_json::to_value(&body).unwrap();
+
+        assert_eq!(
+            json["thinking"]["type"], "enabled",
+            "thinking changes the token count and must be forwarded"
+        );
+        assert_eq!(json["thinking"]["budget_tokens"], 1024);
+    }
+
+    #[test]
+    fn count_tokens_body_includes_output_config_when_present() {
+        use crate::types::EffortLevel;
+
+        let req = MessageRequest::builder()
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(MaxTokens::new(64))
+            .effort(EffortLevel::High)
+            .add_user_text("Hi")
+            .build();
+
+        let body = CountTokensBody::from_request(&req);
+        let json: serde_json::Value = serde_json::to_value(&body).unwrap();
+
+        assert_eq!(json["output_config"]["effort"], "high");
+    }
+
+    #[test]
+    fn count_tokens_body_omits_thinking_and_output_config_when_absent() {
+        let req = MessageRequest::builder()
+            .model(ModelId::claude_sonnet_4_5())
+            .max_tokens(MaxTokens::new(64))
+            .add_user_text("Hi")
+            .build();
+
+        let body = CountTokensBody::from_request(&req);
+        let json: serde_json::Value = serde_json::to_value(&body).unwrap();
+
+        assert!(json.get("thinking").is_none(), "thinking must be absent");
+        assert!(
+            json.get("output_config").is_none(),
+            "output_config must be absent"
+        );
+    }
+
+    #[test]
     fn count_tokens_body_omits_system_when_absent() {
         let req = MessageRequest::builder()
             .model(ModelId::claude_sonnet_4_5())
-            .max_tokens(MaxTokens::new(64).unwrap())
+            .max_tokens(MaxTokens::new(64))
             .add_user_text("Hi")
             .build();
 

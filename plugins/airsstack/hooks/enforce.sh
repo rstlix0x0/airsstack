@@ -1,15 +1,17 @@
 #!/bin/sh
 # airsstack rule-enforcement dispatcher launcher.
 #
-# Prefer python3; fall back to node. Forward stdin to whichever runtime is
-# present. If neither exists, exit 0 so the edit is never blocked (fail-open).
+# PreToolUse exit 2 BLOCKS the tool call, and the matcher covers Read — a
+# propagated failure would block every file read. This launcher therefore
+# never propagates a child's status: every path ends in `exit 0`.
+# Deliberately no `exec`, which would replace the shell and hand python's
+# status straight back to Claude Code.
 
-DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+DIR=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd) || exit 0
+[ -n "$DIR" ] || exit 0
 
-if command -v python3 >/dev/null 2>&1; then
-  exec python3 "$DIR/enforce.py"
-elif command -v node >/dev/null 2>&1; then
-  exec node "$DIR/enforce.js"
+if command -v python3 >/dev/null 2>&1 && [ -r "$DIR/enforce.py" ]; then
+  python3 "$DIR/enforce.py" || exit 0
 fi
 
 exit 0

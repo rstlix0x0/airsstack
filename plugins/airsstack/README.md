@@ -104,12 +104,33 @@ matching their `summary`, so they remain findable.
 ## Enforcement dispatcher
 
 The `airsstack` plugin is the suite's single rule-enforcement dispatcher. A
-`PreToolUse(Edit|Write)` hook (`hooks/enforce.sh` → `enforce.py`, with
-`enforce.js` as a node fallback) reads `~/.claude/plugins/installed_plugins.json`,
-keeps only airsstack-marketplace plugins (keys ending `@airsstack`), and loads
-each one's root `enforcement.json`. For the file being edited it surfaces the
-matching guideline skill — once per `stack:phase` per session — by injecting
-`additionalContext` with `permissionDecision:"defer"` (it never blocks an edit).
+`PreToolUse(Read|Edit|Write)` hook (`hooks/enforce.sh` → `enforce.py`;
+python3 only) reads `~/.claude/plugins/installed_plugins.json`, keeps only
+airsstack-marketplace plugins (keys ending `@airsstack`), and loads each one's
+root `enforcement.json`. For the file being read or written it surfaces the
+matching guideline skill — once per `stack:phase` per session **per agent
+context** — by injecting `additionalContext` with `permissionDecision:"defer"`
+(it never blocks a tool call). Firing on `Read` puts the rule in context before
+the design decision, not at the moment of writing.
+
+Three gates must all pass:
+
+1. **Project binding.** The plugin's registry record must resolve to this
+   project's key, or be a user-scope record. A plugin installed only for repo A
+   contributes nothing in repo B.
+2. **Activation.** A `detect` marker must sit at or above the *edited file's*
+   directory — so a `.rs` file with no `Cargo.toml` above it does not fire,
+   because `cargo test` could not run there anyway. Design-phase docs anchor on
+   the working directory instead: an SDD spec lives outside the repo (under
+   `~/.airsstack`), so `cwd` is the only signal of which project it describes.
+3. **Selection.** `match` globs are tested against the file's **repo-relative**
+   path (basename, when the file is outside any repository). `**/` matches zero
+   or more leading segments, so `**/Cargo.toml` covers a workspace-root
+   manifest.
+
+A `SessionStart(compact)` hook (`hooks/rearm.sh` → `rearm.py`) clears that
+session's dedup sentinels, so the pointer re-enters context after compaction
+drops it. The session id survives compaction; the injected context does not.
 
 ### The `enforcement.json` convention
 
@@ -128,10 +149,13 @@ enforcement channel — a plugin never ships its own enforcement hook.
 ```
 
 - `stack` — identifier for the rule domain (and the dedup key component).
-- `detect` — repo-root marker files; the design-phase trigger (the stack is
-  "active" when a marker is present at the working dir or any ancestor).
+- `detect` — repo-root marker files; the activation gate for **both** phases
+  (the stack is "active" when a marker sits at the anchor directory or any
+  ancestor — the edited file's directory in the code phase, `cwd` in the design
+  phase).
 - `match` — path globs; the code-phase trigger (matched against the edited
-  file's basename via the glob's final segment).
+  file's path relative to the git toplevel, or its basename when the file is
+  outside a repository).
 - `skill` — the skill id the dispatcher tells the model to load.
 - `phase` — which surfaces fire: `code` (editing source) and/or `design`
   (editing an SDD spec/plan while a `detect` marker is present).
@@ -141,6 +165,36 @@ rule visible at the moment it applies); the `reviewer` agent re-running the
 Definition of Done is the **retroactive** gate. The dispatcher is fail-open —
 a missing registry, an absent or malformed manifest, or a missing runtime all
 resolve to "do nothing," never to a blocked edit.
+
+### Diagnosing it — `/airsstack:enforce-doctor`
+
+The dispatcher is fail-open, which means several distinct failures all look
+identical from outside: an empty registry, a plugin whose manifest never reached
+the install cache, a project-binding miss, a missing `detect` marker, a glob that
+did not hit, and an already-fired pointer are all just *silence*. That
+indistinguishability is precisely how the framework stayed dead for weeks without
+anyone noticing.
+
+`/airsstack:enforce-doctor <path>` runs `enforce.py --explain <path>` — the same
+`resolve()` the hook drives, with a trace attached — and names the stage that
+ended the run. It also reports the runtime, the resolved project key, the
+repo-relative path the globs were tested against, which registry record (i.e.
+`installPath`) each matching plugin resolved to, and which dedup sentinels this
+context already holds. A second `--explain` of the same path in the same session
+will itself show up as "already claimed" — that is the doctor observing the
+sentinel its own first run set, not a real hook's.
+
+Inside the plugin source repo it additionally diffs each plugin's source tree
+against its install cache. That check is not optional decoration: the doctor
+ships inside the plugin and therefore runs *from the cache*, so without it, faced
+with the exact bug it exists to diagnose, it would report "zero manifests loaded"
+and be unable to say why. Every source file reported `MISSING from cache` under
+one plugin means that plugin's cache directory does not exist, or exists but is
+empty — the two produce identical output; a mix of `MISSING`/`DIFFERS` alongside
+files that are not reported means the cache dir has some content but delivery is
+partial or stale. If the source directory itself cannot be read, the parity check
+reports that directly (`source tree unreadable, parity unknown`) rather than
+falling through to a false "repo and cache agree".
 
 ## Attribution
 

@@ -1,6 +1,6 @@
 {
   "name": "airsstack-sdd",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Spec-driven development workflow: brainstorm an idea into a spec, write a one-objective implementation plan, and execute it with review checkpoints. Adapted from the superpowers plugin (superpowers@claude-plugins-official) with airsstack-specific adjustments.",
   "author": {
     "name": "rstlix0x0",

@@ -61,7 +61,7 @@ async fn cache_control_round_trip() {
 
     let req = MessageRequest::builder()
         .model(ModelId::claude_sonnet_4_5())
-        .max_tokens(MaxTokens::new(8).unwrap())
+        .max_tokens(MaxTokens::new(8))
         .system(SystemPrompt::segments(vec![seg]))
         .add_user_text("hi")
         .build();

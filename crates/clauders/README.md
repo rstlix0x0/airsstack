@@ -21,7 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let req = MessageRequest::builder()
         .model(ModelId::claude_sonnet_4_5())
-        .max_tokens(MaxTokens::new(1024).unwrap())
+        .max_tokens(MaxTokens::new(1024))
         .add_user_text("Say hi.")
         .build();
 

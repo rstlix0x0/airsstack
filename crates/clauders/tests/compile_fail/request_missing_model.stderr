@@ -3,7 +3,7 @@ error[E0599]: no method named `build` found for struct `MessageRequestBuilder<cl
   |
 2 |       let _req = clauders::messages::MessageRequest::builder()
   |  ________________-
-3 | |         .max_tokens(clauders::types::MaxTokens::new(1).unwrap())
+3 | |         .max_tokens(clauders::types::MaxTokens::new(1))
 4 | |         .build();
   | |         -^^^^^ method not found in `MessageRequestBuilder<clauders::messages::request::Missing, clauders::messages::request::Present>`
   | |_________|
