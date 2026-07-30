@@ -33,12 +33,18 @@ impl SdkMcpRegistry {
         self.servers.get(server_name).map(Arc::clone)
     }
 
-    /// The `--mcp-config` declaration objects (`{"<name>":{"type":"sdk"}}`),
-    /// one per registered server.
+    /// The `--mcp-config` declaration objects
+    /// (`{"mcpServers":{"<name>":{"type":"sdk"}}}`), one per registered server.
+    ///
+    /// The `mcpServers` wrapper is required: the binary validates each
+    /// `--mcp-config` payload against a schema whose only key is `mcpServers`,
+    /// and rejects an unwrapped server map at startup with
+    /// `Invalid MCP configuration: mcpServers: Invalid input: expected record,
+    /// received undefined` before any session begins.
     pub(crate) fn declarations(&self) -> impl Iterator<Item = serde_json::Value> + '_ {
         self.servers
             .keys()
-            .map(|name| serde_json::json!({ name.as_str(): { "type": "sdk" } }))
+            .map(|name| serde_json::json!({ "mcpServers": { name.as_str(): { "type": "sdk" } } }))
     }
 }
 
@@ -67,6 +73,29 @@ mod tests {
         reg.register(SdkMcpServer::builder("calc").build());
         let decls: Vec<_> = reg.declarations().collect();
         assert_eq!(decls.len(), 1);
-        assert_eq!(decls[0]["calc"]["type"], "sdk");
+        assert_eq!(decls[0]["mcpServers"]["calc"]["type"], "sdk");
+    }
+
+    // The binary rejects a `--mcp-config` payload that is not wrapped in
+    // `mcpServers`, exiting before the session starts. Assert the wrapper is
+    // the only top-level key so the unwrapped shape cannot come back.
+    #[test]
+    fn declarations_wrap_servers_under_mcp_servers_key() {
+        let mut reg = SdkMcpRegistry::default();
+        reg.register(SdkMcpServer::builder("calc").build());
+        let decls: Vec<_> = reg.declarations().collect();
+        let keys: Vec<&str> = decls[0]
+            .as_object()
+            .map(|object| object.keys().map(String::as_str).collect())
+            .unwrap_or_default();
+        assert_eq!(
+            keys,
+            vec!["mcpServers"],
+            "the server map must be wrapped, not emitted at the top level"
+        );
+        assert!(
+            decls[0].get("calc").is_none(),
+            "the server name must not appear at the top level"
+        );
     }
 }

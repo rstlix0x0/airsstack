@@ -7,6 +7,7 @@ use crate::agent::system_prompt::SystemPromptConfig;
 use crate::agent::types::{
     SandboxConfig, SessionControl, SessionPersistence, SettingsSource, Skills, ThinkingMode,
 };
+use crate::messages::structured_outputs::OutputFormat;
 
 /// The allowed-tools list with skill entries folded in, deduped, mirroring the
 /// official SDK: [`Skills::All`] appends `Skill`; each named skill appends
@@ -133,9 +134,29 @@ pub(super) fn build_argv(options: &Options) -> Result<Vec<String>, AgentError> {
         argv.push("--max-turns".to_string());
         argv.push(max_turns.to_string());
     }
+    // Structured output. The binary reads the schema from `--json-schema`, and
+    // wants the bare schema object; `OutputConfig` wraps it as
+    // `{"format":{"type":"json_schema","schema":…}}`, so unwrap before emitting.
+    // The initialize handshake also carries `output_format` (see
+    // `handshake.rs`), but the binary's bridge acks that request without
+    // reading the field — the flag is what actually reaches the model.
+    //
+    // `OutputConfig::effort` is deliberately not lowered here: the session's
+    // reasoning effort is `Options::effort`, which maps to `--effort`.
+    if let Some(OutputFormat::JsonSchema { schema }) = options
+        .output_format
+        .as_ref()
+        .and_then(|config| config.format.as_ref())
+    {
+        argv.push("--json-schema".to_string());
+        argv.push(schema.to_string());
+    }
+    // Each `--mcp-config` payload must be wrapped in `mcpServers`: the binary
+    // validates it against a schema whose only key is that one, and rejects an
+    // unwrapped server map at startup before the session begins.
     for server in &options.mcp_servers {
         argv.push("--mcp-config".to_string());
-        let config = serde_json::json!({ server.name(): server.config() });
+        let config = serde_json::json!({ "mcpServers": { server.name(): server.config() } });
         argv.push(config.to_string());
     }
     for declaration in options.sdk_mcp_servers.declarations() {
@@ -367,7 +388,59 @@ mod tests {
         assert!(joined.contains("--disallowed-tools Write"));
         assert!(joined.contains("--max-turns 5"));
         assert!(joined.contains("--mcp-config"));
-        assert!(joined.contains("\"fs\""));
+        assert_eq!(
+            mcp_config_payload(&argv),
+            serde_json::json!({ "mcpServers": { "fs": { "command": "node" } } }),
+            "an external server's payload must be wrapped in `mcpServers`"
+        );
+    }
+
+    /// The value following the first `--mcp-config`, parsed back to JSON.
+    ///
+    /// Comparing the parsed value rather than a substring is deliberate: a
+    /// `contains("\"fs\"")` check passes whether or not the server map is
+    /// wrapped, which is exactly how an unwrapped payload once reached the
+    /// binary and killed the session at startup.
+    fn mcp_config_payload(argv: &[String]) -> serde_json::Value {
+        let index = argv
+            .iter()
+            .position(|arg| arg == "--mcp-config")
+            .expect("argv carries --mcp-config");
+        let raw = argv.get(index + 1).expect("--mcp-config carries a value");
+        serde_json::from_str(raw).expect("the payload is valid JSON")
+    }
+
+    #[test]
+    fn output_schema_lowers_to_json_schema_flag_unwrapped() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": { "language": { "type": "string" } },
+            "required": ["language"]
+        });
+        let opts = Options::builder().output_schema(schema.clone()).build();
+        let argv = build_argv(&opts).expect("build argv");
+
+        let index = argv
+            .iter()
+            .position(|arg| arg == "--json-schema")
+            .expect("argv carries --json-schema");
+        let raw = argv.get(index + 1).expect("--json-schema carries a value");
+        let payload: serde_json::Value = serde_json::from_str(raw).expect("valid JSON");
+
+        // The flag wants the bare schema. Emitting the `OutputConfig` wrapper
+        // (`{"format":{"type":"json_schema","schema":…}}`) would hand the
+        // binary a schema whose only property is `format`.
+        assert_eq!(payload, schema);
+        assert!(
+            payload.get("format").is_none(),
+            "the OutputConfig wrapper must not reach the flag: {payload}"
+        );
+    }
+
+    #[test]
+    fn omits_json_schema_flag_when_no_output_format_is_set() {
+        let argv = build_argv(&Options::default()).expect("build argv");
+        assert!(!argv.iter().any(|arg| arg == "--json-schema"));
     }
 
     #[test]
@@ -405,9 +478,13 @@ mod tests {
         let argv = build_argv(&opts).expect("build argv");
         let joined = argv.join(" ");
         assert!(joined.contains("--mcp-config"), "got: {joined}");
-        // The declaration carries the server name and the sdk type marker.
-        assert!(joined.contains("\"calc\""), "got: {joined}");
-        assert!(joined.contains("\"type\":\"sdk\""), "got: {joined}");
+        // The declaration names the server, marks it `sdk`, and wraps the map
+        // in `mcpServers` — the binary rejects the payload without the wrapper.
+        assert_eq!(
+            mcp_config_payload(&argv),
+            serde_json::json!({ "mcpServers": { "calc": { "type": "sdk" } } }),
+            "got: {joined}"
+        );
     }
 
     #[test]

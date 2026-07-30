@@ -49,11 +49,20 @@ The crate carries no Cargo features; every capability below is always compiled.
 
 ## Examples
 
+Two ladders, each simplest-first, with a `README.md` per example:
+
+- [`examples/messages/`](examples/messages/README.md) — the Messages API. Needs
+  `ANTHROPIC_API_KEY`.
+- [`examples/agent/`](examples/agent/README.md) — the Agent SDK. Needs a `claude`
+  binary (2.0.0+) on `PATH`; no API key, since the SDK drives that binary rather
+  than calling the API itself.
+
 ```text
 ANTHROPIC_API_KEY=sk-... cargo run --example 01_hello
 ANTHROPIC_API_KEY=sk-... cargo run --example 02_streaming
-ANTHROPIC_API_KEY=sk-... cargo run --example 03_tools
-ANTHROPIC_API_KEY=sk-... cargo run --example 04_caching
+
+cargo run --example agent_01_query
+cargo run --example agent_14_agent_console
 ```
 
 ## License
