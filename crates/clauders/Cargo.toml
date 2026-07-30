@@ -28,7 +28,8 @@ bytes          = { workspace = true }
 futures-core       = { workspace = true }
 pin-project-lite   = { workspace = true }
 async-trait        = { workspace = true }
-tokio          = { workspace = true, features = ["process"] }
+tokio          = { workspace = true, features = ["process", "fs"] }
+tokio-util     = { workspace = true }
 eventsource-stream   = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]

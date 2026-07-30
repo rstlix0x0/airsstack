@@ -17,7 +17,11 @@ use crate::agent::message::Message;
 use crate::agent::permissions::PermissionMode;
 use crate::agent::runtime::Runtime;
 use crate::agent::stream::{MessageStream, ReceiverStream};
-use crate::agent::types::{McpStatus, Prompt};
+use crate::agent::types::{
+    BackgroundTasksResult, ContextUsage, InitializeResult, InterruptReceipt, McpStatus, Prompt,
+    ReadFileResult, ReloadPluginsResult, ReloadSkillsResult, RewindFilesResult,
+    SetMcpPermissionModeResult, SetMcpServersResult, UsageReport,
+};
 use crate::types::ModelId;
 
 /// A control operation observed by a [`MockRuntime`], for assertions.
@@ -31,6 +35,57 @@ pub enum ControlCall {
     SetPermissionMode(PermissionMode),
     /// `mcp_status` was invoked.
     McpStatus,
+    /// `reconnect_mcp_server` was invoked with this server name.
+    ReconnectMcpServer(String),
+    /// `read_file` was invoked with this path.
+    ReadFile {
+        /// The path passed to `read_file`.
+        path: String,
+    },
+    /// `toggle_mcp_server` was invoked with this server name and enabled state.
+    ToggleMcpServer {
+        /// The server name passed to `toggle_mcp_server`.
+        server_name: String,
+        /// The enabled state passed to `toggle_mcp_server`.
+        enabled: bool,
+    },
+    /// `set_mcp_servers` was invoked.
+    SetMcpServers,
+    /// `set_mcp_permission_mode_override` was invoked with this server name and mode.
+    SetMcpPermissionModeOverride {
+        /// The server name passed to `set_mcp_permission_mode_override`.
+        server_name: String,
+        /// The mode passed to `set_mcp_permission_mode_override`.
+        mode: String,
+    },
+    /// `stop_task` was invoked with this task id.
+    StopTask(String),
+    /// `background_tasks` was invoked.
+    BackgroundTasks,
+    /// `rewind_files` was invoked with this user message id.
+    RewindFiles {
+        /// The user message id passed to `rewind_files`.
+        user_message_id: String,
+    },
+    /// `seed_read_state` was invoked with this path.
+    SeedReadState {
+        /// The path passed to `seed_read_state`.
+        path: String,
+    },
+    /// `get_context_usage` was invoked.
+    GetContextUsage,
+    /// `get_usage` was invoked.
+    GetUsage,
+    /// `reload_plugins` was invoked.
+    ReloadPlugins,
+    /// `reload_skills` was invoked.
+    ReloadSkills,
+    /// `apply_flag_settings` was invoked.
+    ApplyFlagSettings,
+    /// `set_max_thinking_tokens` was invoked.
+    SetMaxThinkingTokens,
+    /// `reinitialize` was invoked.
+    Reinitialize,
 }
 
 /// A scripted, subprocess-free [`Runtime`] implementation for tests.
@@ -40,6 +95,8 @@ pub struct MockRuntime {
     prompts: Mutex<Vec<Vec<String>>>,
     capabilities: Capabilities,
     mcp_status: McpStatus,
+    read_file: ReadFileResult,
+    initialize_result: InitializeResult,
 }
 
 impl MockRuntime {
@@ -52,6 +109,8 @@ impl MockRuntime {
             prompts: Mutex::new(Vec::new()),
             capabilities: Capabilities::default(),
             mcp_status: McpStatus::default(),
+            read_file: ReadFileResult::default(),
+            initialize_result: InitializeResult::default(),
         }
     }
 
@@ -79,6 +138,13 @@ impl MockRuntime {
     #[must_use]
     pub fn with_capabilities(mut self, capabilities: Capabilities) -> Self {
         self.capabilities = capabilities;
+        self
+    }
+
+    /// Override the `initialize` response this mock retains.
+    #[must_use]
+    pub fn with_initialize_result(mut self, initialize_result: InitializeResult) -> Self {
+        self.initialize_result = initialize_result;
         self
     }
 
@@ -129,9 +195,9 @@ impl Runtime for MockRuntime {
         Ok(ReceiverStream::new(rx).boxed())
     }
 
-    async fn interrupt(&self) -> Result<(), AgentError> {
+    async fn interrupt(&self) -> Result<Option<InterruptReceipt>, AgentError> {
         self.record(ControlCall::Interrupt);
-        Ok(())
+        Ok(None)
     }
 
     async fn set_model(&self, model: ModelId) -> Result<(), AgentError> {
@@ -149,8 +215,131 @@ impl Runtime for MockRuntime {
         Ok(self.mcp_status.clone())
     }
 
-    fn capabilities(&self) -> &Capabilities {
-        &self.capabilities
+    async fn reconnect_mcp_server(&self, server_name: &str) -> Result<(), AgentError> {
+        self.record(ControlCall::ReconnectMcpServer(server_name.to_string()));
+        Ok(())
+    }
+
+    async fn read_file(
+        &self,
+        path: &str,
+        _max_bytes: Option<u64>,
+        _encoding: Option<String>,
+    ) -> Result<ReadFileResult, AgentError> {
+        self.record(ControlCall::ReadFile {
+            path: path.to_string(),
+        });
+        Ok(self.read_file.clone())
+    }
+
+    async fn toggle_mcp_server(&self, server_name: &str, enabled: bool) -> Result<(), AgentError> {
+        self.record(ControlCall::ToggleMcpServer {
+            server_name: server_name.to_string(),
+            enabled,
+        });
+        Ok(())
+    }
+
+    async fn set_mcp_servers(
+        &self,
+        _servers: serde_json::Value,
+    ) -> Result<SetMcpServersResult, AgentError> {
+        self.record(ControlCall::SetMcpServers);
+        Ok(SetMcpServersResult::default())
+    }
+
+    async fn set_mcp_permission_mode_override(
+        &self,
+        server_name: &str,
+        mode: &str,
+    ) -> Result<SetMcpPermissionModeResult, AgentError> {
+        self.record(ControlCall::SetMcpPermissionModeOverride {
+            server_name: server_name.to_string(),
+            mode: mode.to_string(),
+        });
+        Ok(SetMcpPermissionModeResult::default())
+    }
+
+    async fn stop_task(&self, task_id: &str) -> Result<(), AgentError> {
+        self.record(ControlCall::StopTask(task_id.to_string()));
+        Ok(())
+    }
+
+    async fn background_tasks(
+        &self,
+        _tool_use_id: Option<String>,
+    ) -> Result<BackgroundTasksResult, AgentError> {
+        self.record(ControlCall::BackgroundTasks);
+        Ok(BackgroundTasksResult::default())
+    }
+
+    async fn rewind_files(
+        &self,
+        user_message_id: &str,
+        _dry_run: Option<bool>,
+    ) -> Result<RewindFilesResult, AgentError> {
+        self.record(ControlCall::RewindFiles {
+            user_message_id: user_message_id.to_string(),
+        });
+        Ok(RewindFilesResult::default())
+    }
+
+    async fn seed_read_state(
+        &self,
+        path: &str,
+        _mtime: serde_json::Value,
+    ) -> Result<(), AgentError> {
+        self.record(ControlCall::SeedReadState {
+            path: path.to_string(),
+        });
+        Ok(())
+    }
+
+    async fn get_context_usage(&self) -> Result<ContextUsage, AgentError> {
+        self.record(ControlCall::GetContextUsage);
+        Ok(ContextUsage::default())
+    }
+
+    async fn get_usage(&self) -> Result<UsageReport, AgentError> {
+        self.record(ControlCall::GetUsage);
+        Ok(UsageReport::default())
+    }
+
+    async fn reload_plugins(&self) -> Result<ReloadPluginsResult, AgentError> {
+        self.record(ControlCall::ReloadPlugins);
+        Ok(ReloadPluginsResult::default())
+    }
+
+    async fn reload_skills(&self) -> Result<ReloadSkillsResult, AgentError> {
+        self.record(ControlCall::ReloadSkills);
+        Ok(ReloadSkillsResult::default())
+    }
+
+    async fn apply_flag_settings(&self, _settings: serde_json::Value) -> Result<(), AgentError> {
+        self.record(ControlCall::ApplyFlagSettings);
+        Ok(())
+    }
+
+    async fn set_max_thinking_tokens(
+        &self,
+        _max_thinking_tokens: Option<u64>,
+        _thinking_display: Option<serde_json::Value>,
+    ) -> Result<(), AgentError> {
+        self.record(ControlCall::SetMaxThinkingTokens);
+        Ok(())
+    }
+
+    fn capabilities(&self) -> Capabilities {
+        self.capabilities.clone()
+    }
+
+    fn initialize_result(&self) -> InitializeResult {
+        self.initialize_result.clone()
+    }
+
+    async fn reinitialize(&self) -> Result<InitializeResult, AgentError> {
+        self.record(ControlCall::Reinitialize);
+        Ok(self.initialize_result.clone())
     }
 }
 
@@ -159,7 +348,7 @@ mod tests {
     #![expect(clippy::expect_used, reason = "test assertions use expect for context")]
 
     use super::{ControlCall, MockRuntime};
-    use crate::agent::message::{Message, ResultMessage};
+    use crate::agent::message::{Message, ResultMessage, ResultSubtype};
     use crate::agent::permissions::PermissionMode;
     use crate::agent::runtime::Runtime;
     use crate::agent::types::{Prompt, SessionId};
@@ -168,6 +357,8 @@ mod tests {
 
     fn result(text: &str) -> Message {
         Message::Result(ResultMessage {
+            subtype: ResultSubtype::Success,
+            errors: Vec::new(),
             result: text.into(),
             structured_output: None,
             is_error: false,
@@ -176,6 +367,14 @@ mod tests {
             usage: None,
             session_id: SessionId::new("s1"),
             num_turns: 1,
+            model_usage: std::collections::HashMap::new(),
+            permission_denials: Vec::new(),
+            duration_ms: None,
+            duration_api_ms: None,
+            ttft_ms: None,
+            terminal_reason: None,
+            uuid: None,
+            extra: serde_json::Value::Null,
         })
     }
 

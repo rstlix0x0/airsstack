@@ -1,4 +1,10 @@
-//! Capability manifest negotiated during the initialize handshake.
+//! The capability manifest carried on the `system`/`init` message frame, and
+//! the hook-event wire names.
+//!
+//! Two independent concerns share this module. [`Capabilities`] is the open
+//! flag set the binary advertises; [`HookEvent`] names the events a hook can
+//! register for. They are no longer related — the manifest once gated hook
+//! registration, and does not any more.
 
 use std::collections::HashSet;
 
@@ -7,7 +13,8 @@ use serde::{Deserialize, Serialize};
 /// A hook event the binary may invoke during a turn.
 ///
 /// Wire names are `PascalCase` as the binary emits them. This enum exists so
-/// [`Capabilities`] can record which events a given binary supports.
+/// hook registration (see [`crate::agent::hooks::HookRegistry`]) can name the
+/// event a hook fires on.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum HookEvent {
@@ -43,35 +50,33 @@ pub enum HookEvent {
     ElicitationResult,
 }
 
-/// Features advertised by the binary in its initialize-handshake response.
+/// Protocol capabilities the binary advertises on its `system`/`init` frame.
 ///
-/// Used to gate optional features and degrade gracefully across binary
-/// versions: a feature absent from the manifest is treated as unsupported
-/// rather than assumed present.
+/// An **open set**: an unrecognized flag is not an error, and an absent flag
+/// means the behavior is unavailable on this binary. Older binaries omit the
+/// field entirely, which reads as an empty manifest.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Capabilities {
-    /// Control-protocol version string.
     #[serde(default)]
-    pub protocol_version: String,
-    /// Hook events the binary will invoke.
-    #[serde(default)]
-    pub supported_hook_events: HashSet<HookEvent>,
-    /// Control methods the binary accepts.
-    #[serde(default)]
-    pub supported_control_methods: HashSet<String>,
+    capabilities: HashSet<String>,
 }
 
 impl Capabilities {
-    /// Whether the binary supports `event`.
+    /// Whether the binary advertises `flag`.
     #[must_use]
-    pub fn supports_hook(&self, event: HookEvent) -> bool {
-        self.supported_hook_events.contains(&event)
+    pub fn supports(&self, flag: &str) -> bool {
+        self.capabilities.contains(flag)
     }
+}
 
-    /// Whether the binary accepts the control `method`.
-    #[must_use]
-    pub fn supports_control(&self, method: &str) -> bool {
-        self.supported_control_methods.contains(method)
+impl FromIterator<String> for Capabilities {
+    /// Build a manifest from flag names, e.g. for test fixtures such as
+    /// `MockRuntime::with_capabilities`. The field stays private; this is the
+    /// public construction path in place of an inserter or setter.
+    fn from_iter<I: IntoIterator<Item = String>>(iter: I) -> Self {
+        Self {
+            capabilities: iter.into_iter().collect(),
+        }
     }
 }
 
@@ -90,75 +95,64 @@ mod tests {
     }
 
     #[test]
-    fn parses_capabilities_from_handshake() {
-        let json = r#"{
-            "protocol_version": "1.0",
-            "supported_hook_events": ["PreToolUse", "Stop"],
-            "supported_control_methods": ["interrupt", "set_model"]
-        }"#;
+    fn session_end_round_trips_wire_name() {
+        let json = serde_json::to_string(&HookEvent::SessionEnd).expect("serialize");
+        assert_eq!(json, "\"SessionEnd\"");
+        let back: HookEvent = serde_json::from_str("\"SessionEnd\"").expect("deserialize");
+        assert_eq!(back, HookEvent::SessionEnd);
+    }
+
+    #[test]
+    fn setup_round_trips_wire_name() {
+        let json = serde_json::to_string(&HookEvent::Setup).expect("serialize");
+        assert_eq!(json, "\"Setup\"");
+        let back: HookEvent = serde_json::from_str("\"Setup\"").expect("deserialize");
+        assert_eq!(back, HookEvent::Setup);
+    }
+
+    #[test]
+    fn elicitation_round_trips_wire_name() {
+        let json = serde_json::to_string(&HookEvent::Elicitation).expect("serialize");
+        assert_eq!(json, "\"Elicitation\"");
+        let back: HookEvent = serde_json::from_str("\"Elicitation\"").expect("deserialize");
+        assert_eq!(back, HookEvent::Elicitation);
+    }
+
+    #[test]
+    fn elicitation_result_round_trips_wire_name() {
+        let json = serde_json::to_string(&HookEvent::ElicitationResult).expect("serialize");
+        assert_eq!(json, "\"ElicitationResult\"");
+        let back: HookEvent = serde_json::from_str("\"ElicitationResult\"").expect("deserialize");
+        assert_eq!(back, HookEvent::ElicitationResult);
+    }
+
+    #[test]
+    fn parses_the_flag_list_from_an_init_frame() {
+        // Verbatim shape of the system/init frame's capabilities field,
+        // sdk.d.ts:4405-4407; values from a live probe of binary 2.1.216.
+        let json = r#"{"capabilities":["interrupt_receipt_v1","msg_lifecycle_v1"]}"#;
         let caps: Capabilities = serde_json::from_str(json).expect("deserialize");
-        assert_eq!(caps.protocol_version, "1.0");
-        assert!(caps.supports_hook(HookEvent::PreToolUse));
-        assert!(!caps.supports_hook(HookEvent::Notification));
-        assert!(caps.supports_control("interrupt"));
-        assert!(!caps.supports_control("teleport"));
+        assert!(caps.supports("interrupt_receipt_v1"));
+        assert!(caps.supports("msg_lifecycle_v1"));
+        assert!(!caps.supports("not_a_real_flag"));
     }
 
     #[test]
-    fn missing_fields_default_to_empty() {
+    fn absent_flag_list_is_empty_not_an_error() {
+        // The field is optional (`capabilities?: string[]`), and older CLIs
+        // omit it entirely.
         let caps: Capabilities = serde_json::from_str("{}").expect("deserialize");
-        assert!(caps.protocol_version.is_empty());
-        assert!(!caps.supports_hook(HookEvent::Stop));
+        assert!(!caps.supports("interrupt_receipt_v1"));
     }
 
     #[test]
-    fn session_lifecycle_events_round_trip_wire_names() {
-        for (event, name) in [
-            (HookEvent::SessionStart, "\"SessionStart\""),
-            (HookEvent::SessionEnd, "\"SessionEnd\""),
-            (HookEvent::Setup, "\"Setup\""),
-        ] {
-            let json = serde_json::to_string(&event).expect("serialize");
-            assert_eq!(json, name);
-            let back: HookEvent = serde_json::from_str(name).expect("deserialize");
-            assert_eq!(back, event);
-        }
-    }
-
-    #[test]
-    fn supports_hook_gates_session_events() {
-        let mut supported = std::collections::HashSet::new();
-        supported.insert(HookEvent::SessionStart);
-        let caps = Capabilities {
-            supported_hook_events: supported,
-            ..Capabilities::default()
-        };
-        assert!(caps.supports_hook(HookEvent::SessionStart));
-        assert!(!caps.supports_hook(HookEvent::SessionEnd));
-    }
-
-    #[test]
-    fn elicitation_events_round_trip_wire_names() {
-        for (event, name) in [
-            (HookEvent::Elicitation, "\"Elicitation\""),
-            (HookEvent::ElicitationResult, "\"ElicitationResult\""),
-        ] {
-            let json = serde_json::to_string(&event).expect("serialize");
-            assert_eq!(json, name);
-            let back: HookEvent = serde_json::from_str(name).expect("deserialize");
-            assert_eq!(back, event);
-        }
-    }
-
-    #[test]
-    fn supports_hook_gates_elicitation_events() {
-        let mut supported = std::collections::HashSet::new();
-        supported.insert(HookEvent::Elicitation);
-        let caps = Capabilities {
-            supported_hook_events: supported,
-            ..Capabilities::default()
-        };
-        assert!(caps.supports_hook(HookEvent::Elicitation));
-        assert!(!caps.supports_hook(HookEvent::ElicitationResult));
+    fn from_iter_builds_a_manifest_supports_agrees_with() {
+        let caps = Capabilities::from_iter([
+            "interrupt_receipt_v1".to_string(),
+            "msg_lifecycle_v1".to_string(),
+        ]);
+        assert!(caps.supports("interrupt_receipt_v1"));
+        assert!(caps.supports("msg_lifecycle_v1"));
+        assert!(!caps.supports("not_a_real_flag"));
     }
 }

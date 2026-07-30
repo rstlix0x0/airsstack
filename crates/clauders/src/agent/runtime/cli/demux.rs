@@ -139,6 +139,11 @@ impl Demux {
                 })
                 .await;
             }
+            InboundFrame::KeepAlive(_) | InboundFrame::ControlCancelRequest(_) => {
+                // `reader_loop` intercepts both before a frame ever reaches
+                // `route`; kept here only so this match stays exhaustive as
+                // the wire vocabulary grows.
+            }
         }
     }
 

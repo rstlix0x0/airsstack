@@ -81,6 +81,12 @@ pub enum AgentError {
     /// The session was interrupted.
     #[error("operation interrupted")]
     Interrupted,
+    /// A sandbox config was combined with a settings *file path*; the sandbox
+    /// configuration must live inside the settings file instead.
+    #[error(
+        "Cannot use both a settings file path and the sandbox option. Include the sandbox configuration in your settings file instead."
+    )]
+    SandboxWithSettingsPath,
 }
 
 #[cfg(test)]

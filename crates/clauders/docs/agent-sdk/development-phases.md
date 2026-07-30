@@ -46,17 +46,21 @@ Every one was proved on 2026-07-20 by running code against the decoder, or by pr
    `capabilities: ["interrupt_receipt_v1", "msg_lifecycle_v1"]`. Consequence: `supports_hook()` is
    permanently `false` and `warn_unsupported_hooks` warns about every registered hook every session.
 
-4. **Valid elicitation requests are rejected.**
-   `frames.rs:178-184` requires `elicitation_id` and `mode`; `sdk.d.ts`'s
-   `SDKControlElicitationRequest` marks both optional. Proved: a request without `mode` is rescued to
-   `Malformed` and answered with an error instead of reaching the elicitation policy. Two existing
-   tests (`elicitation_missing_mode_rescues_to_malformed`,
-   `elicitation_missing_elicitation_id_rescues_to_malformed`) currently lock the wrong behaviour in
-   and must be rewritten.
+4. **Valid elicitation requests were rejected. Fixed.**
+   `frames.rs` required `elicitation_id` and `mode`; `sdk.d.ts`'s `SDKControlElicitationRequest`
+   marks both optional. A request without `mode` was rescued to `Malformed` and answered with an
+   error instead of reaching the elicitation policy. `elicitation_id` and `mode` are now
+   `Option<...>`, mirroring the SDK's optionality (tests `elicitation_without_mode_reaches_the_policy`
+   and `elicitation_without_elicitation_id_reaches_the_policy`). `mcp_server_name` stays required —
+   that field is `string`, not `string?`, at `sdk.d.ts:2989` — enforced by
+   `elicitation_without_server_name_is_malformed`.
 
-5. **`can_use_tool` drops two fields the official SDKs forward.**
+5. **`can_use_tool` dropped two fields the official SDKs forward. Fixed.**
    `sdk.mjs` passes `permission_suggestions` (→ `suggestions`) and `matched_ask_rule` (→
-   `matchedAskRule`) to the permission callback. `frames.rs:128-155` parses neither.
+   `matchedAskRule`) to the permission callback. `frames.rs`'s `CanUseTool` variant now carries both
+   (`permission_suggestions: Vec<PermissionUpdate>`, `matched_ask_rule: Option<MatchedAskRule>`),
+   forwarded to the handler via three new `PermissionContext` fields (`suggestions`,
+   `matched_ask_rule`, `request_id`).
 
 6. **`control_cancel_request` is ignored.**
    `sdk.d.ts` types it as `{ type: 'control_cancel_request'; request_id: string }`; `sdk.mjs` aborts
@@ -235,6 +239,12 @@ outcome before `write_response`, so a `PermissionPolicy` / `Hook` / `Elicitation
 returns may hang the binary, which blocks on the correlated response. The TypeScript changelog hints
 the official SDKs bound this. **Source-verify before designing a fix** — the claim that they bound it
 is not verified.
+
+**Verified (v2.1.218):** the official SDK's `Query.handleControlRequest` awaits the handler with no
+timeout and no `Promise.race`; `AbortSignal.timeout` never feeds that path — the per-request
+`AbortController` is aborted only by an inbound `control_cancel_request`. clauders already mirrors this
+(`dispatch.rs` awaits the handler; `in_flight` dedups; `CancelSignal` cancels on
+`control_cancel_request`). Parity already met — closed, no code. Adding a timeout would be a divergence.
 
 ---
 

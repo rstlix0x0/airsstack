@@ -20,7 +20,7 @@ elicitation), plus WS 8's session-config slice (`sessionId`/`title`/`persistSess
 parity-first, **CLI-only** tree. The five session filesystem ops
 (list/inspect/messages/rename/tag), `resumeSessionAt`, and all of WS 9 (live-control tail) remain open —
 see §7. Grounded on the live `claude` Code binary **v2.1.215**, the shipped
-`@anthropic-ai/claude-agent-sdk@0.3.215` and `claude-agent-sdk` 0.2.123 (Python) **sources**, and the
+`@anthropic-ai/claude-agent-sdk@0.3.216` and `claude-agent-sdk` 0.2.123 (Python) **sources**, and the
 live SDK references at `code.claude.com/docs/en/agent-sdk/{python,typescript}`.
 
 > **The tree is CLI-only now.** After the parity-first pivot (vision §5) the native runtimes —
@@ -60,6 +60,7 @@ live SDK references at `code.claude.com/docs/en/agent-sdk/{python,typescript}`.
 | 🟡 | Partial — core exists, narrower than official |
 | ❌ | Absent in clauders |
 | 🟣 | **Removed** — clauders-only superset built ahead of the official SDK; deleted in the parity-first pivot (see [`../vision-and-strategy.md`](../vision-and-strategy.md) §5). Listed for history, not as parity gaps. |
+| 🔶 | **Diverges deliberately** — clauders is intentionally *stricter* than the official SDK (rejects input the official runtime would forward), not narrower. A conscious behavioral choice, documented inline where it occurs. |
 | — | Not applicable |
 
 ---
@@ -162,11 +163,25 @@ max-buffer) **and** `effort` (WS 2) **and** sessions + subagents **and** the WS 
 | Tool annotations (readOnly/destructive/…) | ✅ | ✅ `ToolAnnotations` | ✅ `ToolAnnotations` | ✅ |
 | JSON-RPC dispatch (`tools/list`, `tools/call`) | ✅ | ✅ | ✅ `mcp::router` | ✅ |
 | Input schema | JSON / type | **Zod shape** (typed inference) | raw `serde_json::Value` schema | 🟡 no compile-time arg typing |
-| MCP **elicitation** (server asks user for input mid-call) | ✅ | ✅ `onElicitation` + `mcp_elicitation` hook | ✅ `ElicitationPolicy::elicit` + `Elicitation`/`ElicitationResult` `HookEvent`s | ✅ (WS 7) |
+| MCP **elicitation** (server asks user for input mid-call) | ❌ (0.2.123: no elicitation code — verified, 0 hits) | ✅ `onElicitation` + `mcp_elicitation` hook | ✅ `ElicitationPolicy::elicit` + `Elicitation`/`ElicitationResult` `HookEvent`s | ✅ (WS 7, matches TS) |
+| Elicitation `mcp_server_name` strictness | — (`claude-agent-sdk` 0.2.123 source has no MCP elicitation support at all — not applicable) | required by type, unvalidated at runtime | `frames.rs`'s `Elicitation` variant requires the field structurally — absent, the request rescues to `Malformed` and is answered with an error | 🔶 stricter than official (deliberate — see note below) |
 
 **Verdict:** ✅ strong parity on in-process tools, including the richer result-content kinds (WS 4) and
 MCP elicitation (WS 7); the remaining gap is the TS Zod-style typed argument inference — clauders tools
 take a raw JSON-schema `Value`, with no compile-time arg typing.
+
+> **Known divergence, deliberate: `mcp_server_name` stays required.** `sdk.d.ts:2989` (package
+> `@anthropic-ai/claude-agent-sdk@0.3.216`) declares `SDKControlElicitationRequest.mcp_server_name` as
+> `string`, not `string?`. The same declaration's `message` field is likewise required (`string`, no
+> optional marker) at `sdk.d.ts:2990` — only `mode`/`elicitation_id` receive optional markers, at
+> `sdk.d.ts:2991,2993`. But the shipped `sdk.mjs` runtime does not enforce the `mcp_server_name`
+> requirement at the type boundary: its elicitation branch reads `mcp_server_name` off the raw request
+> object unvalidated and still calls `onElicitation`, so a frame missing the field would reach the
+> callback there with `serverName: undefined` rather than being rejected. clauders keeps the stricter,
+> type-declaration-matching behavior (`InboundRequestBody::Malformed` on absence) rather than mirroring
+> the looser runtime — accepted as a conscious choice, not an oversight, because rejecting a
+> structurally-invalid request is preferable to forwarding an undefined server name to a policy that
+> expects a `String`.
 
 ---
 
@@ -177,7 +192,7 @@ clauders models a broad hook-event set and the full control-response payload.
 | Aspect | Python | TS | clauders |
 |---|---|---|---|
 | Registration with matcher | ✅ `HookMatcher` | ✅ `HookCallbackMatcher` | ✅ `Options::hook(event, matcher, Arc<dyn Hook>)` |
-| Capability-gated to binary support | — | — | ✅ `Capabilities::supports_hook` warns on unsupported events |
+| Capability-gated to binary support | — | — | 🟣 `Capabilities::supports_hook` and the registration-time gate were a clauders-only superset, now removed; `HookRegistry::initialize_payload` declares every registered hook unconditionally, and it is the binary that ignores an event it does not support |
 | Return: block / continue / suppressOutput / systemMessage / reason | ✅ | ✅ | ✅ `HookOutput { continue_, suppress_output, decision: Block, system_message, reason }` |
 | Hook-lifecycle observability frames | ✅ (`includeHookEvents`) | ✅ | ✅ `Options::include_hook_events` → `--include-hook-events`; frames surface as `Message::Other` (WS 1) |
 
@@ -196,10 +211,11 @@ tool hooks). clauders now models `SessionStart`/`SessionEnd`/`Setup` and the eli
 `SessionStart`/`SessionEnd`/`Setup`/`Elicitation`/`ElicitationResult` (WS 3, WS 7); clauders' own
 `PostToolUseFailure`/`PermissionRequest` extras remain the only edge divergence.
 
-> **Deferred:** the `Elicitation`/`ElicitationResult` hook events are registered and capability-gated,
-> but their answer-substituting semantics — a hook returning `{action, content}` to pre-empt or override
-> an elicitation before the registered `ElicitationPolicy` runs — require `HookOutput` fields that do
-> not exist yet (`HookOutput` today carries `continue_`/`suppress_output`/`decision`/`system_message`/
+> **Deferred:** the `Elicitation`/`ElicitationResult` hook events are registered — declared
+> unconditionally now that the capability gate is gone (see the row above) — but their
+> answer-substituting semantics — a hook returning `{action, content}` to pre-empt or override an
+> elicitation before the registered `ElicitationPolicy` runs — require `HookOutput` fields that do not
+> exist yet (`HookOutput` today carries `continue_`/`suppress_output`/`decision`/`system_message`/
 > `reason` only). Tracked as a follow-up, not a gap in the hook *event* surface itself.
 
 ---

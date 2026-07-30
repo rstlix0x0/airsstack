@@ -2,6 +2,7 @@
 
 use async_trait::async_trait;
 
+use crate::agent::cancel::CancelSignal;
 use crate::agent::elicitation::{ElicitationRequest, ElicitationResponse};
 use crate::agent::error::AgentError;
 
@@ -15,10 +16,18 @@ use crate::agent::error::AgentError;
 pub trait ElicitationPolicy: Send + Sync {
     /// Resolve `request` to an outcome.
     ///
+    /// `cancel` observes whether the binary withdrew the request while this
+    /// call is in flight; a policy may check it and bail out early, or ignore
+    /// it and run to completion.
+    ///
     /// # Errors
     /// Returns an [`AgentError`] if the policy cannot resolve the request;
     /// the runtime surfaces it to the binary as an error control response.
-    async fn elicit(&self, request: ElicitationRequest) -> Result<ElicitationResponse, AgentError>;
+    async fn elicit(
+        &self,
+        request: ElicitationRequest,
+        cancel: CancelSignal,
+    ) -> Result<ElicitationResponse, AgentError>;
 }
 
 #[cfg(test)]
@@ -38,6 +47,7 @@ mod tests {
         async fn elicit(
             &self,
             _request: ElicitationRequest,
+            _cancel: crate::agent::cancel::CancelSignal,
         ) -> Result<ElicitationResponse, AgentError> {
             Ok(ElicitationResponse::Accept(
                 serde_json::json!({ "ok": true }),
@@ -47,12 +57,12 @@ mod tests {
 
     fn request() -> ElicitationRequest {
         ElicitationRequest {
-            elicitation_id: "elic_1".to_string(),
+            elicitation_id: Some("elic_1".to_string()),
             message: "Pick".to_string(),
-            mode: ElicitationMode::Form,
+            mode: Some(ElicitationMode::Form),
             requested_schema: None,
             url: None,
-            mcp_server_name: None,
+            mcp_server_name: "srv".to_string(),
             title: None,
             display_name: None,
             description: None,
@@ -62,7 +72,10 @@ mod tests {
     #[tokio::test]
     async fn policy_is_object_safe_and_returns_its_outcome() {
         let policy: Arc<dyn ElicitationPolicy> = Arc::new(AcceptPolicy);
-        let outcome = policy.elicit(request()).await.expect("outcome");
+        let outcome = policy
+            .elicit(request(), crate::agent::cancel::CancelSignal::new())
+            .await
+            .expect("outcome");
         assert_eq!(
             outcome,
             ElicitationResponse::Accept(serde_json::json!({ "ok": true }))

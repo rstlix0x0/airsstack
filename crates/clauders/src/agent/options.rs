@@ -15,8 +15,8 @@ use crate::agent::permissions::{PermissionMode, PermissionPolicy};
 use crate::agent::subagents::AgentDefinition;
 use crate::agent::system_prompt::SystemPromptConfig;
 use crate::agent::types::{
-    BudgetUsd, EffortLevel, McpServerConfig, SessionControl, SessionId, SessionPersistence,
-    SettingsSource,
+    BudgetUsd, EffortLevel, McpServerConfig, PluginSpec, SandboxConfig, SessionControl, SessionId,
+    SessionPersistence, SettingSource, SettingsSource, Skills, ThinkingConfig,
 };
 use crate::messages::structured_outputs::OutputConfig;
 use crate::types::{MaxTokens, ModelId};
@@ -130,6 +130,24 @@ pub struct Options {
     pub max_buffer_size: Option<NonZeroUsize>,
     /// Reasoning-effort level for the session (→ `--effort <level>`).
     pub effort: Option<EffortLevel>,
+    /// Settings sources the binary loads (→ `--setting-sources`).
+    pub setting_sources: Vec<SettingSource>,
+    /// Skill gating, folded into the allowed-tools list.
+    pub skills: Option<Skills>,
+    /// Local plugin directories (→ `--plugin-dir` / `--plugin-dir-no-mcp`).
+    pub plugins: Vec<PluginSpec>,
+    /// Sandbox config, merged into the `--settings` payload.
+    pub sandbox: Option<SandboxConfig>,
+    /// Beta feature flags (→ `--betas`).
+    pub betas: Vec<String>,
+    /// Extended-thinking config (wins over `max_thinking_tokens`).
+    pub thinking: Option<ThinkingConfig>,
+    /// Scalar thinking-token budget; used only when `thinking` is `None`
+    /// (`Some(0)` disables, `Some(n)` sets the budget).
+    pub max_thinking_tokens: Option<u32>,
+    /// Name of a single agent to run (→ `--agent`); on-disk definitions load
+    /// via `setting_sources`.
+    pub agent: Option<String>,
 }
 
 impl fmt::Debug for Options {
@@ -187,6 +205,14 @@ impl fmt::Debug for Options {
             .field("stderr", &self.stderr.is_some())
             .field("max_buffer_size", &self.max_buffer_size)
             .field("effort", &self.effort)
+            .field("setting_sources", &self.setting_sources)
+            .field("skills", &self.skills)
+            .field("plugins", &self.plugins)
+            .field("sandbox", &self.sandbox)
+            .field("betas", &self.betas)
+            .field("thinking", &self.thinking)
+            .field("max_thinking_tokens", &self.max_thinking_tokens)
+            .field("agent", &self.agent)
             .finish()
     }
 }
@@ -249,6 +275,14 @@ pub struct OptionsBuilder {
     stderr: Option<StderrCallback>,
     max_buffer_size: Option<NonZeroUsize>,
     effort: Option<EffortLevel>,
+    setting_sources: Vec<SettingSource>,
+    skills: Option<Skills>,
+    plugins: Vec<PluginSpec>,
+    sandbox: Option<SandboxConfig>,
+    betas: Vec<String>,
+    thinking: Option<ThinkingConfig>,
+    max_thinking_tokens: Option<u32>,
+    agent: Option<String>,
 }
 
 impl fmt::Debug for OptionsBuilder {
@@ -518,6 +552,62 @@ impl OptionsBuilder {
         self
     }
 
+    /// Set the settings sources the binary loads.
+    #[must_use]
+    pub fn setting_sources(mut self, sources: impl IntoIterator<Item = SettingSource>) -> Self {
+        self.setting_sources = sources.into_iter().collect();
+        self
+    }
+
+    /// Set skill gating (folded into the allowed-tools list).
+    #[must_use]
+    pub fn skills(mut self, skills: Skills) -> Self {
+        self.skills = Some(skills);
+        self
+    }
+
+    /// Append a local plugin directory to load.
+    #[must_use]
+    pub fn plugin(mut self, plugin: PluginSpec) -> Self {
+        self.plugins.push(plugin);
+        self
+    }
+
+    /// Set the sandbox configuration (merged into `--settings`).
+    #[must_use]
+    pub fn sandbox(mut self, sandbox: SandboxConfig) -> Self {
+        self.sandbox = Some(sandbox);
+        self
+    }
+
+    /// Set the beta feature flags.
+    #[must_use]
+    pub fn betas(mut self, betas: impl IntoIterator<Item = String>) -> Self {
+        self.betas = betas.into_iter().collect();
+        self
+    }
+
+    /// Set the extended-thinking configuration.
+    #[must_use]
+    pub const fn thinking(mut self, thinking: ThinkingConfig) -> Self {
+        self.thinking = Some(thinking);
+        self
+    }
+
+    /// Set the scalar thinking-token budget (used only when `thinking` is unset).
+    #[must_use]
+    pub const fn max_thinking_tokens(mut self, budget: u32) -> Self {
+        self.max_thinking_tokens = Some(budget);
+        self
+    }
+
+    /// Select a single agent to run by name (→ `--agent`).
+    #[must_use]
+    pub fn agent_name(mut self, name: impl Into<String>) -> Self {
+        self.agent = Some(name.into());
+        self
+    }
+
     /// Enable partial-message stream frames.
     #[must_use]
     pub const fn include_partial_messages(mut self, include: bool) -> Self {
@@ -605,6 +695,14 @@ impl OptionsBuilder {
             stderr: self.stderr,
             max_buffer_size: self.max_buffer_size,
             effort: self.effort,
+            setting_sources: self.setting_sources,
+            skills: self.skills,
+            plugins: self.plugins,
+            sandbox: self.sandbox,
+            betas: self.betas,
+            thinking: self.thinking,
+            max_thinking_tokens: self.max_thinking_tokens,
+            agent: self.agent,
         }
     }
 }
@@ -631,6 +729,7 @@ mod tests {
         async fn call(
             &self,
             _input: HookInput,
+            _cancel: crate::agent::cancel::CancelSignal,
         ) -> Result<HookOutput, crate::agent::error::AgentError> {
             Ok(HookOutput::default())
         }
@@ -645,6 +744,7 @@ mod tests {
             _tool: &str,
             _input: &serde_json::Value,
             _ctx: PermissionContext,
+            _cancel: crate::agent::cancel::CancelSignal,
         ) -> Result<PermissionDecision, crate::agent::error::AgentError> {
             Ok(PermissionDecision::allow())
         }
@@ -805,6 +905,7 @@ mod tests {
             .session(SessionControl::Resume {
                 id: SessionId::new("sess_x"),
                 fork: true,
+                resume_at: None,
             })
             .build();
         assert_eq!(
@@ -812,6 +913,7 @@ mod tests {
             SessionControl::Resume {
                 id: SessionId::new("sess_x"),
                 fork: true,
+                resume_at: None,
             }
         );
     }
@@ -970,6 +1072,45 @@ mod tests {
     }
 
     #[test]
+    fn builder_sets_startup_option_fields() {
+        use crate::agent::types::{
+            PluginSpec, SandboxConfig, SettingSource, Skills, ThinkingConfig, ThinkingMode,
+        };
+
+        let opts = Options::builder()
+            .setting_sources([SettingSource::User, SettingSource::Project])
+            .skills(Skills::All)
+            .plugin(PluginSpec {
+                path: "/p".into(),
+                skip_mcp_discovery: true,
+            })
+            .sandbox(SandboxConfig {
+                enabled: Some(true),
+                ..Default::default()
+            })
+            .betas(["beta-x".to_string()])
+            .thinking(ThinkingConfig {
+                mode: ThinkingMode::Adaptive,
+                display: None,
+            })
+            .max_thinking_tokens(2048)
+            .agent_name("reviewer")
+            .build();
+
+        assert_eq!(
+            opts.setting_sources,
+            vec![SettingSource::User, SettingSource::Project]
+        );
+        assert_eq!(opts.skills, Some(Skills::All));
+        assert_eq!(opts.plugins.len(), 1);
+        assert_eq!(opts.betas, vec!["beta-x".to_string()]);
+        assert_eq!(opts.max_thinking_tokens, Some(2048));
+        assert_eq!(opts.agent.as_deref(), Some("reviewer"));
+        assert!(opts.sandbox.is_some());
+        assert!(opts.thinking.is_some());
+    }
+
+    #[test]
     fn elicitation_policy_is_registered_and_defaults_to_none() {
         use crate::agent::elicitation::{
             ElicitationPolicy, ElicitationRequest, ElicitationResponse,
@@ -983,6 +1124,7 @@ mod tests {
             async fn elicit(
                 &self,
                 _r: ElicitationRequest,
+                _cancel: crate::agent::cancel::CancelSignal,
             ) -> Result<ElicitationResponse, AgentError> {
                 Ok(ElicitationResponse::Decline)
             }

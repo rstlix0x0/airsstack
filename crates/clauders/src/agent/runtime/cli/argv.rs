@@ -1,16 +1,79 @@
 //! Mapping session options to the backend's argument vector.
 
+use crate::agent::error::AgentError;
 use crate::agent::options::Options;
 use crate::agent::permissions::PermissionMode;
 use crate::agent::system_prompt::SystemPromptConfig;
-use crate::agent::types::{SessionControl, SessionPersistence, SettingsSource};
+use crate::agent::types::{
+    SandboxConfig, SessionControl, SessionPersistence, SettingsSource, Skills, ThinkingMode,
+};
+
+/// The allowed-tools list with skill entries folded in, deduped, mirroring the
+/// official SDK: [`Skills::All`] appends `Skill`; each named skill appends
+/// `Skill(<name>)`, skipping any already present in `allowed_tools`.
+fn effective_allowed_tools(options: &Options) -> Vec<String> {
+    let mut tools = options.allowed_tools.clone();
+    if let Some(skills) = &options.skills {
+        let additions: Vec<String> = match skills {
+            Skills::All => vec!["Skill".to_string()],
+            Skills::List(names) => names.iter().map(|n| format!("Skill({n})")).collect(),
+        };
+        for addition in additions {
+            if !tools.contains(&addition) {
+                tools.push(addition);
+            }
+        }
+    }
+    tools
+}
+
+/// Return the sandbox config with `fail_if_unavailable` defaulted to `true`
+/// when `enabled == Some(true)` and it is unset, matching the official SDK.
+fn defaulted_sandbox(sandbox: &SandboxConfig) -> SandboxConfig {
+    let mut out = sandbox.clone();
+    if out.enabled == Some(true) && out.fail_if_unavailable.is_none() {
+        out.fail_if_unavailable = Some(true);
+    }
+    out
+}
+
+/// Resolve the single `--settings` argument value from the settings source and
+/// the sandbox config, mirroring the official SDK's merge:
+/// - neither set → `Ok(None)` (no `--settings`);
+/// - sandbox with a settings *file path* → `Err(SandboxWithSettingsPath)`;
+/// - sandbox alone → `{"sandbox": …}`;
+/// - sandbox with inline settings → the inline object with `sandbox` inserted;
+/// - settings alone → its existing lowering, unchanged.
+fn effective_settings_arg(
+    settings: Option<&SettingsSource>,
+    sandbox: Option<&SandboxConfig>,
+) -> Result<Option<String>, AgentError> {
+    match (settings, sandbox) {
+        (Some(SettingsSource::Path(path)), None) => Ok(Some(path.to_string_lossy().into_owned())),
+        (Some(SettingsSource::Inline(value)), None) => Ok(Some(value.to_string())),
+        (None, None) => Ok(None),
+        (Some(SettingsSource::Path(_)), Some(_)) => Err(AgentError::SandboxWithSettingsPath),
+        (None, Some(sb)) => {
+            let merged = serde_json::json!({ "sandbox": defaulted_sandbox(sb) });
+            Ok(Some(merged.to_string()))
+        }
+        (Some(SettingsSource::Inline(value)), Some(sb)) => {
+            let mut obj = value.as_object().cloned().unwrap_or_default();
+            obj.insert(
+                "sandbox".to_string(),
+                serde_json::to_value(defaulted_sandbox(sb)).unwrap_or(serde_json::Value::Null),
+            );
+            Ok(Some(serde_json::Value::Object(obj).to_string()))
+        }
+    }
+}
 
 /// Build the full argument vector for spawning the backend.
 ///
 /// Caller-supplied `executable_args` come first, then the SDK-managed
 /// stream-protocol flags, then mapped option fields. `cwd` and `env` are not
 /// argv — they are applied to the process spawn config.
-pub(super) fn build_argv(options: &Options) -> Vec<String> {
+pub(super) fn build_argv(options: &Options) -> Result<Vec<String>, AgentError> {
     let mut argv: Vec<String> = options.executable_args.clone();
 
     argv.push("--output-format".to_string());
@@ -57,9 +120,10 @@ pub(super) fn build_argv(options: &Options) -> Vec<String> {
             }
         }
     }
-    if !options.allowed_tools.is_empty() {
+    let allowed = effective_allowed_tools(options);
+    if !allowed.is_empty() {
         argv.push("--allowed-tools".to_string());
-        argv.push(options.allowed_tools.join(","));
+        argv.push(allowed.join(","));
     }
     if !options.disallowed_tools.is_empty() {
         argv.push("--disallowed-tools".to_string());
@@ -101,29 +165,103 @@ pub(super) fn build_argv(options: &Options) -> Vec<String> {
             argv.push(dir.to_string_lossy().into_owned());
         }
     }
-    if let Some(settings) = &options.settings {
+    if let Some(value) =
+        effective_settings_arg(options.settings.as_ref(), options.sandbox.as_ref())?
+    {
         argv.push("--settings".to_string());
-        argv.push(match settings {
-            SettingsSource::Path(path) => path.to_string_lossy().into_owned(),
-            SettingsSource::Inline(value) => value.to_string(),
-        });
+        argv.push(value);
     }
+    argv.extend(trailing_flag_args(options));
+    argv.extend(session_args(options));
+    Ok(argv)
+}
+
+/// Map the remaining scalar/presence flags — spend ceiling, partial-message
+/// and hook-event streaming, reasoning effort, settings sources, beta flags,
+/// local plugin directories, extended-thinking configuration, and the
+/// singular agent selector — to argv.
+fn trailing_flag_args(options: &Options) -> Vec<String> {
+    let mut args = Vec::new();
     if let Some(budget) = options.max_budget_usd {
-        argv.push("--max-budget-usd".to_string());
-        argv.push(budget.get().to_string());
+        args.push("--max-budget-usd".to_string());
+        args.push(budget.get().to_string());
     }
     if options.include_partial_messages {
-        argv.push("--include-partial-messages".to_string());
+        args.push("--include-partial-messages".to_string());
     }
     if options.include_hook_events {
-        argv.push("--include-hook-events".to_string());
+        args.push("--include-hook-events".to_string());
     }
     if let Some(effort) = options.effort {
-        argv.push("--effort".to_string());
-        argv.push(effort.as_str().to_string());
+        args.push("--effort".to_string());
+        args.push(effort.as_str().to_string());
     }
-    argv.extend(session_args(options));
-    argv
+    if !options.setting_sources.is_empty() {
+        let csv = options
+            .setting_sources
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join(",");
+        args.push(format!("--setting-sources={csv}"));
+    }
+    if !options.betas.is_empty() {
+        args.push("--betas".to_string());
+        args.push(options.betas.join(","));
+    }
+    for plugin in &options.plugins {
+        args.push(
+            if plugin.skip_mcp_discovery {
+                "--plugin-dir-no-mcp"
+            } else {
+                "--plugin-dir"
+            }
+            .to_string(),
+        );
+        args.push(plugin.path.to_string_lossy().into_owned());
+    }
+    // The thinking object wins; the scalar `max_thinking_tokens` is the fallback
+    // (0 => disabled, n>0 => --max-thinking-tokens n), mirroring the SDK.
+    if let Some(thinking) = &options.thinking {
+        match thinking.mode {
+            ThinkingMode::Enabled {
+                budget_tokens: Some(n),
+            } => {
+                args.push("--max-thinking-tokens".to_string());
+                args.push(n.to_string());
+            }
+            ThinkingMode::Enabled {
+                budget_tokens: None,
+            }
+            | ThinkingMode::Adaptive => {
+                args.push("--thinking".to_string());
+                args.push("adaptive".to_string());
+            }
+            ThinkingMode::Disabled => {
+                args.push("--thinking".to_string());
+                args.push("disabled".to_string());
+            }
+        }
+        if !matches!(thinking.mode, ThinkingMode::Disabled) {
+            if let Some(display) = thinking.display {
+                args.push("--thinking-display".to_string());
+                args.push(display.as_str().to_string());
+            }
+        }
+    } else if let Some(budget) = options.max_thinking_tokens {
+        if budget == 0 {
+            args.push("--thinking".to_string());
+            args.push("disabled".to_string());
+        } else {
+            args.push("--max-thinking-tokens".to_string());
+            args.push(budget.to_string());
+        }
+    }
+    if let Some(agent) = &options.agent {
+        args.push("--agent".to_string());
+        args.push(agent.clone());
+    }
+    args
 }
 
 /// The backend's camelCase wire spelling for a permission mode.
@@ -166,11 +304,18 @@ fn session_args(options: &Options) -> Vec<String> {
                 args.push("--fork-session".to_string());
             }
         }
-        SessionControl::Resume { id, fork } => {
+        SessionControl::Resume {
+            id,
+            fork,
+            resume_at,
+        } => {
             args.push("--resume".to_string());
             args.push(id.as_str().to_string());
             if *fork {
                 args.push("--fork-session".to_string());
+            }
+            if let Some(at) = resume_at {
+                args.push(format!("--resume-session-at={}", at.as_str()));
             }
         }
     }
@@ -189,7 +334,7 @@ mod tests {
 
     #[test]
     fn always_emits_the_streaming_protocol_flags() {
-        let argv = build_argv(&Options::default());
+        let argv = build_argv(&Options::default()).expect("build argv");
         let joined = argv.join(" ");
         assert!(joined.contains("--output-format stream-json"));
         assert!(joined.contains("--input-format stream-json"));
@@ -212,7 +357,7 @@ mod tests {
                 serde_json::json!({"command": "node"}),
             )])
             .build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         assert_eq!(argv.first().map(String::as_str), Some("--mcp-debug"));
         let joined = argv.join(" ");
         assert!(joined.contains("--model claude-sonnet-4-5"));
@@ -247,7 +392,7 @@ mod tests {
 
     #[test]
     fn omits_permission_prompt_tool_without_policy() {
-        let argv = build_argv(&Options::default());
+        let argv = build_argv(&Options::default()).expect("build argv");
         assert!(!argv.iter().any(|a| a == "--permission-prompt-tool"));
     }
 
@@ -257,7 +402,7 @@ mod tests {
         let opts = Options::builder()
             .sdk_mcp_server(SdkMcpServer::builder("calc").build())
             .build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         let joined = argv.join(" ");
         assert!(joined.contains("--mcp-config"), "got: {joined}");
         // The declaration carries the server name and the sdk type marker.
@@ -279,13 +424,14 @@ mod tests {
                 _t: &str,
                 _i: &serde_json::Value,
                 _c: PermissionContext,
+                _cancel: crate::agent::cancel::CancelSignal,
             ) -> Result<PermissionDecision, AgentError> {
                 Ok(PermissionDecision::allow())
             }
         }
 
         let opts = Options::builder().permission_policy(Arc::new(P)).build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         let joined = argv.join(" ");
         assert!(
             joined.contains("--permission-prompt-tool stdio"),
@@ -298,7 +444,7 @@ mod tests {
         let opts = Options::builder()
             .system_prompt_preset(Some("extra rules".to_owned()), true)
             .build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         let joined = argv.join(" ");
         assert!(
             joined.contains("--append-system-prompt extra rules"),
@@ -314,7 +460,7 @@ mod tests {
 
     #[test]
     fn none_emits_no_system_prompt_flag() {
-        let argv = build_argv(&Options::default());
+        let argv = build_argv(&Options::default()).expect("build argv");
         assert!(!argv.iter().any(|a| a == "--system-prompt"));
         assert!(!argv.iter().any(|a| a == "--append-system-prompt"));
     }
@@ -326,7 +472,7 @@ mod tests {
 
     #[test]
     fn omits_agents_flag_when_map_empty() {
-        let argv = build_argv(&Options::builder().build());
+        let argv = build_argv(&Options::builder().build()).expect("build argv");
         assert!(agents_flag_value(&argv).is_none());
     }
 
@@ -338,7 +484,7 @@ mod tests {
             .expect("valid")
             .with_model(ModelId::claude_haiku_4_5());
         let opts = Options::builder().agent("reviewer", reviewer).build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         let json = agents_flag_value(&argv).expect("--agents present");
         let parsed: serde_json::Value = serde_json::from_str(json).expect("valid json");
         assert_eq!(parsed["reviewer"]["description"], "reviewer");
@@ -348,7 +494,7 @@ mod tests {
 
     #[test]
     fn new_session_emits_no_session_flags() {
-        let argv = build_argv(&Options::default());
+        let argv = build_argv(&Options::default()).expect("build argv");
         assert!(!argv.iter().any(|a| a == "--continue"));
         assert!(!argv.iter().any(|a| a == "--resume"));
         assert!(!argv.iter().any(|a| a == "--fork-session"));
@@ -360,7 +506,7 @@ mod tests {
         let opts = Options::builder()
             .session(SessionControl::Continue { fork: false })
             .build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         assert!(argv.iter().any(|a| a == "--continue"));
         assert!(!argv.iter().any(|a| a == "--fork-session"));
     }
@@ -371,7 +517,7 @@ mod tests {
         let opts = Options::builder()
             .session(SessionControl::Continue { fork: true })
             .build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         assert!(argv.iter().any(|a| a == "--continue"));
         assert!(argv.iter().any(|a| a == "--fork-session"));
     }
@@ -383,9 +529,10 @@ mod tests {
             .session(SessionControl::Resume {
                 id: SessionId::new("sess_42"),
                 fork: false,
+                resume_at: None,
             })
             .build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         let idx = argv
             .iter()
             .position(|a| a == "--resume")
@@ -401,9 +548,10 @@ mod tests {
             .session(SessionControl::Resume {
                 id: SessionId::new("sess_99"),
                 fork: true,
+                resume_at: None,
             })
             .build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         let idx = argv
             .iter()
             .position(|a| a == "--resume")
@@ -413,12 +561,65 @@ mod tests {
     }
 
     #[test]
+    fn resume_at_lowers_to_equals_flag_alongside_resume() {
+        use crate::agent::types::{MessageId, SessionControl, SessionId};
+        let opts = Options::builder()
+            .session(SessionControl::Resume {
+                id: SessionId::new("sess_1"),
+                fork: false,
+                resume_at: Some(MessageId::new("m-uuid").expect("valid")),
+            })
+            .build();
+        let argv = build_argv(&opts).expect("build argv");
+        assert!(argv.iter().any(|a| a == "--resume"));
+        assert!(
+            argv.iter().any(|a| a == "--resume-session-at=m-uuid"),
+            "got: {}",
+            argv.join(" ")
+        );
+    }
+
+    #[test]
+    fn no_resume_at_emits_no_flag() {
+        use crate::agent::types::{SessionControl, SessionId};
+        let opts = Options::builder()
+            .session(SessionControl::Resume {
+                id: SessionId::new("sess_1"),
+                fork: false,
+                resume_at: None,
+            })
+            .build();
+        assert!(
+            !build_argv(&opts)
+                .expect("build argv")
+                .iter()
+                .any(|a| a.starts_with("--resume-session-at")),
+            "resume_at None must emit no flag"
+        );
+    }
+
+    #[test]
+    fn resume_at_coexists_with_fork() {
+        use crate::agent::types::{MessageId, SessionControl, SessionId};
+        let opts = Options::builder()
+            .session(SessionControl::Resume {
+                id: SessionId::new("sess_1"),
+                fork: true,
+                resume_at: Some(MessageId::new("m2").expect("valid")),
+            })
+            .build();
+        let argv = build_argv(&opts).expect("build argv");
+        assert!(argv.iter().any(|a| a == "--fork-session"));
+        assert!(argv.iter().any(|a| a == "--resume-session-at=m2"));
+    }
+
+    #[test]
     fn lowers_fallback_model() {
         use crate::types::ModelId;
         let opts = Options::builder()
             .fallback_model(ModelId::custom("claude-haiku-4-5").expect("model"))
             .build();
-        let joined = build_argv(&opts).join(" ");
+        let joined = build_argv(&opts).expect("build argv").join(" ");
         assert!(
             joined.contains("--fallback-model claude-haiku-4-5"),
             "got: {joined}"
@@ -429,17 +630,23 @@ mod tests {
     fn strict_mcp_config_emits_presence_flag_only_when_true() {
         assert!(
             !build_argv(&Options::default())
+                .expect("build argv")
                 .iter()
                 .any(|a| a == "--strict-mcp-config")
         );
         let opts = Options::builder().strict_mcp_config(true).build();
-        assert!(build_argv(&opts).iter().any(|a| a == "--strict-mcp-config"));
+        assert!(
+            build_argv(&opts)
+                .expect("build argv")
+                .iter()
+                .any(|a| a == "--strict-mcp-config")
+        );
     }
 
     #[test]
     fn add_dirs_emit_one_flag_with_each_directory_as_a_value() {
         let opts = Options::builder().add_dir("/a").add_dir("/b").build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         let idx = argv
             .iter()
             .position(|a| a == "--add-dir")
@@ -453,7 +660,7 @@ mod tests {
     #[test]
     fn settings_path_and_inline_lower_to_the_flag_argument() {
         let p = Options::builder().settings_path("/etc/s.json").build();
-        let pa = build_argv(&p);
+        let pa = build_argv(&p).expect("build argv");
         let pi = pa
             .iter()
             .position(|a| a == "--settings")
@@ -463,7 +670,7 @@ mod tests {
         let i = Options::builder()
             .settings_inline(serde_json::json!({ "k": 1 }))
             .build();
-        let ia = build_argv(&i);
+        let ia = build_argv(&i).expect("build argv");
         let ii = ia
             .iter()
             .position(|a| a == "--settings")
@@ -477,7 +684,7 @@ mod tests {
         let opts = Options::builder()
             .max_budget_usd(BudgetUsd::new(5.0).expect("positive"))
             .build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         let idx = argv
             .iter()
             .position(|a| a == "--max-budget-usd")
@@ -489,12 +696,14 @@ mod tests {
     fn include_partial_messages_emits_presence_flag() {
         assert!(
             !build_argv(&Options::default())
+                .expect("build argv")
                 .iter()
                 .any(|a| a == "--include-partial-messages")
         );
         let opts = Options::builder().include_partial_messages(true).build();
         assert!(
             build_argv(&opts)
+                .expect("build argv")
                 .iter()
                 .any(|a| a == "--include-partial-messages")
         );
@@ -505,7 +714,7 @@ mod tests {
         let opts = Options::builder()
             .permission_prompt_tool_name("mcp__gate__approve")
             .build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         let idx = argv
             .iter()
             .position(|a| a == "--permission-prompt-tool")
@@ -530,6 +739,7 @@ mod tests {
                 _t: &str,
                 _i: &serde_json::Value,
                 _c: PermissionContext,
+                _cancel: crate::agent::cancel::CancelSignal,
             ) -> Result<PermissionDecision, AgentError> {
                 Ok(PermissionDecision::allow())
             }
@@ -539,7 +749,7 @@ mod tests {
             .permission_policy(Arc::new(P))
             .permission_prompt_tool_name("mcp__gate__approve")
             .build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         let joined = argv.join(" ");
         assert!(
             joined.contains("--permission-prompt-tool mcp__gate__approve"),
@@ -559,6 +769,7 @@ mod tests {
             .build();
         assert!(
             build_argv(&opts)
+                .expect("build argv")
                 .iter()
                 .any(|a| a == "--permission-prompt-tool")
         );
@@ -568,12 +779,14 @@ mod tests {
     fn include_hook_events_emits_presence_flag() {
         assert!(
             !build_argv(&Options::default())
+                .expect("build argv")
                 .iter()
                 .any(|a| a == "--include-hook-events")
         );
         let opts = Options::builder().include_hook_events(true).build();
         assert!(
             build_argv(&opts)
+                .expect("build argv")
                 .iter()
                 .any(|a| a == "--include-hook-events")
         );
@@ -585,7 +798,7 @@ mod tests {
         let opts = Options::builder()
             .session_id(SessionId::new("sess_7"))
             .build();
-        let argv = build_argv(&opts);
+        let argv = build_argv(&opts).expect("build argv");
         let idx = argv
             .iter()
             .position(|a| a == "--session-id")
@@ -602,9 +815,10 @@ mod tests {
             .session(SessionControl::Resume {
                 id: SessionId::new("sess_1"),
                 fork: false,
+                resume_at: None,
             })
             .build();
-        let resuming_argv = build_argv(&resuming);
+        let resuming_argv = build_argv(&resuming).expect("build argv");
         assert!(!resuming_argv.iter().any(|a| a == "--session-id"));
         let idx = resuming_argv
             .iter()
@@ -619,7 +833,7 @@ mod tests {
             .session_id(SessionId::new("sess_7"))
             .session(SessionControl::Continue { fork: false })
             .build();
-        let continuing_argv = build_argv(&continuing);
+        let continuing_argv = build_argv(&continuing).expect("build argv");
         assert!(!continuing_argv.iter().any(|a| a == "--session-id"));
         assert!(continuing_argv.iter().any(|a| a == "--continue"));
     }
@@ -628,6 +842,7 @@ mod tests {
     fn omits_session_id_flag_when_unset() {
         assert!(
             !build_argv(&Options::default())
+                .expect("build argv")
                 .iter()
                 .any(|a| a == "--session-id")
         );
@@ -640,6 +855,7 @@ mod tests {
         // Default (Enabled) emits nothing.
         assert!(
             !build_argv(&Options::default())
+                .expect("build argv")
                 .iter()
                 .any(|a| a == "--no-session-persistence")
         );
@@ -649,6 +865,7 @@ mod tests {
             .build();
         assert!(
             build_argv(&opts)
+                .expect("build argv")
                 .iter()
                 .any(|a| a == "--no-session-persistence")
         );
@@ -658,10 +875,321 @@ mod tests {
     fn lowers_effort_when_set_and_omits_when_none() {
         use crate::agent::types::EffortLevel;
 
-        let with = build_argv(&Options::builder().effort(EffortLevel::High).build());
+        let with =
+            build_argv(&Options::builder().effort(EffortLevel::High).build()).expect("build argv");
         assert!(with.join(" ").contains("--effort high"));
 
-        let without = build_argv(&Options::default());
+        let without = build_argv(&Options::default()).expect("build argv");
         assert!(!without.join(" ").contains("--effort"));
+    }
+
+    #[test]
+    fn lowers_setting_sources_as_csv_equals_form() {
+        use crate::agent::types::SettingSource;
+        let opts = Options::builder()
+            .setting_sources([
+                SettingSource::User,
+                SettingSource::Project,
+                SettingSource::Local,
+            ])
+            .build();
+        let argv = build_argv(&opts).expect("build argv");
+        assert!(
+            argv.contains(&"--setting-sources=user,project,local".to_string()),
+            "got: {argv:?}"
+        );
+    }
+
+    #[test]
+    fn omits_setting_sources_when_empty() {
+        let argv = build_argv(&Options::default()).expect("build argv");
+        assert!(
+            !argv.iter().any(|a| a.starts_with("--setting-sources")),
+            "got: {argv:?}"
+        );
+    }
+
+    #[test]
+    fn lowers_betas_as_space_form_comma_joined() {
+        let opts = Options::builder()
+            .betas(["a".to_string(), "b".to_string()])
+            .build();
+        let argv = build_argv(&opts).expect("build argv");
+        let i = argv
+            .iter()
+            .position(|a| a == "--betas")
+            .expect("--betas present");
+        assert_eq!(argv[i + 1], "a,b");
+    }
+
+    #[test]
+    fn omits_betas_when_empty() {
+        let argv = build_argv(&Options::default()).expect("build argv");
+        assert!(!argv.iter().any(|a| a == "--betas"), "got: {argv:?}");
+    }
+
+    #[test]
+    fn lowers_plugins_choosing_flag_by_skip_mcp_discovery() {
+        use crate::agent::types::PluginSpec;
+        let opts = Options::builder()
+            .plugin(PluginSpec {
+                path: "/one".into(),
+                skip_mcp_discovery: false,
+            })
+            .plugin(PluginSpec {
+                path: "/two".into(),
+                skip_mcp_discovery: true,
+            })
+            .build();
+        let argv = build_argv(&opts).expect("build argv");
+        let joined = argv.join(" ");
+        assert!(joined.contains("--plugin-dir /one"), "got: {joined}");
+        assert!(joined.contains("--plugin-dir-no-mcp /two"), "got: {joined}");
+    }
+
+    #[test]
+    fn lowers_thinking_enabled_with_budget_to_max_thinking_tokens() {
+        use crate::agent::types::{ThinkingConfig, ThinkingMode};
+        let opts = Options::builder()
+            .thinking(ThinkingConfig {
+                mode: ThinkingMode::Enabled {
+                    budget_tokens: Some(2048),
+                },
+                display: None,
+            })
+            .build();
+        let argv = build_argv(&opts).expect("build argv");
+        let i = argv
+            .iter()
+            .position(|a| a == "--max-thinking-tokens")
+            .expect("flag");
+        assert_eq!(argv[i + 1], "2048");
+        assert!(!argv.iter().any(|a| a == "--thinking"), "got: {argv:?}");
+    }
+
+    #[test]
+    fn lowers_thinking_adaptive_and_enabled_without_budget_to_adaptive() {
+        use crate::agent::types::{ThinkingConfig, ThinkingMode};
+        for mode in [
+            ThinkingMode::Adaptive,
+            ThinkingMode::Enabled {
+                budget_tokens: None,
+            },
+        ] {
+            let opts = Options::builder()
+                .thinking(ThinkingConfig {
+                    mode,
+                    display: None,
+                })
+                .build();
+            let argv = build_argv(&opts).expect("build argv");
+            let i = argv.iter().position(|a| a == "--thinking").expect("flag");
+            assert_eq!(argv[i + 1], "adaptive");
+        }
+    }
+
+    #[test]
+    fn lowers_thinking_disabled_and_suppresses_display() {
+        use crate::agent::types::{ThinkingConfig, ThinkingDisplay, ThinkingMode};
+        let opts = Options::builder()
+            .thinking(ThinkingConfig {
+                mode: ThinkingMode::Disabled,
+                display: Some(ThinkingDisplay::Summarized),
+            })
+            .build();
+        let argv = build_argv(&opts).expect("build argv");
+        let i = argv.iter().position(|a| a == "--thinking").expect("flag");
+        assert_eq!(argv[i + 1], "disabled");
+        assert!(
+            !argv.iter().any(|a| a == "--thinking-display"),
+            "display suppressed under disabled: {argv:?}"
+        );
+    }
+
+    #[test]
+    fn lowers_thinking_display_when_not_disabled() {
+        use crate::agent::types::{ThinkingConfig, ThinkingDisplay, ThinkingMode};
+        let opts = Options::builder()
+            .thinking(ThinkingConfig {
+                mode: ThinkingMode::Adaptive,
+                display: Some(ThinkingDisplay::Omitted),
+            })
+            .build();
+        let argv = build_argv(&opts).expect("build argv");
+        let i = argv
+            .iter()
+            .position(|a| a == "--thinking-display")
+            .expect("flag");
+        assert_eq!(argv[i + 1], "omitted");
+    }
+
+    #[test]
+    fn scalar_max_thinking_tokens_is_fallback_and_zero_disables() {
+        let disabled =
+            build_argv(&Options::builder().max_thinking_tokens(0).build()).expect("build argv");
+        let di = disabled
+            .iter()
+            .position(|a| a == "--thinking")
+            .expect("flag");
+        assert_eq!(disabled[di + 1], "disabled");
+
+        let budget =
+            build_argv(&Options::builder().max_thinking_tokens(4096).build()).expect("build argv");
+        let bi = budget
+            .iter()
+            .position(|a| a == "--max-thinking-tokens")
+            .expect("flag");
+        assert_eq!(budget[bi + 1], "4096");
+    }
+
+    #[test]
+    fn thinking_object_wins_over_scalar() {
+        use crate::agent::types::{ThinkingConfig, ThinkingMode};
+        let opts = Options::builder()
+            .thinking(ThinkingConfig {
+                mode: ThinkingMode::Disabled,
+                display: None,
+            })
+            .max_thinking_tokens(4096)
+            .build();
+        let argv = build_argv(&opts).expect("build argv");
+        assert!(
+            !argv.iter().any(|a| a == "--max-thinking-tokens"),
+            "scalar ignored when object set: {argv:?}"
+        );
+        let i = argv.iter().position(|a| a == "--thinking").expect("flag");
+        assert_eq!(argv[i + 1], "disabled");
+    }
+
+    #[test]
+    fn lowers_agent_selector_and_coexists_with_plural_agents() {
+        use crate::agent::subagents::AgentDefinition;
+        let opts = Options::builder()
+            .agent_name("reviewer")
+            .agent(
+                "helper",
+                AgentDefinition::new("desc", "prompt").expect("agent def"),
+            )
+            .build();
+        let argv = build_argv(&opts).expect("build argv");
+        let i = argv
+            .iter()
+            .position(|a| a == "--agent")
+            .expect("--agent present");
+        assert_eq!(argv[i + 1], "reviewer");
+        assert!(
+            argv.iter().any(|a| a == "--agents"),
+            "plural --agents still emitted: {argv:?}"
+        );
+    }
+
+    #[test]
+    fn omits_agent_selector_when_unset() {
+        let argv = build_argv(&Options::default()).expect("build argv");
+        assert!(!argv.iter().any(|a| a == "--agent"), "got: {argv:?}");
+    }
+
+    #[test]
+    fn skills_all_appends_bare_skill_tool() {
+        use crate::agent::types::Skills;
+        let opts = Options::builder().skills(Skills::All).build();
+        let argv = build_argv(&opts).expect("build argv");
+        let i = argv
+            .iter()
+            .position(|a| a == "--allowed-tools")
+            .expect("flag");
+        assert_eq!(argv[i + 1], "Skill");
+    }
+
+    #[test]
+    fn skills_list_appends_named_skill_tools_after_existing_allowed() {
+        use crate::agent::types::Skills;
+        let opts = Options::builder()
+            .allowed_tools(vec!["Bash".into()])
+            .skills(Skills::List(vec!["pdf".into(), "xlsx".into()]))
+            .build();
+        let argv = build_argv(&opts).expect("build argv");
+        let i = argv
+            .iter()
+            .position(|a| a == "--allowed-tools")
+            .expect("flag");
+        assert_eq!(argv[i + 1], "Bash,Skill(pdf),Skill(xlsx)");
+    }
+
+    #[test]
+    fn skills_entries_dedup_against_existing_allowed_tools() {
+        use crate::agent::types::Skills;
+        let opts = Options::builder()
+            .allowed_tools(vec!["Skill(pdf)".into()])
+            .skills(Skills::List(vec!["pdf".into(), "xlsx".into()]))
+            .build();
+        let argv = build_argv(&opts).expect("build argv");
+        let i = argv
+            .iter()
+            .position(|a| a == "--allowed-tools")
+            .expect("flag");
+        assert_eq!(argv[i + 1], "Skill(pdf),Skill(xlsx)");
+    }
+
+    #[test]
+    fn sandbox_alone_emits_settings_with_sandbox_key_and_defaults_fail_if_unavailable() {
+        use crate::agent::types::SandboxConfig;
+        let opts = Options::builder()
+            .sandbox(SandboxConfig {
+                enabled: Some(true),
+                ..Default::default()
+            })
+            .build();
+        let argv = build_argv(&opts).expect("build argv");
+        let i = argv.iter().position(|a| a == "--settings").expect("flag");
+        let v: serde_json::Value = serde_json::from_str(&argv[i + 1]).expect("json");
+        assert_eq!(
+            v,
+            serde_json::json!({ "sandbox": { "enabled": true, "failIfUnavailable": true } })
+        );
+    }
+
+    #[test]
+    fn sandbox_merges_into_inline_settings() {
+        use crate::agent::types::SandboxConfig;
+        let opts = Options::builder()
+            .settings_inline(serde_json::json!({ "theme": "dark" }))
+            .sandbox(SandboxConfig {
+                enabled: Some(false),
+                ..Default::default()
+            })
+            .build();
+        let argv = build_argv(&opts).expect("build argv");
+        let i = argv.iter().position(|a| a == "--settings").expect("flag");
+        let v: serde_json::Value = serde_json::from_str(&argv[i + 1]).expect("json");
+        assert_eq!(
+            v,
+            serde_json::json!({ "theme": "dark", "sandbox": { "enabled": false } })
+        );
+    }
+
+    #[test]
+    fn sandbox_with_settings_path_is_an_error() {
+        use crate::agent::error::AgentError;
+        use crate::agent::types::SandboxConfig;
+        let opts = Options::builder()
+            .settings_path("/etc/claude/settings.json")
+            .sandbox(SandboxConfig {
+                enabled: Some(true),
+                ..Default::default()
+            })
+            .build();
+        let err = build_argv(&opts).expect_err("conflict");
+        assert!(matches!(err, AgentError::SandboxWithSettingsPath));
+    }
+
+    #[test]
+    fn settings_path_alone_is_unchanged() {
+        let opts = Options::builder()
+            .settings_path("/etc/claude/settings.json")
+            .build();
+        let argv = build_argv(&opts).expect("build argv");
+        let i = argv.iter().position(|a| a == "--settings").expect("flag");
+        assert_eq!(argv[i + 1], "/etc/claude/settings.json");
     }
 }

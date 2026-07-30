@@ -36,13 +36,55 @@ use crate::agent::message::Message;
 /// message.
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "the Message variant carries the widened inbound Usage/ResultMessage/AssistantMessage frame fields; boxing would change match ergonomics for every caller and is deferred to a dedicated pass over these frame types"
+)]
 pub enum InboundFrame {
     /// A reply to one of our outbound control requests.
     ControlResponse(ControlResponse),
     /// A control request issued to us by the binary.
     ControlRequest(InboundControlRequest),
+    /// The binary withdrawing a control request it already sent.
+    ControlCancelRequest(ControlCancelRequest),
+    /// A liveness frame, dropped before it reaches the caller.
+    KeepAlive(KeepAlive),
     /// A model-output message frame.
     Message(Message),
+}
+
+/// A liveness frame the binary emits between turns.
+///
+/// Carries no payload and is never forwarded to the caller.
+#[derive(Debug, Deserialize)]
+pub struct KeepAlive {
+    /// Pins the frame's `type` so the untagged match cannot accept a frame
+    /// of any other shape. A fieldless struct would match every object on
+    /// the wire.
+    #[serde(rename = "type")]
+    _kind: KeepAliveTag,
+}
+
+#[derive(Debug, Deserialize)]
+enum KeepAliveTag {
+    #[serde(rename = "keep_alive")]
+    KeepAlive,
+}
+
+/// The binary withdrawing a control request it already sent.
+#[derive(Debug, Deserialize)]
+pub struct ControlCancelRequest {
+    /// Pins the frame's `type`; see [`KeepAlive`].
+    #[serde(rename = "type")]
+    _kind: ControlCancelTag,
+    /// The request being withdrawn.
+    pub request_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+enum ControlCancelTag {
+    #[serde(rename = "control_cancel_request")]
+    ControlCancelRequest,
 }
 
 /// Wrapper for an inbound `control_response` frame.
@@ -152,6 +194,12 @@ pub enum InboundRequestBody {
         /// Longer human description.
         #[serde(default)]
         description: Option<String>,
+        /// Rule updates the binary suggests the policy may apply.
+        #[serde(default)]
+        permission_suggestions: Vec<crate::agent::permissions::PermissionUpdate>,
+        /// The user-configured ask rule that forced this prompt.
+        #[serde(default)]
+        matched_ask_rule: Option<crate::agent::permissions::MatchedAskRule>,
     },
     /// The binary invokes a registered hook.
     HookCallback {
@@ -176,21 +224,22 @@ pub enum InboundRequestBody {
     /// An MCP server requests structured input mid-tool-call.
     Elicitation {
         /// Correlation id the binary assigned this elicitation.
-        elicitation_id: String,
+        #[serde(default)]
+        elicitation_id: Option<String>,
         /// Human-readable prompt.
         #[serde(default)]
         message: String,
-        /// Form-mode or url-mode.
-        mode: ElicitationMode,
+        /// Form-mode or url-mode. Absent on requests that do not say.
+        #[serde(default)]
+        mode: Option<ElicitationMode>,
         /// The requested MCP JSON Schema (form mode).
         #[serde(default)]
         requested_schema: Option<serde_json::Value>,
         /// The URL to visit (url mode).
         #[serde(default)]
         url: Option<String>,
-        /// The MCP server that raised the elicitation.
-        #[serde(default)]
-        mcp_server_name: Option<String>,
+        /// The MCP server that raised the elicitation. Required on the wire.
+        mcp_server_name: String,
         /// Short human title.
         #[serde(default)]
         title: Option<String>,
@@ -269,6 +318,99 @@ pub enum OutboundRequestBody {
     },
     /// Query MCP server status.
     McpStatus,
+    /// Toggle an MCP server on or off.
+    #[serde(rename = "mcp_toggle")]
+    ToggleMcpServer {
+        /// Target server's name.
+        #[serde(rename = "serverName")]
+        server_name: String,
+        /// Desired enabled state.
+        enabled: bool,
+    },
+    /// Reconnect an MCP server.
+    #[serde(rename = "mcp_reconnect")]
+    ReconnectMcpServer {
+        /// Target server's name.
+        #[serde(rename = "serverName")]
+        server_name: String,
+    },
+    /// Replace the MCP server set. `servers` is opaque config, passed through.
+    #[serde(rename = "mcp_set_servers")]
+    SetMcpServers {
+        /// Opaque server-set configuration.
+        servers: serde_json::Value,
+    },
+    /// Override an MCP server's permission mode.
+    SetMcpPermissionModeOverride {
+        /// Target server's name.
+        #[serde(rename = "serverName")]
+        server_name: String,
+        /// New permission mode (wire string).
+        mode: String,
+    },
+    /// Stop a running task.
+    StopTask {
+        /// Id of the task to stop.
+        task_id: String,
+    },
+    /// Move tool calls to the background.
+    BackgroundTasks {
+        /// The tool-use id to background, when targeting one specifically.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tool_use_id: Option<String>,
+    },
+    /// Rewind files to a prior message.
+    RewindFiles {
+        /// The user message to rewind file state to.
+        user_message_id: String,
+        /// Preview the rewind without applying it.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        dry_run: Option<bool>,
+    },
+    /// Read a workspace file through the binary.
+    ReadFile {
+        /// Path to read.
+        path: String,
+        /// Cap on bytes read.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_bytes: Option<u64>,
+        /// Requested text encoding.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        encoding: Option<String>,
+    },
+    /// Seed a file's read state.
+    SeedReadState {
+        /// Path whose read state is being seeded.
+        path: String,
+        /// Opaque mtime marker.
+        mtime: serde_json::Value,
+    },
+    /// Report context-window usage.
+    GetContextUsage,
+    /// Report token/cost usage.
+    GetUsage,
+    /// Reload plugins.
+    ReloadPlugins,
+    /// Reload skills.
+    ReloadSkills,
+    /// Apply flag settings. `settings` is opaque, passed through.
+    ApplyFlagSettings {
+        /// Opaque flag settings payload.
+        settings: serde_json::Value,
+    },
+    /// Set the max thinking-token budget.
+    SetMaxThinkingTokens {
+        /// New thinking-token budget.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        max_thinking_tokens: Option<u64>,
+        /// Opaque thinking-display setting.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        thinking_display: Option<serde_json::Value>,
+    },
+    /// Re-run the `initialize` handshake over the live transport. Carries the
+    /// pre-built initialize request body (see handshake's shared body
+    /// builder).
+    Initialize(serde_json::Value),
 }
 
 /// An outbound `control_response` answering an inbound control request.
@@ -463,11 +605,11 @@ mod tests {
         else {
             unreachable!("decoded an elicitation request")
         };
-        assert_eq!(elicitation_id, "elic_1");
+        assert_eq!(elicitation_id.as_deref(), Some("elic_1"));
         assert_eq!(message, "Pick a branch");
-        assert_eq!(mode, crate::agent::elicitation::ElicitationMode::Form);
+        assert_eq!(mode, Some(crate::agent::elicitation::ElicitationMode::Form));
         assert_eq!(requested_schema.expect("schema")["type"], "object");
-        assert_eq!(mcp_server_name.as_deref(), Some("git"));
+        assert_eq!(mcp_server_name, "git");
         assert_eq!(display_name.as_deref(), Some("Git"));
     }
 
@@ -476,7 +618,7 @@ mod tests {
         use super::InboundRequestBody;
         use crate::agent::protocol::decode_inbound;
 
-        let line = r#"{"type":"control_request","request_id":"srv_12","request":{"subtype":"elicitation","elicitation_id":"elic_2","message":"Authorize","mode":"url","url":"https://example.test/auth"}}"#;
+        let line = r#"{"type":"control_request","request_id":"srv_12","request":{"subtype":"elicitation","elicitation_id":"elic_2","message":"Authorize","mode":"url","url":"https://example.test/auth","mcp_server_name":"oauth"}}"#;
         let frame = decode_inbound(line).expect("decode");
         let InboundFrame::ControlRequest(req) = frame else {
             unreachable!("decoded a control request")
@@ -484,7 +626,7 @@ mod tests {
         let InboundRequestBody::Elicitation { mode, url, .. } = req.request else {
             unreachable!("decoded an elicitation request")
         };
-        assert_eq!(mode, crate::agent::elicitation::ElicitationMode::Url);
+        assert_eq!(mode, Some(crate::agent::elicitation::ElicitationMode::Url));
         assert_eq!(url.as_deref(), Some("https://example.test/auth"));
     }
 
@@ -493,7 +635,7 @@ mod tests {
         use super::InboundRequestBody;
         use crate::agent::protocol::decode_inbound;
 
-        let line = r#"{"type":"control_request","request_id":"srv_14","request":{"subtype":"elicitation","elicitation_id":"elic_3","message":"Confirm?","mode":"confirm"}}"#;
+        let line = r#"{"type":"control_request","request_id":"srv_14","request":{"subtype":"elicitation","elicitation_id":"elic_3","message":"Confirm?","mode":"confirm","mcp_server_name":"srv"}}"#;
         let frame = decode_inbound(line).expect("decode must not fail");
         let InboundFrame::ControlRequest(req) = frame else {
             unreachable!("decoded a control request")
@@ -501,7 +643,72 @@ mod tests {
         let InboundRequestBody::Elicitation { mode, .. } = req.request else {
             unreachable!("decoded an elicitation request")
         };
-        assert_eq!(mode, crate::agent::elicitation::ElicitationMode::Unknown);
+        assert_eq!(
+            mode,
+            Some(crate::agent::elicitation::ElicitationMode::Unknown)
+        );
+    }
+
+    #[test]
+    fn can_use_tool_carries_suggestions_and_matched_ask_rule() {
+        // Field names from sdk.d.ts:3563 and :3584-3588.
+        use super::InboundRequestBody;
+        let line = r#"{"type":"control_request","request_id":"r7","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{},"tool_use_id":"tu1","permission_suggestions":[{"type":"addRules","rules":[{"toolName":"Bash"}],"behavior":"allow","destination":"session"}],"matched_ask_rule":{"source":"projectSettings","tool_name":"Bash","rule_content":"rm:*"}}}"#;
+        let frame = crate::agent::protocol::decode_inbound(line).expect("decode");
+        let crate::agent::protocol::InboundFrame::ControlRequest(req) = frame else {
+            panic!("expected a control request");
+        };
+        assert_eq!(req.request_id, "r7");
+        let InboundRequestBody::CanUseTool {
+            permission_suggestions,
+            matched_ask_rule,
+            ..
+        } = req.request
+        else {
+            panic!("expected a can_use_tool body");
+        };
+        assert!(
+            !permission_suggestions.is_empty(),
+            "suggestions must survive"
+        );
+        let rule = matched_ask_rule.expect("matched_ask_rule must survive");
+        assert_eq!(rule.source, "projectSettings");
+        assert_eq!(rule.tool_name, "Bash");
+        assert_eq!(rule.rule_content.as_deref(), Some("rm:*"));
+    }
+
+    #[test]
+    fn can_use_tool_absorbs_an_unknown_suggestion_type() {
+        // One recognized `addRules` suggestion and one suggestion whose
+        // `type` this release does not model. Before the `Unknown` arm
+        // existed, the unrecognized entry failed the whole
+        // `permission_suggestions` array, which failed the whole
+        // `can_use_tool` body, which rescued to `Malformed` and denied the
+        // tool call over a suggestion unrelated to the tool itself.
+        use super::InboundRequestBody;
+        use crate::agent::permissions::PermissionUpdate;
+
+        let line = r#"{"type":"control_request","request_id":"r20","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{},"permission_suggestions":[{"type":"addRules","rules":[{"toolName":"Bash"}],"behavior":"allow","destination":"session"},{"type":"someFutureUpdate","foo":"bar"}]}}"#;
+        let frame = crate::agent::protocol::decode_inbound(line).expect("decode must not fail");
+        let InboundFrame::ControlRequest(req) = frame else {
+            panic!("expected a control request, not Malformed");
+        };
+        let InboundRequestBody::CanUseTool {
+            permission_suggestions,
+            ..
+        } = req.request
+        else {
+            panic!("expected a can_use_tool body, not Malformed");
+        };
+        assert_eq!(permission_suggestions.len(), 2, "both entries must survive");
+        assert!(matches!(
+            permission_suggestions[0],
+            PermissionUpdate::AddRules { .. }
+        ));
+        assert!(matches!(
+            permission_suggestions[1],
+            PermissionUpdate::Unknown(_)
+        ));
     }
 
     #[test]
@@ -518,21 +725,59 @@ mod tests {
     }
 
     #[test]
-    fn elicitation_missing_mode_rescues_to_malformed() {
+    fn elicitation_without_mode_reaches_the_policy() {
+        // `mode?` is optional (sdk.d.ts:2991). Requiring it rejected valid
+        // requests, which were then answered with an error.
         use super::InboundRequestBody;
-        use crate::agent::protocol::decode_inbound;
-
-        let line = r#"{"type":"control_request","request_id":"srv_15","request":{"subtype":"elicitation","elicitation_id":"elic_4","message":"Pick"}}"#;
-        let frame = decode_inbound(line).expect("decode must not fail");
-        let InboundFrame::ControlRequest(req) = frame else {
-            unreachable!("decoded a control request")
+        let line = r#"{"type":"control_request","request_id":"r1","request":{"subtype":"elicitation","mcp_server_name":"srv","message":"Pick one","elicitation_id":"e1"}}"#;
+        let frame = crate::agent::protocol::decode_inbound(line).expect("decode");
+        let crate::agent::protocol::InboundFrame::ControlRequest(req) = frame else {
+            panic!("expected a control request");
         };
-        assert!(matches!(
-            req.request,
-            InboundRequestBody::Malformed {
-                subtype: Some(ref s)
-            } if s == "elicitation"
-        ));
+        let InboundRequestBody::Elicitation {
+            mode,
+            elicitation_id,
+            ..
+        } = req.request
+        else {
+            panic!("expected an elicitation body");
+        };
+        assert!(mode.is_none());
+        assert_eq!(elicitation_id.as_deref(), Some("e1"));
+    }
+
+    #[test]
+    fn elicitation_without_elicitation_id_reaches_the_policy() {
+        // `elicitation_id?` is optional (sdk.d.ts:2993).
+        use super::InboundRequestBody;
+        let line = r#"{"type":"control_request","request_id":"r1","request":{"subtype":"elicitation","mcp_server_name":"srv","message":"Pick one","mode":"form"}}"#;
+        let frame = crate::agent::protocol::decode_inbound(line).expect("decode");
+        let crate::agent::protocol::InboundFrame::ControlRequest(req) = frame else {
+            panic!("expected a control request");
+        };
+        let InboundRequestBody::Elicitation {
+            elicitation_id,
+            mode,
+            ..
+        } = req.request
+        else {
+            panic!("expected an elicitation body");
+        };
+        assert!(elicitation_id.is_none());
+        assert_eq!(mode, Some(crate::agent::elicitation::ElicitationMode::Form));
+    }
+
+    #[test]
+    fn elicitation_without_server_name_is_malformed() {
+        // `mcp_server_name: string` is REQUIRED (sdk.d.ts:2989) — the crate
+        // previously defaulted it, which is the mirror-image mistake.
+        use super::InboundRequestBody;
+        let line = r#"{"type":"control_request","request_id":"r1","request":{"subtype":"elicitation","message":"Pick one","mode":"form"}}"#;
+        let frame = crate::agent::protocol::decode_inbound(line).expect("decode");
+        let crate::agent::protocol::InboundFrame::ControlRequest(req) = frame else {
+            panic!("expected a control request");
+        };
+        assert!(matches!(req.request, InboundRequestBody::Malformed { .. }));
     }
 
     #[test]
@@ -541,24 +786,6 @@ mod tests {
         use crate::agent::protocol::decode_inbound;
 
         let line = r#"{"type":"control_request","request_id":"srv_16","request":{"subtype":"elicitation","elicitation_id":"elic_5","message":"Pick","mode":42}}"#;
-        let frame = decode_inbound(line).expect("decode must not fail");
-        let InboundFrame::ControlRequest(req) = frame else {
-            unreachable!("decoded a control request")
-        };
-        assert!(matches!(
-            req.request,
-            InboundRequestBody::Malformed {
-                subtype: Some(ref s)
-            } if s == "elicitation"
-        ));
-    }
-
-    #[test]
-    fn elicitation_missing_elicitation_id_rescues_to_malformed() {
-        use super::InboundRequestBody;
-        use crate::agent::protocol::decode_inbound;
-
-        let line = r#"{"type":"control_request","request_id":"srv_17","request":{"subtype":"elicitation","message":"Pick","mode":"form"}}"#;
         let frame = decode_inbound(line).expect("decode must not fail");
         let InboundFrame::ControlRequest(req) = frame else {
             unreachable!("decoded a control request")
@@ -588,6 +815,102 @@ mod tests {
                 subtype: Some(ref s)
             } if s == "can_use_tool"
         ));
+    }
+
+    #[test]
+    fn keep_alive_frame_is_typed() {
+        // SDKKeepAliveMessage, sdk.d.ts:3927-3929.
+        let frame =
+            crate::agent::protocol::decode_inbound(r#"{"type":"keep_alive"}"#).expect("decode");
+        assert!(matches!(
+            frame,
+            crate::agent::protocol::InboundFrame::KeepAlive(_)
+        ));
+    }
+
+    #[test]
+    fn cancel_frame_is_typed() {
+        // SDKControlCancelRequest, sdk.d.ts:2979-2982.
+        let frame = crate::agent::protocol::decode_inbound(
+            r#"{"type":"control_cancel_request","request_id":"r1"}"#,
+        )
+        .expect("decode");
+        let crate::agent::protocol::InboundFrame::ControlCancelRequest(cancel) = frame else {
+            panic!("expected a cancel frame");
+        };
+        assert_eq!(cancel.request_id, "r1");
+    }
+
+    #[test]
+    fn message_frames_are_not_swallowed_by_the_new_variants() {
+        // Both new variants are `untagged` and listed before `Message`. A
+        // fieldless `KeepAlive` struct matches EVERY object on the wire, so
+        // without this assertion the two tests above pass while the caller's
+        // message stream goes silent.
+        let frame = crate::agent::protocol::decode_inbound(
+            r#"{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}"#,
+        )
+        .expect("decode");
+        assert!(matches!(
+            frame,
+            crate::agent::protocol::InboundFrame::Message(_)
+        ));
+    }
+
+    #[test]
+    fn serializes_new_control_subtypes_with_wire_field_names() {
+        use super::OutboundRequestBody as B;
+        let cases = [
+            (
+                serde_json::to_value(B::ToggleMcpServer {
+                    server_name: "s".into(),
+                    enabled: true,
+                })
+                .expect("serialize"),
+                serde_json::json!({"subtype":"mcp_toggle","serverName":"s","enabled":true}),
+            ),
+            (
+                serde_json::to_value(B::ReconnectMcpServer {
+                    server_name: "s".into(),
+                })
+                .expect("serialize"),
+                serde_json::json!({"subtype":"mcp_reconnect","serverName":"s"}),
+            ),
+            (
+                serde_json::to_value(B::StopTask {
+                    task_id: "t".into(),
+                })
+                .expect("serialize"),
+                serde_json::json!({"subtype":"stop_task","task_id":"t"}),
+            ),
+            (
+                serde_json::to_value(B::ReadFile {
+                    path: "/p".into(),
+                    max_bytes: Some(10),
+                    encoding: None,
+                })
+                .expect("serialize"),
+                serde_json::json!({"subtype":"read_file","path":"/p","max_bytes":10}),
+            ),
+            (
+                serde_json::to_value(B::SetMaxThinkingTokens {
+                    max_thinking_tokens: Some(1),
+                    thinking_display: None,
+                })
+                .expect("serialize"),
+                serde_json::json!({"subtype":"set_max_thinking_tokens","max_thinking_tokens":1}),
+            ),
+            (
+                serde_json::to_value(B::SetMcpServers {
+                    servers: serde_json::json!({"s":{}}),
+                })
+                .expect("serialize"),
+                serde_json::json!({"subtype":"mcp_set_servers","servers":{"s":{}}}),
+            ),
+        ];
+        for (got, want) in cases {
+            assert_eq!(got, want);
+        }
     }
 
     #[test]

@@ -7,10 +7,12 @@
 //! writer task. A handler error becomes an error control response so the
 //! binary is never left waiting.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use tokio::sync::mpsc;
 
+use crate::agent::cancel::CancelSignal;
 use crate::agent::elicitation::{ElicitationPolicy, ElicitationRequest, ElicitationResponse};
 use crate::agent::hooks::{HookInput, HookRegistry};
 use crate::agent::mcp::{SdkMcpRegistry, router};
@@ -27,6 +29,12 @@ pub(super) struct Dispatcher {
     elicitation: Option<Arc<dyn ElicitationPolicy>>,
     mcp: Arc<SdkMcpRegistry>,
     out_tx: mpsc::UnboundedSender<String>,
+    /// Cancellation signals for requests currently being serviced, keyed by
+    /// the binary's `request_id`.
+    ///
+    /// The guard is never held across an `.await`: every access is a single
+    /// lock, act, drop.
+    in_flight: Mutex<HashMap<String, CancelSignal>>,
 }
 
 impl Dispatcher {
@@ -44,11 +52,65 @@ impl Dispatcher {
             elicitation,
             mcp,
             out_tx,
+            in_flight: Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// Claim `request_id`, returning the handler's cancellation signal.
+    ///
+    /// Returns `None` when the id is already being serviced. The binary
+    /// replays in-flight requests to a client that joins an initialized
+    /// session, so the same id can arrive twice; running the handler twice
+    /// would prompt the user twice and answer once per run.
+    ///
+    /// The check and the insert are one locked operation on purpose —
+    /// splitting them reopens the race this closes.
+    pub(super) fn begin(&self, request_id: &str) -> Option<CancelSignal> {
+        let mut guard = self
+            .in_flight
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if guard.contains_key(request_id) {
+            drop(guard);
+            tracing::warn!(
+                request_id,
+                "duplicate delivery of an in-flight control request; skipping"
+            );
+            return None;
+        }
+        let signal = CancelSignal::new();
+        guard.insert(request_id.to_string(), signal.clone());
+        drop(guard);
+        Some(signal)
+    }
+
+    /// Release `request_id` once its handler has finished.
+    fn finish(&self, request_id: &str) {
+        self.in_flight
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(request_id);
+    }
+
+    /// Cancel the handler servicing `request_id`, if one is still running.
+    ///
+    /// A cancel for an unknown or already-finished id is an expected race,
+    /// not a fault.
+    pub(super) fn cancel(&self, request_id: &str) {
+        let signal = self
+            .in_flight
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(request_id);
+        if let Some(signal) = signal {
+            signal.cancel();
+        } else {
+            tracing::debug!(request_id, "cancel for a request that is no longer running");
         }
     }
 
     /// Handle one inbound control request end to end.
-    pub(super) async fn handle(&self, req: InboundControlRequest) {
+    pub(super) async fn handle(&self, req: InboundControlRequest, cancel: CancelSignal) {
         let request_id = req.request_id;
         let outcome = match req.request {
             InboundRequestBody::CanUseTool {
@@ -61,6 +123,8 @@ impl Dispatcher {
                 title,
                 display_name,
                 description,
+                permission_suggestions,
+                matched_ask_rule,
             } => {
                 let ctx = PermissionContext {
                     tool_use_id,
@@ -70,14 +134,21 @@ impl Dispatcher {
                     title,
                     display_name,
                     description,
+                    suggestions: permission_suggestions,
+                    matched_ask_rule,
+                    request_id: request_id.clone(),
                 };
-                self.permission_outcome(&tool_name, input, ctx).await
+                self.permission_outcome(&tool_name, input, ctx, cancel)
+                    .await
             }
             InboundRequestBody::HookCallback {
                 callback_id,
                 input,
                 tool_use_id,
-            } => self.hook_outcome(&callback_id, input, tool_use_id).await,
+            } => {
+                self.hook_outcome(&callback_id, input, tool_use_id, cancel)
+                    .await
+            }
             InboundRequestBody::McpMessage {
                 server_name,
                 message,
@@ -104,7 +175,7 @@ impl Dispatcher {
                     display_name,
                     description,
                 };
-                self.elicitation_outcome(request).await
+                self.elicitation_outcome(request, cancel).await
             }
             // A recognized-but-malformed control request body: report which
             // subtype failed to deserialize rather than failing the whole
@@ -117,7 +188,8 @@ impl Dispatcher {
             // response rather than failing the whole turn.
             InboundRequestBody::Other => Err("unsupported control request subtype".to_string()),
         };
-        self.write_response(request_id, outcome);
+        self.write_response(request_id.clone(), outcome);
+        self.finish(&request_id);
     }
 
     /// Resolve a `can_use_tool` request to its response payload.
@@ -126,14 +198,19 @@ impl Dispatcher {
         tool: &str,
         input: serde_json::Value,
         ctx: PermissionContext,
+        cancel: CancelSignal,
     ) -> Result<serde_json::Value, String> {
         match &self.policy {
-            Some(policy) => match policy.can_use_tool(tool, &input, ctx).await {
-                Ok(decision) => Ok(decision.into_response_value(&input)),
+            Some(policy) => match policy.can_use_tool(tool, &input, ctx, cancel).await {
+                Ok(decision) => decision
+                    .into_response_value(&input)
+                    .map_err(|e| e.to_string()),
                 Err(err) => Err(err.to_string()),
             },
             // No policy registered: allow, echoing the original input.
-            None => Ok(PermissionDecision::allow().into_response_value(&input)),
+            None => PermissionDecision::allow()
+                .into_response_value(&input)
+                .map_err(|e| e.to_string()),
         }
     }
 
@@ -141,9 +218,10 @@ impl Dispatcher {
     async fn elicitation_outcome(
         &self,
         request: ElicitationRequest,
+        cancel: CancelSignal,
     ) -> Result<serde_json::Value, String> {
         match &self.elicitation {
-            Some(policy) => match policy.elicit(request).await {
+            Some(policy) => match policy.elicit(request, cancel).await {
                 Ok(response) => Ok(response.into_response_value()),
                 Err(err) => Err(err.to_string()),
             },
@@ -158,6 +236,7 @@ impl Dispatcher {
         callback_id: &str,
         data: serde_json::Value,
         tool_use_id: Option<String>,
+        cancel: CancelSignal,
     ) -> Result<serde_json::Value, String> {
         match self.hooks.lookup(callback_id) {
             Some((event, hook)) => {
@@ -166,7 +245,7 @@ impl Dispatcher {
                     tool_use_id,
                     data,
                 };
-                match hook.call(input).await {
+                match hook.call(input, cancel).await {
                     Ok(output) => {
                         serde_json::to_value(output).map_err(|e: serde_json::Error| e.to_string())
                     }
@@ -227,6 +306,7 @@ mod tests {
     use tokio::sync::mpsc;
 
     use super::Dispatcher;
+    use crate::agent::cancel::CancelSignal;
     use crate::agent::elicitation::{ElicitationPolicy, ElicitationRequest, ElicitationResponse};
     use crate::agent::error::AgentError;
     use crate::agent::hooks::HookRegistry;
@@ -243,6 +323,7 @@ mod tests {
             _tool: &str,
             _input: &serde_json::Value,
             _ctx: PermissionContext,
+            _cancel: CancelSignal,
         ) -> Result<PermissionDecision, AgentError> {
             Ok(PermissionDecision::allow())
         }
@@ -257,6 +338,7 @@ mod tests {
             _tool: &str,
             _input: &serde_json::Value,
             _ctx: PermissionContext,
+            _cancel: CancelSignal,
         ) -> Result<PermissionDecision, AgentError> {
             Ok(PermissionDecision::deny("nope"))
         }
@@ -283,7 +365,9 @@ mod tests {
             Arc::new(SdkMcpRegistry::default()),
             tx,
         );
-        dispatcher.handle(can_use_tool_request()).await;
+        dispatcher
+            .handle(can_use_tool_request(), CancelSignal::new())
+            .await;
         let line = rx.recv().await.expect("a response line");
         let value: serde_json::Value = serde_json::from_str(&line).expect("json");
         assert_eq!(value["type"], "control_response");
@@ -303,12 +387,115 @@ mod tests {
             Arc::new(SdkMcpRegistry::default()),
             tx,
         );
-        dispatcher.handle(can_use_tool_request()).await;
+        dispatcher
+            .handle(can_use_tool_request(), CancelSignal::new())
+            .await;
         let line = rx.recv().await.expect("a response line");
         let value: serde_json::Value = serde_json::from_str(&line).expect("json");
         assert_eq!(value["response"]["response"]["behavior"], "deny");
         assert_eq!(value["response"]["response"]["message"], "nope");
         assert_eq!(value["response"]["response"]["interrupt"], false);
+    }
+
+    struct CancelObservingPolicy;
+
+    #[async_trait::async_trait]
+    impl PermissionPolicy for CancelObservingPolicy {
+        async fn can_use_tool(
+            &self,
+            _tool: &str,
+            _input: &serde_json::Value,
+            _ctx: PermissionContext,
+            cancel: CancelSignal,
+        ) -> Result<PermissionDecision, AgentError> {
+            cancel.cancelled().await;
+            Err(AgentError::Protocol {
+                detail: "cancelled".to_string(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn cancel_reaches_the_handler_that_is_running() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let dispatcher = Arc::new(Dispatcher::new(
+            Arc::new(HookRegistry::default()),
+            Some(Arc::new(CancelObservingPolicy)),
+            None,
+            Arc::new(SdkMcpRegistry::default()),
+            tx,
+        ));
+
+        let req = can_use_tool_request();
+        let id = req.request_id.clone();
+        let signal = dispatcher.begin(&id).expect("first delivery registers");
+        let running = {
+            let dispatcher = Arc::clone(&dispatcher);
+            tokio::spawn(async move { dispatcher.handle(req, signal).await })
+        };
+
+        dispatcher.cancel(&id);
+        running.await.expect("handler task");
+
+        let line = rx.recv().await.expect("a response line");
+        assert!(
+            line.contains("\"subtype\":\"error\""),
+            "an observing handler that bails must produce an error response: {line}"
+        );
+    }
+
+    #[test]
+    fn a_duplicate_delivery_is_refused() {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let dispatcher = Dispatcher::new(
+            Arc::new(HookRegistry::default()),
+            None,
+            None,
+            Arc::new(SdkMcpRegistry::default()),
+            tx,
+        );
+        assert!(
+            dispatcher.begin("r1").is_some(),
+            "first delivery is accepted"
+        );
+        assert!(
+            dispatcher.begin("r1").is_none(),
+            "a replayed request_id must not run the handler twice"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_finished_request_frees_its_slot() {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let dispatcher = Arc::new(Dispatcher::new(
+            Arc::new(HookRegistry::default()),
+            Some(Arc::new(AllowPolicy)),
+            None,
+            Arc::new(SdkMcpRegistry::default()),
+            tx,
+        ));
+        let req = can_use_tool_request();
+        let id = req.request_id.clone();
+        let signal = dispatcher.begin(&id).expect("registers");
+        dispatcher.handle(req, signal).await;
+        let _ = rx.recv().await;
+        assert!(
+            dispatcher.begin(&id).is_some(),
+            "the slot must be released when the handler finishes"
+        );
+    }
+
+    #[test]
+    fn cancelling_an_unknown_request_is_a_no_op() {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let dispatcher = Dispatcher::new(
+            Arc::new(HookRegistry::default()),
+            None,
+            None,
+            Arc::new(SdkMcpRegistry::default()),
+            tx,
+        );
+        dispatcher.cancel("never-seen");
     }
 
     #[tokio::test]
@@ -321,7 +508,9 @@ mod tests {
             Arc::new(SdkMcpRegistry::default()),
             tx,
         );
-        dispatcher.handle(can_use_tool_request()).await;
+        dispatcher
+            .handle(can_use_tool_request(), CancelSignal::new())
+            .await;
         let line = rx.recv().await.expect("a response line");
         let value: serde_json::Value = serde_json::from_str(&line).expect("json");
         assert_eq!(value["response"]["response"]["behavior"], "allow");
@@ -335,7 +524,11 @@ mod tests {
 
     #[async_trait::async_trait]
     impl Hook for BlockingHook {
-        async fn call(&self, _input: HookInput) -> Result<HookOutput, AgentError> {
+        async fn call(
+            &self,
+            _input: HookInput,
+            _cancel: CancelSignal,
+        ) -> Result<HookOutput, AgentError> {
             Ok(HookOutput {
                 decision: Some(crate::agent::hooks::HookDecision::Block),
                 reason: Some("denied".to_string()),
@@ -348,7 +541,11 @@ mod tests {
 
     #[async_trait::async_trait]
     impl Hook for FailingHook {
-        async fn call(&self, _input: HookInput) -> Result<HookOutput, AgentError> {
+        async fn call(
+            &self,
+            _input: HookInput,
+            _cancel: CancelSignal,
+        ) -> Result<HookOutput, AgentError> {
             Err(AgentError::Protocol {
                 detail: "boom".to_string(),
             })
@@ -377,7 +574,9 @@ mod tests {
             Arc::new(SdkMcpRegistry::default()),
             tx,
         );
-        dispatcher.handle(hook_request("hook_0")).await;
+        dispatcher
+            .handle(hook_request("hook_0"), CancelSignal::new())
+            .await;
         let line = rx.recv().await.expect("a response line");
         let value: serde_json::Value = serde_json::from_str(&line).expect("json");
         assert_eq!(value["response"]["subtype"], "success");
@@ -395,7 +594,9 @@ mod tests {
             Arc::new(SdkMcpRegistry::default()),
             tx,
         );
-        dispatcher.handle(hook_request("hook_404")).await;
+        dispatcher
+            .handle(hook_request("hook_404"), CancelSignal::new())
+            .await;
         let line = rx.recv().await.expect("a response line");
         let value: serde_json::Value = serde_json::from_str(&line).expect("json");
         assert_eq!(value["response"]["subtype"], "success");
@@ -434,7 +635,9 @@ mod tests {
             Arc::new(reg),
             tx,
         );
-        dispatcher.handle(mcp_message_request("calc", "echo")).await;
+        dispatcher
+            .handle(mcp_message_request("calc", "echo"), CancelSignal::new())
+            .await;
         let line = rx.recv().await.expect("a response line");
         let value: serde_json::Value = serde_json::from_str(&line).expect("json");
         assert_eq!(value["response"]["subtype"], "success");
@@ -456,7 +659,7 @@ mod tests {
             tx,
         );
         dispatcher
-            .handle(mcp_message_request("ghost", "echo"))
+            .handle(mcp_message_request("ghost", "echo"), CancelSignal::new())
             .await;
         let line = rx.recv().await.expect("a response line");
         let value: serde_json::Value = serde_json::from_str(&line).expect("json");
@@ -481,7 +684,9 @@ mod tests {
             Arc::new(SdkMcpRegistry::default()),
             tx,
         );
-        dispatcher.handle(hook_request("hook_0")).await;
+        dispatcher
+            .handle(hook_request("hook_0"), CancelSignal::new())
+            .await;
         let line = rx.recv().await.expect("a response line");
         let value: serde_json::Value = serde_json::from_str(&line).expect("json");
         assert_eq!(value["response"]["subtype"], "error");
@@ -498,7 +703,11 @@ mod tests {
 
     #[async_trait::async_trait]
     impl ElicitationPolicy for AcceptElicitation {
-        async fn elicit(&self, _r: ElicitationRequest) -> Result<ElicitationResponse, AgentError> {
+        async fn elicit(
+            &self,
+            _r: ElicitationRequest,
+            _cancel: CancelSignal,
+        ) -> Result<ElicitationResponse, AgentError> {
             Ok(ElicitationResponse::Accept(
                 serde_json::json!({ "branch": "main" }),
             ))
@@ -509,7 +718,11 @@ mod tests {
 
     #[async_trait::async_trait]
     impl ElicitationPolicy for FailingElicitation {
-        async fn elicit(&self, _r: ElicitationRequest) -> Result<ElicitationResponse, AgentError> {
+        async fn elicit(
+            &self,
+            _r: ElicitationRequest,
+            _cancel: CancelSignal,
+        ) -> Result<ElicitationResponse, AgentError> {
             Err(AgentError::Protocol {
                 detail: "elicit boom".to_string(),
             })
@@ -517,7 +730,7 @@ mod tests {
     }
 
     fn elicitation_request() -> crate::agent::protocol::InboundControlRequest {
-        let line = r#"{"type":"control_request","request_id":"srv_20","request":{"subtype":"elicitation","elicitation_id":"elic_1","message":"Pick","mode":"form","requested_schema":{"type":"object"}}}"#;
+        let line = r#"{"type":"control_request","request_id":"srv_20","request":{"subtype":"elicitation","elicitation_id":"elic_1","message":"Pick","mode":"form","requested_schema":{"type":"object"},"mcp_server_name":"git"}}"#;
         match decode_inbound(line).expect("decode") {
             crate::agent::protocol::InboundFrame::ControlRequest(req) => req,
             _ => unreachable!("decoded a control request"),
@@ -541,7 +754,9 @@ mod tests {
     async fn accept_handler_writes_action_and_content() {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let dispatcher = dispatcher_with_elicitation(Some(Arc::new(AcceptElicitation)), tx);
-        dispatcher.handle(elicitation_request()).await;
+        dispatcher
+            .handle(elicitation_request(), CancelSignal::new())
+            .await;
         let line = rx.recv().await.expect("a response line");
         let value: serde_json::Value = serde_json::from_str(&line).expect("json");
         assert_eq!(value["response"]["subtype"], "success");
@@ -554,7 +769,9 @@ mod tests {
     async fn no_elicitation_policy_declines() {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let dispatcher = dispatcher_with_elicitation(None, tx);
-        dispatcher.handle(elicitation_request()).await;
+        dispatcher
+            .handle(elicitation_request(), CancelSignal::new())
+            .await;
         let line = rx.recv().await.expect("a response line");
         let value: serde_json::Value = serde_json::from_str(&line).expect("json");
         assert_eq!(value["response"]["subtype"], "success");
@@ -565,7 +782,9 @@ mod tests {
     async fn elicitation_policy_error_becomes_error_response() {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let dispatcher = dispatcher_with_elicitation(Some(Arc::new(FailingElicitation)), tx);
-        dispatcher.handle(elicitation_request()).await;
+        dispatcher
+            .handle(elicitation_request(), CancelSignal::new())
+            .await;
         let line = rx.recv().await.expect("a response line");
         let value: serde_json::Value = serde_json::from_str(&line).expect("json");
         assert_eq!(value["response"]["subtype"], "error");
@@ -579,7 +798,7 @@ mod tests {
 
     #[tokio::test]
     async fn malformed_control_request_becomes_error_response_naming_subtype() {
-        // Missing the required `elicitation_id` field: recognized subtype,
+        // Missing the required `mcp_server_name` field: recognized subtype,
         // malformed body.
         let line = r#"{"type":"control_request","request_id":"srv_22","request":{"subtype":"elicitation","message":"Pick","mode":"form"}}"#;
         let crate::agent::protocol::InboundFrame::ControlRequest(req) =
@@ -589,7 +808,7 @@ mod tests {
         };
         let (tx, mut rx) = mpsc::unbounded_channel();
         let dispatcher = dispatcher_with_elicitation(None, tx);
-        dispatcher.handle(req).await;
+        dispatcher.handle(req, CancelSignal::new()).await;
         let line = rx.recv().await.expect("a response line");
         let value: serde_json::Value = serde_json::from_str(&line).expect("json");
         assert_eq!(value["response"]["subtype"], "error");
@@ -616,7 +835,7 @@ mod tests {
         };
         let (tx, mut rx) = mpsc::unbounded_channel();
         let dispatcher = dispatcher_with_elicitation(None, tx);
-        dispatcher.handle(req).await;
+        dispatcher.handle(req, CancelSignal::new()).await;
         let line = rx.recv().await.expect("a response line");
         let value: serde_json::Value = serde_json::from_str(&line).expect("json");
         assert_eq!(value["response"]["subtype"], "error");
@@ -640,7 +859,7 @@ mod tests {
         };
         let (tx, mut rx) = mpsc::unbounded_channel();
         let dispatcher = dispatcher_with_elicitation(None, tx);
-        dispatcher.handle(req).await;
+        dispatcher.handle(req, CancelSignal::new()).await;
         let line = rx.recv().await.expect("a response line");
         let value: serde_json::Value = serde_json::from_str(&line).expect("json");
         assert_eq!(value["response"]["subtype"], "error");

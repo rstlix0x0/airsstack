@@ -50,12 +50,14 @@ mod tests {
     #![expect(clippy::expect_used, reason = "test assertions use expect for context")]
 
     use super::ReceiverStream;
-    use crate::agent::message::{Message, ResultMessage};
+    use crate::agent::message::{Message, ResultMessage, ResultSubtype};
     use futures_util::StreamExt;
     use tokio::sync::mpsc;
 
     fn result_msg() -> Message {
         Message::Result(ResultMessage {
+            subtype: ResultSubtype::Success,
+            errors: Vec::new(),
             result: "ok".into(),
             structured_output: None,
             is_error: false,
@@ -64,6 +66,14 @@ mod tests {
             usage: None,
             session_id: crate::agent::types::SessionId::new("s1"),
             num_turns: 1,
+            model_usage: std::collections::HashMap::new(),
+            permission_denials: Vec::new(),
+            duration_ms: None,
+            duration_api_ms: None,
+            ttft_ms: None,
+            terminal_reason: None,
+            uuid: None,
+            extra: serde_json::Value::Null,
         })
     }
 

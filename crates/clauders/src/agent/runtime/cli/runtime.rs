@@ -1,7 +1,7 @@
 //! The subprocess-backed `Runtime` implementation.
 
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -13,23 +13,28 @@ use tokio::task::JoinHandle;
 
 use crate::agent::capabilities::Capabilities;
 use crate::agent::error::AgentError;
+use crate::agent::message::Message;
 use crate::agent::options::Options;
 use crate::agent::permissions::PermissionMode;
 use crate::agent::process::{LineError, ManagedProcess, ProcessConfig, ProcessIo, StdoutLines};
 use crate::agent::protocol::{
-    ControlResponseBody, OutboundControlRequest, OutboundRequestBody, RequestId, RequestIdGen,
-    decode_inbound, encode_line,
+    ControlResponseBody, InboundFrame, OutboundControlRequest, OutboundRequestBody, RequestId,
+    RequestIdGen, decode_inbound, encode_line,
 };
 use crate::agent::runtime::Runtime;
 use crate::agent::stream::{MessageStream, ReceiverStream};
-use crate::agent::types::{McpStatus, Prompt};
+use crate::agent::types::{
+    BackgroundTasksResult, ContextUsage, InitializeResult, InterruptReceipt, McpStatus, Prompt,
+    ReadFileResult, ReloadPluginsResult, ReloadSkillsResult, RewindFilesResult,
+    SetMcpPermissionModeResult, SetMcpServersResult, UsageReport,
+};
 use crate::types::ModelId;
 
 use super::argv::{build_argv, permission_mode_wire};
 use super::demux::Demux;
 use super::discovery::{check_version, discover};
 use super::dispatch::Dispatcher;
-use super::handshake::{initialize_request, parse_capabilities, warn_unsupported_hooks};
+use super::handshake::{initialize_body, initialize_request};
 
 /// Per-turn message channel capacity (natural backpressure beyond this).
 const TURN_CHANNEL_CAPACITY: usize = 64;
@@ -41,7 +46,9 @@ pub struct CliRuntime {
     out_tx: mpsc::UnboundedSender<String>,
     demux: Arc<Demux>,
     id_gen: RequestIdGen,
-    capabilities: Capabilities,
+    capabilities: Arc<Mutex<Capabilities>>,
+    initialize_result: Arc<Mutex<InitializeResult>>,
+    options: Arc<Options>,
     control_request_timeout: Duration,
     reader: JoinHandle<()>,
     writer: JoinHandle<()>,
@@ -63,7 +70,7 @@ impl CliRuntime {
 
         let cfg = ProcessConfig {
             program,
-            args: build_argv(&options),
+            args: build_argv(&options)?,
             cwd: options.cwd.clone(),
             env: options.env.clone(),
             shutdown_grace: options.shutdown_grace,
@@ -80,8 +87,9 @@ impl CliRuntime {
         let mut stdout = stdout;
 
         let id_gen = RequestId::generator();
-        let capabilities = handshake(&mut stdin, &mut stdout, &options, &id_gen).await?;
-        warn_unsupported_hooks(&options, &capabilities);
+        let init = handshake(&mut stdin, &mut stdout, &options, &id_gen).await?;
+        let initialize_result = Arc::new(Mutex::new(init));
+        let capabilities = Arc::new(Mutex::new(Capabilities::default()));
 
         // Single writer task owns stdin from here on.
         let (out_tx, out_rx) = mpsc::unbounded_channel::<String>();
@@ -101,16 +109,24 @@ impl CliRuntime {
         ));
 
         let demux = Arc::new(Demux::new());
-        let reader = tokio::spawn(reader_loop(stdout, Arc::clone(&demux), dispatcher));
+        let reader = tokio::spawn(reader_loop(
+            stdout,
+            Arc::clone(&demux),
+            dispatcher,
+            Arc::clone(&capabilities),
+        ));
         // stderr is drained by the process layer; not needed for message routing.
         drop(stderr);
 
+        let control_request_timeout = options.control_request_timeout;
         Ok(Self {
             out_tx,
             demux,
             id_gen,
             capabilities,
-            control_request_timeout: options.control_request_timeout,
+            initialize_result,
+            options: Arc::new(options),
+            control_request_timeout,
             reader,
             writer,
             _process: process,
@@ -209,6 +225,18 @@ fn control_response_outcome(
     }
 }
 
+/// Decode an interrupt response by field presence, per the SDK: a
+/// `still_queued` array yields a receipt keeping only string elements;
+/// anything else (absent, or not an array) yields `None`.
+fn interrupt_receipt_from_value(value: &serde_json::Value) -> Option<InterruptReceipt> {
+    let arr = value.get("still_queued")?.as_array()?;
+    let still_queued = arr
+        .iter()
+        .filter_map(|v| v.as_str().map(str::to_string))
+        .collect();
+    Some(InterruptReceipt { still_queued })
+}
+
 impl Drop for CliRuntime {
     fn drop(&mut self) {
         // Stop both tasks; the process handle's own Drop tears the child down.
@@ -236,10 +264,11 @@ impl Runtime for CliRuntime {
         Ok(ReceiverStream::new(rx).boxed())
     }
 
-    async fn interrupt(&self) -> Result<(), AgentError> {
-        self.send_control(OutboundRequestBody::Interrupt, "interrupt")
-            .await
-            .map(|_| ())
+    async fn interrupt(&self) -> Result<Option<InterruptReceipt>, AgentError> {
+        let value = self
+            .send_control(OutboundRequestBody::Interrupt, "interrupt")
+            .await?;
+        Ok(interrupt_receipt_from_value(&value))
     }
 
     async fn set_model(&self, model: ModelId) -> Result<(), AgentError> {
@@ -271,8 +300,214 @@ impl Runtime for CliRuntime {
         serde_json::from_value(value).map_err(|e| AgentError::Decode(e.to_string()))
     }
 
-    fn capabilities(&self) -> &Capabilities {
-        &self.capabilities
+    async fn reconnect_mcp_server(&self, server_name: &str) -> Result<(), AgentError> {
+        self.send_control(
+            OutboundRequestBody::ReconnectMcpServer {
+                server_name: server_name.to_string(),
+            },
+            "reconnect_mcp_server",
+        )
+        .await
+        .map(|_| ())
+    }
+
+    async fn read_file(
+        &self,
+        path: &str,
+        max_bytes: Option<u64>,
+        encoding: Option<String>,
+    ) -> Result<ReadFileResult, AgentError> {
+        let value = self
+            .send_control(
+                OutboundRequestBody::ReadFile {
+                    path: path.to_string(),
+                    max_bytes,
+                    encoding,
+                },
+                "read_file",
+            )
+            .await?;
+        serde_json::from_value(value).map_err(|e| AgentError::Decode(e.to_string()))
+    }
+
+    async fn toggle_mcp_server(&self, server_name: &str, enabled: bool) -> Result<(), AgentError> {
+        self.send_control(
+            OutboundRequestBody::ToggleMcpServer {
+                server_name: server_name.to_string(),
+                enabled,
+            },
+            "toggle_mcp_server",
+        )
+        .await
+        .map(|_| ())
+    }
+
+    async fn set_mcp_servers(
+        &self,
+        servers: serde_json::Value,
+    ) -> Result<SetMcpServersResult, AgentError> {
+        let value = self
+            .send_control(
+                OutboundRequestBody::SetMcpServers { servers },
+                "set_mcp_servers",
+            )
+            .await?;
+        serde_json::from_value(value).map_err(|e| AgentError::Decode(e.to_string()))
+    }
+
+    async fn set_mcp_permission_mode_override(
+        &self,
+        server_name: &str,
+        mode: &str,
+    ) -> Result<SetMcpPermissionModeResult, AgentError> {
+        let value = self
+            .send_control(
+                OutboundRequestBody::SetMcpPermissionModeOverride {
+                    server_name: server_name.to_string(),
+                    mode: mode.to_string(),
+                },
+                "set_mcp_permission_mode_override",
+            )
+            .await?;
+        serde_json::from_value(value).map_err(|e| AgentError::Decode(e.to_string()))
+    }
+
+    async fn stop_task(&self, task_id: &str) -> Result<(), AgentError> {
+        self.send_control(
+            OutboundRequestBody::StopTask {
+                task_id: task_id.to_string(),
+            },
+            "stop_task",
+        )
+        .await
+        .map(|_| ())
+    }
+
+    async fn background_tasks(
+        &self,
+        tool_use_id: Option<String>,
+    ) -> Result<BackgroundTasksResult, AgentError> {
+        let value = self
+            .send_control(
+                OutboundRequestBody::BackgroundTasks { tool_use_id },
+                "background_tasks",
+            )
+            .await?;
+        serde_json::from_value(value).map_err(|e| AgentError::Decode(e.to_string()))
+    }
+
+    async fn rewind_files(
+        &self,
+        user_message_id: &str,
+        dry_run: Option<bool>,
+    ) -> Result<RewindFilesResult, AgentError> {
+        let value = self
+            .send_control(
+                OutboundRequestBody::RewindFiles {
+                    user_message_id: user_message_id.to_string(),
+                    dry_run,
+                },
+                "rewind_files",
+            )
+            .await?;
+        serde_json::from_value(value).map_err(|e| AgentError::Decode(e.to_string()))
+    }
+
+    async fn seed_read_state(
+        &self,
+        path: &str,
+        mtime: serde_json::Value,
+    ) -> Result<(), AgentError> {
+        self.send_control(
+            OutboundRequestBody::SeedReadState {
+                path: path.to_string(),
+                mtime,
+            },
+            "seed_read_state",
+        )
+        .await
+        .map(|_| ())
+    }
+
+    async fn get_context_usage(&self) -> Result<ContextUsage, AgentError> {
+        let value = self
+            .send_control(OutboundRequestBody::GetContextUsage, "get_context_usage")
+            .await?;
+        serde_json::from_value(value).map_err(|e| AgentError::Decode(e.to_string()))
+    }
+
+    async fn get_usage(&self) -> Result<UsageReport, AgentError> {
+        let value = self
+            .send_control(OutboundRequestBody::GetUsage, "get_usage")
+            .await?;
+        serde_json::from_value(value).map_err(|e| AgentError::Decode(e.to_string()))
+    }
+
+    async fn reload_plugins(&self) -> Result<ReloadPluginsResult, AgentError> {
+        let value = self
+            .send_control(OutboundRequestBody::ReloadPlugins, "reload_plugins")
+            .await?;
+        serde_json::from_value(value).map_err(|e| AgentError::Decode(e.to_string()))
+    }
+
+    async fn reload_skills(&self) -> Result<ReloadSkillsResult, AgentError> {
+        let value = self
+            .send_control(OutboundRequestBody::ReloadSkills, "reload_skills")
+            .await?;
+        serde_json::from_value(value).map_err(|e| AgentError::Decode(e.to_string()))
+    }
+
+    async fn apply_flag_settings(&self, settings: serde_json::Value) -> Result<(), AgentError> {
+        self.send_control(
+            OutboundRequestBody::ApplyFlagSettings { settings },
+            "apply_flag_settings",
+        )
+        .await
+        .map(|_| ())
+    }
+
+    async fn set_max_thinking_tokens(
+        &self,
+        max_thinking_tokens: Option<u64>,
+        thinking_display: Option<serde_json::Value>,
+    ) -> Result<(), AgentError> {
+        self.send_control(
+            OutboundRequestBody::SetMaxThinkingTokens {
+                max_thinking_tokens,
+                thinking_display,
+            },
+            "set_max_thinking_tokens",
+        )
+        .await
+        .map(|_| ())
+    }
+
+    fn capabilities(&self) -> Capabilities {
+        self.capabilities
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    fn initialize_result(&self) -> InitializeResult {
+        self.initialize_result
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    async fn reinitialize(&self) -> Result<InitializeResult, AgentError> {
+        let body = initialize_body(&self.options);
+        let value = self
+            .send_control(OutboundRequestBody::Initialize(body), "initialize")
+            .await?;
+        let init: InitializeResult =
+            serde_json::from_value(value).map_err(|e| AgentError::Decode(e.to_string()))?;
+        *self
+            .initialize_result
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = init.clone();
+        Ok(init)
     }
 }
 
@@ -323,7 +558,7 @@ async fn handshake(
     stdout: &mut StdoutLines,
     options: &Options,
     id_gen: &RequestIdGen,
-) -> Result<Capabilities, AgentError> {
+) -> Result<InitializeResult, AgentError> {
     let id = id_gen.next();
     let request = initialize_request(options, id.as_str());
     let line = encode_line(&request)?;
@@ -347,7 +582,9 @@ async fn handshake(
 }
 
 /// Read frames from `stdout` until the initialize response arrives.
-async fn read_initialize_response(stdout: &mut StdoutLines) -> Result<Capabilities, AgentError> {
+async fn read_initialize_response(
+    stdout: &mut StdoutLines,
+) -> Result<InitializeResult, AgentError> {
     loop {
         match stdout.next_line().await {
             Ok(Some(text)) if text.trim().is_empty() => {}
@@ -355,14 +592,36 @@ async fn read_initialize_response(stdout: &mut StdoutLines) -> Result<Capabiliti
                 if let crate::agent::protocol::InboundFrame::ControlResponse(response) =
                     decode_inbound(&text)?
                 {
-                    return control_response_outcome(response.response, "initialize")
-                        .map(|value| parse_capabilities(&value));
+                    let response_value = control_response_outcome(response.response, "initialize")?;
+                    let init: InitializeResult = serde_json::from_value(response_value)
+                        .map_err(|e| AgentError::Decode(e.to_string()))?;
+                    return Ok(init);
                 }
                 // Ignore any pre-handshake message frames.
             }
             Ok(None) | Err(_) => return Err(AgentError::TransportClosed),
         }
     }
+}
+
+/// Read the capability manifest out of a `system`/`init` message frame.
+///
+/// Returns `None` for every other frame, and for an `init` frame that does
+/// not carry a `capabilities` key. That second case matters because
+/// `Capabilities` is `#[serde(default)]` with no `deny_unknown_fields`, so
+/// `from_value` would otherwise succeed on any object — including one with
+/// no `capabilities` key — and the caller's "replace the stored manifest on
+/// `Some`" pattern would wipe an earlier, populated manifest with an empty
+/// one whenever a later `init` frame omits the field.
+fn capabilities_from_frame(frame: &InboundFrame) -> Option<Capabilities> {
+    let InboundFrame::Message(Message::System(system)) = frame else {
+        return None;
+    };
+    if system.subtype.as_deref() != Some("init") {
+        return None;
+    }
+    system.extra.get("capabilities")?;
+    serde_json::from_value(system.extra.clone()).ok()
 }
 
 /// The single outbound writer: owns stdin, drains pre-encoded lines.
@@ -379,7 +638,12 @@ async fn writer_loop(mut stdin: ChildStdin, mut rx: mpsc::UnboundedReceiver<Stri
 
 /// The background reader: decode each line, dispatch control requests, and
 /// demultiplex everything else.
-async fn reader_loop(mut stdout: StdoutLines, demux: Arc<Demux>, dispatcher: Arc<Dispatcher>) {
+async fn reader_loop(
+    mut stdout: StdoutLines,
+    demux: Arc<Demux>,
+    dispatcher: Arc<Dispatcher>,
+    capabilities: Arc<Mutex<Capabilities>>,
+) {
     loop {
         #[expect(
             clippy::match_same_arms,
@@ -392,10 +656,24 @@ async fn reader_loop(mut stdout: StdoutLines, demux: Arc<Demux>, dispatcher: Arc
             Ok(Some(text)) => match decode_inbound(&text) {
                 Ok(crate::agent::protocol::InboundFrame::ControlRequest(req)) => {
                     // Spawn so a slow handler never stalls the reader.
+                    let Some(cancel) = dispatcher.begin(&req.request_id) else {
+                        continue;
+                    };
                     let dispatcher = Arc::clone(&dispatcher);
-                    tokio::spawn(async move { dispatcher.handle(req).await });
+                    tokio::spawn(async move { dispatcher.handle(req, cancel).await });
                 }
-                Ok(frame) => demux.route(frame).await,
+                Ok(crate::agent::protocol::InboundFrame::KeepAlive(_)) => {
+                    // Liveness only; the official SDK skips it too.
+                }
+                Ok(crate::agent::protocol::InboundFrame::ControlCancelRequest(frame)) => {
+                    dispatcher.cancel(&frame.request_id);
+                }
+                Ok(frame) => {
+                    if let Some(caps) = capabilities_from_frame(&frame) {
+                        *capabilities.lock().unwrap_or_else(PoisonError::into_inner) = caps;
+                    }
+                    demux.route(frame).await;
+                }
                 Err(error) => demux.fail_turn(error).await,
             },
             Ok(None) => {
@@ -430,10 +708,13 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        await_control_response, control_response_outcome, drain_input, user_message_frame,
+        await_control_response, control_response_outcome, drain_input, initialize_body,
+        user_message_frame,
     };
     use crate::agent::error::AgentError;
-    use crate::agent::protocol::ControlResponseBody;
+    use crate::agent::options::Options;
+    use crate::agent::protocol::{ControlResponseBody, OutboundRequestBody};
+    use crate::agent::types::InterruptReceipt;
 
     #[test]
     fn control_response_outcome_maps_success_to_ok() {
@@ -494,6 +775,40 @@ mod tests {
         let value = user_message_frame("hi");
         assert_eq!(value["type"], "user");
         assert_eq!(value["message"]["content"], "hi");
+    }
+
+    #[test]
+    fn reinitialize_frame_carries_initialize_subtype() {
+        let opts = Options::builder().system_prompt("hi").build();
+        let body = initialize_body(&opts);
+        let frame = OutboundRequestBody::Initialize(body);
+        let value = serde_json::to_value(&frame).expect("serialize");
+        assert_eq!(value["subtype"], "initialize");
+        assert_eq!(value["system_prompt"], "hi");
+    }
+
+    #[test]
+    fn interrupt_decode_present_array_yields_some_filtered() {
+        let v = serde_json::json!({"still_queued":["a", 3, "b"]});
+        let r = super::interrupt_receipt_from_value(&v);
+        assert_eq!(
+            r,
+            Some(InterruptReceipt {
+                still_queued: vec!["a".into(), "b".into()]
+            })
+        );
+    }
+
+    #[test]
+    fn interrupt_decode_absent_or_nonarray_yields_none() {
+        assert_eq!(
+            super::interrupt_receipt_from_value(&serde_json::json!({})),
+            None
+        );
+        assert_eq!(
+            super::interrupt_receipt_from_value(&serde_json::json!({"still_queued":5})),
+            None
+        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -581,5 +896,108 @@ mod tests {
         assert!(first.contains("\"content\":\"a\""));
         assert!(second.contains("\"content\":\"b\""));
         assert!(rx.recv().await.is_none());
+    }
+
+    #[test]
+    fn init_frame_populates_the_capability_manifest() {
+        // The manifest arrives on the system/init MESSAGE frame, not on the
+        // initialize control response. Parsing the control response — what
+        // the crate did before — can never populate it.
+        let line = r#"{"type":"system","subtype":"init","session_id":"s1","capabilities":["interrupt_receipt_v1","msg_lifecycle_v1"]}"#;
+        let frame = crate::agent::protocol::decode_inbound(line).expect("decode");
+        let caps = super::capabilities_from_frame(&frame).expect("init frame carries a manifest");
+        assert!(caps.supports("interrupt_receipt_v1"));
+        assert!(caps.supports("msg_lifecycle_v1"));
+    }
+
+    #[test]
+    fn non_init_frames_carry_no_manifest() {
+        let line = r#"{"type":"system","subtype":"other","session_id":"s1"}"#;
+        let frame = crate::agent::protocol::decode_inbound(line).expect("decode");
+        assert!(super::capabilities_from_frame(&frame).is_none());
+    }
+
+    // `capabilities_from_frame` extracting a manifest correctly in isolation
+    // (the two tests above) says nothing about whether `reader_loop` actually
+    // stores what it extracts, or whether a second frame missing the key
+    // erases an earlier, populated manifest — that composed behavior lives
+    // in `reader_loop` itself, so it is pinned by driving `reader_loop`
+    // directly below rather than reimplementing its store-on-`Some` pattern
+    // here (a reimplementation would stay green even if `reader_loop`
+    // regressed to an unconditional `unwrap_or_default()` write).
+    //
+    // `reader_loop` needs a genuine `ChildStdout` (`StdoutLines` only wraps
+    // one), so a live subprocess is unavoidable here; the crate's own
+    // `claude`-CLI-lookalike test child (`clauders-agent-testchild`) is not
+    // reachable from this file — its `CARGO_BIN_EXE_*` path is only set for
+    // integration tests under `tests/`, not for a unit test module inside
+    // `src/`. `cat` stands in instead: a real child process that echoes the
+    // frames written to its stdin back out on its stdout, unmodified, which
+    // is all `reader_loop` needs from the far end of the pipe.
+    //
+    // This test asserts on the locally-built `Arc<Mutex<Capabilities>>`, not
+    // on `CliRuntime::capabilities()` or `connect()`'s own `Arc::clone` into
+    // the reader task — `CliRuntime::connect` is `pub` and reachable from an
+    // integration test with `CARGO_BIN_EXE_*` available, so that half of the
+    // wiring is covered separately by
+    // `tests/agent_capabilities.rs::connect_drives_the_init_frame_into_the_public_capabilities_accessor`,
+    // which drives the real `connect()` and reads `capabilities()` back.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn reader_loop_stores_first_init_frame_and_a_keyless_second_frame_does_not_erase_it() {
+        use std::sync::{Arc, Mutex};
+
+        use tokio::io::AsyncWriteExt;
+
+        use super::{Capabilities, Demux, Dispatcher, reader_loop};
+        use crate::agent::hooks::HookRegistry;
+        use crate::agent::mcp::SdkMcpRegistry;
+        use crate::agent::process::{ManagedProcess, ProcessConfig, ProcessIo};
+
+        let (_proc, io) = ManagedProcess::spawn(&ProcessConfig::new("cat")).expect("spawn cat");
+        let ProcessIo {
+            mut stdin, stdout, ..
+        } = io;
+
+        let (out_tx, _out_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+        let dispatcher = Arc::new(Dispatcher::new(
+            Arc::new(HookRegistry::default()),
+            None,
+            None,
+            Arc::new(SdkMcpRegistry::default()),
+            out_tx,
+        ));
+        let demux = Arc::new(Demux::new());
+        let capabilities = Arc::new(Mutex::new(Capabilities::default()));
+
+        let reader = tokio::spawn(reader_loop(
+            stdout,
+            Arc::clone(&demux),
+            dispatcher,
+            Arc::clone(&capabilities),
+        ));
+
+        let first = r#"{"type":"system","subtype":"init","session_id":"s1","capabilities":["interrupt_receipt_v1"]}"#;
+        let second = r#"{"type":"system","subtype":"init","session_id":"s2"}"#;
+        stdin
+            .write_all(format!("{first}\n{second}\n").as_bytes())
+            .await
+            .expect("write init frames");
+        stdin.flush().await.expect("flush");
+        drop(stdin); // EOF -> cat exits -> reader_loop sees Ok(None) and returns.
+
+        tokio::time::timeout(Duration::from_secs(5), reader)
+            .await
+            .expect("reader_loop did not finish within the deadline")
+            .expect("reader_loop task panicked");
+
+        let caps = capabilities
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        assert!(
+            caps.supports("interrupt_receipt_v1"),
+            "the second, key-less init frame must not erase the manifest the first frame stored"
+        );
     }
 }
