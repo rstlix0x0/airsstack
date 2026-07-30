@@ -96,3 +96,59 @@ path             = "examples/messages/10_batches/main.rs"
 [[example]]
 name             = "11_coding_agent"
 path             = "examples/messages/11_coding_agent/main.rs"
+
+[[example]]
+name             = "agent_01_query"
+path             = "examples/agent/01_query/main.rs"
+
+[[example]]
+name             = "agent_02_options"
+path             = "examples/agent/02_options/main.rs"
+
+[[example]]
+name             = "agent_03_session"
+path             = "examples/agent/03_session/main.rs"
+
+[[example]]
+name             = "agent_04_partial_streaming"
+path             = "examples/agent/04_partial_streaming/main.rs"
+
+[[example]]
+name             = "agent_05_permissions"
+path             = "examples/agent/05_permissions/main.rs"
+
+[[example]]
+name             = "agent_06_hooks"
+path             = "examples/agent/06_hooks/main.rs"
+
+[[example]]
+name             = "agent_07_mcp_tools"
+path             = "examples/agent/07_mcp_tools/main.rs"
+
+[[example]]
+name             = "agent_08_structured_output"
+path             = "examples/agent/08_structured_output/main.rs"
+
+[[example]]
+name             = "agent_09_startup_options"
+path             = "examples/agent/09_startup_options/main.rs"
+
+[[example]]
+name             = "agent_10_subagents"
+path             = "examples/agent/10_subagents/main.rs"
+
+[[example]]
+name             = "agent_11_streaming_input"
+path             = "examples/agent/11_streaming_input/main.rs"
+
+[[example]]
+name             = "agent_12_live_control"
+path             = "examples/agent/12_live_control/main.rs"
+
+[[example]]
+name             = "agent_13_sessions"
+path             = "examples/agent/13_sessions/main.rs"
+
+[[example]]
+name             = "agent_14_agent_console"
+path             = "examples/agent/14_agent_console/main.rs"
