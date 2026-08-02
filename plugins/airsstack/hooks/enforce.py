@@ -273,11 +273,21 @@ def marker_active(file_path, markers, cwd=None):
     return marker_active_in(start, markers)
 
 
-def pointer(stack, skill):
+def pointer(stack, skill, phase):
+    """Injected text for one stack:phase.
+
+    The two phases ask for different things. Code phase runs a build, so the
+    Definition of Done applies. A design doc is a spec or plan with nothing to
+    build, so naming the Definition of Done there is a demand the reader cannot
+    satisfy; only the architecture rules can shape a design.
+    """
+    if phase == "design":
+        tail = "apply its architecture rules to this design."
+    else:
+        tail = "apply its rules (Definition of Done + architecture)."
     return (
         stack + " work is in play. The " + skill + " skill is MANDATORY for "
-        "this work \u2014 load it now via Skill before proceeding, and apply its "
-        "rules (Definition of Done + architecture)."
+        "this work \u2014 load it now via Skill before proceeding, and " + tail
     )
 
 
@@ -444,7 +454,7 @@ def resolve(file_path, cwd, session_id, agent, registry=None, home=None, trace=N
             note("%s: sentinel claimed concurrently" % key)
             continue
         note("%s: EMIT %s" % (key, bound["skill"]))
-        pointers.append(pointer(bound["stack"], bound["skill"]))
+        pointers.append(pointer(bound["stack"], bound["skill"], phase))
     return pointers
 
 
