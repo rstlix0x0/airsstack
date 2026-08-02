@@ -32,11 +32,9 @@ Rules of the gate:
   only in test code passes silently. The zero-warning bar covers test code too.
 - **Doctests count, and need a separate `--doc` run.** `--all-targets` *excludes* doctests, so they
   are invoked explicitly with `cargo test --all-features --doc`. A failing doctest fails the gate.
-- **`--all-features` is mandatory for the test run, never optional.** Plain `cargo test` /
-  `cargo test -p <crate>` / `cargo test --workspace` compiles only the default features and
-  **silently skips** every `#[cfg(feature = "…")]`-gated test (e.g. the `__test-mocks` mock and
-  integration tests). A green default-feature run is NOT a passing gate; only `--all-features` runs
-  count.
+- **`--all-features` is carried for forward-safety, not because a feature gate exists.** No crate in
+  this workspace declares Cargo `[features]`, so today the flag equals the default build. Keep it in
+  every command so the gate stays correct the day a feature is added.
 - **Scope to the touched crate** with `-p <crate>` during development; widen to the full workspace
   before release.
 - No change lands with a `#[allow(...)]` added to silence the gate. Use `#[expect(...)]` with a reason
