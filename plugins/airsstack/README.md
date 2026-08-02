@@ -36,7 +36,7 @@ Agents are leaves — they never spawn other agents. Chaining lives in `orchestr
 | --- | --- |
 | `orchestrate` | Drives `explorer → coder → reviewer → verifier → user` per task; routes findings through the orchestrator; the user is the only commit gate. |
 | `process-guidelines` | Conventional Commits (workspace-aware scope), model-routing, and the agent-orchestration flow. |
-| `concise` | Verbosity-reduction mode (lite / full / ultra). Clean professional terseness, not caveman-speak; persists across the session. Inspired by the [caveman](https://github.com/juliusbrussee/caveman) plugin — see [Attribution](#attribution). |
+| `concise` | Verbosity-reduction mode (lite / full / ultra). Clean professional terseness that persists across the session. See [Attribution](#attribution). |
 | `snapshot-load` | Reads the project-local snapshot(s) and reports the rehydrated state. No-arg loads the current branch's latest; an explicit topic does a branch-agnostic topic search. |
 | `snapshot-save` | Captures a conversation snapshot (session summary + key snippets) into the project-local snapshot store, with a durability gate so thin sessions write nothing. No-arg captures the whole session; an explicit topic focuses the capture and tags it. |
 
@@ -44,7 +44,7 @@ Agents are leaves — they never spawn other agents. Chaining lives in `orchestr
 
 - `SessionStart` (startup / resume / clear) → nudge to run `/airsstack:snapshot-load`.
 - `SessionEnd` → nudge to run `/airsstack:snapshot-save`.
-- `UserPromptSubmit` → re-inject the active `concise` level each turn (persistent terse mode; no-op
+- `UserPromptSubmit` → re-inject the active `concise` level each turn (persistent concise mode; no-op
   when no level is active).
 
 The session hooks **nudge only** — you (the model) keep the selection and durability judgment.
