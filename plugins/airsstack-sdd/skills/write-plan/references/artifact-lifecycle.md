@@ -5,31 +5,14 @@ delete. Under the SDD layout no artifact lives in git history — RFCs sit under
 git-ignored `.airsstack/` tree, specs and plans in the HOME-global store outside any repo —
 so plan deletion is irreversible — read this before removing any plan.
 
-## Why this matters
-
-Once multiple objectives are in flight, a flat artifact directory stops being scannable:
-you cannot tell which plan belongs to which spec, which work is in-progress versus
-complete, or which plans are safe to clean up. And without a deletion policy, plans
-accumulate as dead scaffolding long after the work they described has shipped. This
-document fixes both problems: it defines what granularity artifacts should have and when
-plans may be removed.
-
 ## Where artifacts live
 
-SDD artifacts live under **two roots**, defined in
-`../../../references/artifact-paths.md` (the prose single source of truth for these
-paths). In summary:
+`../../../references/artifact-paths.md` is the single source of truth for the two roots,
+the per-repo `<key>`, and every artifact's directory and naming. Read the paths there, not
+here.
 
-- RFCs → the worktree-local `rfcs/` directory (human-authored input, read-only to the
-  plugin; transient, not shared across worktrees)
-- Specs → the HOME-global `specs/` directory (`YYYY-MM-DD-<topic>.md`)
-- Plans → the HOME-global `plans/` directory (`YYYY-MM-DD-<topic>.md`)
-- Archived plans → the HOME-global `plans/_archive/` directory
-
-The HOME-global root is keyed per repo and shared across every worktree of that repo, so
-a spec or plan written from one worktree is visible to all of them and survives worktree
-teardown. Any sub-directory layout beyond this — organising artifacts by component,
-package, or domain — is a project-local choice and is not imposed here. Keep the
+Any sub-directory layout beyond that scheme — organising artifacts by component, package,
+or domain — is a project-local choice and is not imposed here. Keep the
 `YYYY-MM-DD-<topic>` naming so it stays the scannable identifier.
 
 ## Specs are durable, plans are derived
@@ -111,20 +94,5 @@ be recovered from git history. Deletion is permanent. Therefore:
   the construction trail intact.
 - Before deleting outright, get explicit confirmation from whoever owns the work.
 - Never delete plans in an automated sweep. The decision is made once per spec, by a
-  person, after all three gates pass.
-
-## Anti-patterns
-
-- A plan file whose goal sentence contains "and" joining two distinct outcomes — it
-  carries two objectives and cannot be cleanly deleted or reviewed as one unit. Split it.
-- Deleting a plan whose spec still has unmerged amendments or undocumented decisions — the
-  plan is the only record of those decisions until they are folded back into a committed
-  location.
-- An automatic "delete all completed plans" sweep — deletion is per-spec, confirmed,
-  deliberate.
-- Deleting rather than archiving when recall value is unclear — git history cannot recover
-  an ignored file.
-- Skipping the three-gate check because the work "obviously shipped" — the gates exist
-  precisely for cases that feel obvious.
-- Editing, moving, or deleting a file under `rfcs/` — RFCs are human-owned input the
-  plugin only reads.
+  person, after all three gates pass — including when the work "obviously shipped", which
+  is precisely the case the gates exist for.

@@ -41,21 +41,11 @@ Execute each task in the `TodoWrite` list in order. For each:
 
 1. Mark the task `in_progress`.
 2. Drive the implementation through `airsstack:orchestrate` (or inline, if degraded). Provide the orchestrate skill with the task description, its acceptance criteria, and the verifications the plan names.
-3. Run every verification the plan specifies for this task. Do not skip verifications because a prior task was clean — each task's verification is independent.
-4. Conduct the review checkpoint (see the section below) and surface the outcome to the user.
+3. Run every verification the plan specifies for this task.
+4. Pause and surface the result to the user before moving on: what changed (which files, what behavior), each verification's outcome with evidence, and — when driven through `airsstack:orchestrate` — the reviewer and verifier reports from inside that skill, so the user sees the full picture rather than a summary of it.
 5. Only when the task passes its review and verification, mark it `completed` and move to the next.
 
-Do not start the next task until the current one is marked complete. A task that fails verification is not complete.
-
-## Review checkpoints
-
-Pause after each task and surface the result before moving on. Show the user:
-
-- A summary of what changed (what files, what behavior).
-- The outcome of the verifications the plan specified (pass or fail, with evidence).
-- When driven through `airsstack:orchestrate`, the reviewer and verifier reports from inside that skill — surface them here so the user sees the full picture, not just a summary.
-
-If the plan designates explicit checkpoint boundaries (for example, "pause for user review after tasks 1–3"), honor those as hard stops. Present all accumulated results for that batch and wait for the user to say "continue" before proceeding.
+Do not start the next task until the current one is marked complete. A task that fails verification is not complete. If the plan designates explicit checkpoint boundaries (for example, "pause for user review after tasks 1–3"), honor those as hard stops: present all accumulated results for that batch and wait for the user to say "continue" before proceeding.
 
 ## When to stop and ask
 
@@ -70,11 +60,6 @@ Ask one focused question that unblocks you. Do not enumerate all possible concer
 
 ## Completion
 
-After every task in the plan passes its review and verification, the work is ready for a human decision. Present to the user:
+When every task has passed, present the whole run — what was built or changed task by task, the plan verifications and their evidence, the full reviewer and verifier reports (or the inline evidence, on the degraded path), and any deviation from the plan and how it was resolved.
 
-- A summary of everything that was built or changed, task by task.
-- Confirmation that all plan verifications passed.
-- The full reviewer and verifier reports (or the inline verification evidence if the degraded path was used).
-- Any deviations from the plan that arose during execution and how they were resolved.
-
-Then wait. The user decides whether to commit, merge, or open a pull request. Do not auto-commit, do not auto-merge, and do not auto-push. Presenting the work and stepping back is the correct terminal state for this skill. The commit gate belongs to the user.
+Then wait. The user decides whether to commit, merge, or open a pull request. Do not auto-commit, do not auto-merge, and do not auto-push — the commit gate belongs to the user.
