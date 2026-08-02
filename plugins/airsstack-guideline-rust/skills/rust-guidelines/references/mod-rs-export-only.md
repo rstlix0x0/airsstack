@@ -36,35 +36,6 @@ Optional but encouraged:
 
 Keep the block tight. Aim for 5–15 lines of doc, not a treatise. The goal is *orientation* — readers absorb the shape, then open the sibling file or the rule for depth.
 
-### Canonical doc block
-
-```rust
-//! Storage boundary the service reads and writes records through.
-//!
-//! Exists as its own module so the trait can sit behind a feature flag
-//! (`storage-sql`) and so test code can swap a mock implementation
-//! at compile time without paying for dyn dispatch on every call.
-//! The trait is one of the few documented `Box<dyn …>` exceptions in this
-//! crate — see the static-dispatch rule for the justified-exceptions list.
-//!
-//! Responsibilities:
-//! - Define [`Storage`] (the user-extension seam) and [`RecordStream`]
-//!   (the incremental result type all implementations return).
-//! - Ship the default [`SqlStorage`] implementation behind the
-//!   `storage-sql` feature.
-//! - Provide the `mockall`-generated `MockStorage` behind the
-//!   private `__test-mocks` feature.
-//!
-//! Not responsible for:
-//! - Interpreting database error codes — driver errors surface as `Ok`;
-//!   the layer above maps them to domain errors.
-//! - Retry, backoff, or connection-pool management — those live in `repo::retry`.
-//!
-//! Entry point: [`Storage::save`].
-```
-
-The block answers all four required questions, references the rule that justifies its trait-object exception, and points the reader at the one method that matters. A new contributor reading just this comment knows what the module is, why it isn't merged into its parent, where to find each concrete item, and what *not* to expect from it.
-
 ### When the rule does not apply
 
 Skip the "why exists / responsibilities" structure on:
@@ -93,66 +64,7 @@ When in doubt, split. Re-merging later is mechanical; un-mixing a 400-line `mod.
 
 ## Canonical shape
 
-### Before (rejected by review)
-
-```rust
-// crates/foo/src/storage/mod.rs
-//! Storage layer.
-
-use futures_core::Stream;
-use std::pin::Pin;
-use crate::error::StorageError;
-
-pub type RecordStream =
-    Pin<Box<dyn Stream<Item = Result<Vec<u8>, StorageError>> + Send + 'static>>;
-
-#[async_trait::async_trait]
-pub trait Storage: Send + Sync + 'static {
-    async fn save(&self, key: &str, value: Vec<u8>)
-        -> Result<(), StorageError>;
-}
-
-#[cfg(feature = "__test-mocks")]
-mockall::mock! { /* ... lots of macro body ... */ }
-```
-
-Three concerns (typedef, trait, mock) crammed into one file. `mod.rs` is doing concrete work.
-
-### After (correct)
-
-```rust
-// crates/foo/src/storage/mod.rs
-//! Storage layer.
-//!
-//! `Storage` is the user-extension seam; `RecordStream` is the
-//! incremental result type all implementations return.
-
-pub mod stream;
-pub mod seam;
-
-#[cfg(feature = "storage-sql")]
-#[cfg_attr(docsrs, doc(cfg(feature = "storage-sql")))]
-pub mod sql_impl;
-
-#[cfg(feature = "__test-mocks")]
-#[cfg_attr(docsrs, doc(cfg(feature = "__test-mocks")))]
-pub mod mock;
-
-pub use stream::RecordStream;
-pub use seam::Storage;
-
-#[cfg(feature = "storage-sql")]
-pub use sql_impl::SqlStorage;
-```
-
-```rust
-// crates/foo/src/storage/stream.rs — single typedef + its imports.
-// crates/foo/src/storage/seam.rs  — the trait + its imports.
-// crates/foo/src/storage/mock.rs  — the mockall::mock! invocation.
-// crates/foo/src/storage/sql_impl.rs — the concrete impl.
-```
-
-The `mod.rs` is a five-second read. Each sibling owns one concept.
+A correct `mod.rs` is a five-second read — the `//!` block, `mod` declarations (cfg-gated and `#[doc(cfg(…))]`-annotated where applicable), and the `pub use` re-exports, with each sibling file named after the single concept it owns.
 
 ## How this interacts with `pub use` flattening
 
