@@ -17,7 +17,6 @@ fix the flow so every delegated change passes through review and through the use
 | `explorer` | haiku | Read-only locator; finds and maps code. Refuses judgment. |
 | `coder` | sonnet | Executes one scoped task with strict TDD, runs the DoD, leaves changes in the tree. Never commits. |
 | `reviewer` | opus | Re-runs the DoD, reviews the diff for correctness + style, AND reviews against the spec/plan intent. Report-only. |
-| `verifier` | opus | Audits the accumulated claims against ground truth; emits a VERIFIED/REFUTED/UNCONFIRMED ledger. Report-only, once at the gate. |
 
 ## Agents are leaves
 
@@ -33,11 +32,8 @@ fix the flow so every delegated change passes through review and through the use
 3. **Review.** On the coder's receipt, spawn `reviewer` over the diff — one report covering the DoD,
    code correctness/style, and spec/plan compliance.
 4. **Fix loop.** Findings route back through the orchestrator to a fresh coder. Repeat 3–4 until clean.
-5. **Verify.** Reviews clean → spawn `verifier` ONCE over the accumulated coder + reviewer receipts. A
-   REFUTED claim routes back through the orchestrator to a fresh coder (return to step 3). The verifier
-   never fixes.
-6. **Commit gate.** The orchestrator shows the USER the diff + reviewer findings + the verifier ledger
-   and waits for explicit approval. No agent commits.
+5. **Commit gate.** The orchestrator shows the USER the diff + the reviewer's report and waits for
+   explicit approval. No agent commits.
 
 ## Selective delegation
 
@@ -78,8 +74,6 @@ on it.
   `Agent` tool.
 - A coder diff going straight to commit without a review pass.
 - A reviewer that edits files or proposes large refactors instead of reporting.
-- The verifier proposing fixes, or marking an unverifiable claim VERIFIED to be agreeable. It audits; it
-  does not edit.
 - Any agent running `git commit`. The user is the commit gate.
-- Reaching the commit gate without running the verifier — the user then has only the agents' word that
-  the work is real.
+- Treating the coder's "DoD green" as the check. The reviewer re-runs the DoD itself; that independent
+  run is what the commit gate rests on.

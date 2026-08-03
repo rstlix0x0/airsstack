@@ -19,14 +19,14 @@ All components are namespaced `airsstack:<name>`.
 
 ## Agents
 
-Spawned by the `orchestrate` skill (or directly via the Agent tool). Each pins its model tier.
+Spawned by the `orchestrate` skill (or directly via the Agent tool). Each pins its model tier and
+effort level in frontmatter.
 
-| Agent | Model | Role |
+| Agent | Model / effort | Role |
 | --- | --- | --- |
-| `coder` | sonnet | Executes one scoped task with strict TDD, runs the active guideline DoD, never commits. |
-| `reviewer` | opus | Re-runs the DoD and reviews the diff for style + correctness + spec/plan intent. Report-only. |
-| `verifier` | opus | Audits the phase's accumulated claims against ground truth; emits a VERIFIED/REFUTED/UNCONFIRMED ledger. Report-only. |
-| `explorer` | haiku | Read-only locator: returns `file:line` for "where is X". Refuses judgment. |
+| `coder` | sonnet · high | Executes one scoped task with strict TDD, runs the active guideline DoD, never commits. |
+| `reviewer` | opus · high | Re-runs the DoD and reviews the diff for style + correctness + spec/plan intent. Report-only. |
+| `explorer` | haiku · low | Read-only locator: returns `file:line` for "where is X". Refuses judgment. |
 
 Agents are leaves — they never spawn other agents. Chaining lives in `orchestrate`.
 
@@ -34,7 +34,7 @@ Agents are leaves — they never spawn other agents. Chaining lives in `orchestr
 
 | Skill | Purpose |
 | --- | --- |
-| `orchestrate` | Drives `explorer → coder → reviewer → verifier → user` per task; routes findings through the orchestrator; the user is the only commit gate. |
+| `orchestrate` | Drives `explorer → coder → reviewer → user` per task; routes findings through the orchestrator; the user is the only commit gate. |
 | `process-guidelines` | Conventional Commits (workspace-aware scope), model-routing, and the agent-orchestration flow. |
 | `concise` | Verbosity-reduction mode (lite / full / ultra). Clean professional terseness that persists across the session. See [Attribution](#attribution). |
 | `snapshot-load` | Reads the project-local snapshot(s) and reports the rehydrated state. No-arg loads the current branch's latest; an explicit topic does a branch-agnostic topic search. |

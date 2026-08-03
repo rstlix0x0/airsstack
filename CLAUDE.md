@@ -93,7 +93,7 @@ plugin skills and references — invoke the relevant skill rather than expecting
 
 | Plugin | What it provides |
 |---|---|
-| `airsstack` | coder, reviewer, verifier, explorer; orchestration driver; process guidelines; project-local snapshot memory; concise output mode |
+| `airsstack` | coder, reviewer, explorer; orchestration driver; process guidelines; project-local snapshot memory; concise output mode |
 | `airsstack-sdd` | spec-driven workflow: `brainstorm` → `write-plan` → `execute-plan` |
 | `airsstack-guideline-rust` | Rust engineering guidelines and the Definition of Done |
 | `airsstack-journal` | Obsidian-compatible journal vault kept outside the repo, written by isolated subagents |

@@ -24,7 +24,7 @@ If the current branch is `main` or `master`, stop immediately. Tell the user whi
 
 ## Execution engine — soft coupling to `airsstack:orchestrate`
 
-For each task, the preferred execution path is to drive it through the `airsstack:orchestrate` skill. That skill runs the full coder → reviewer → verifier pipeline, handles the fix loop, and holds a per-task commit gate. You hand it one scoped task at a time; it returns a reviewed, verified result.
+For each task, the preferred execution path is to drive it through the `airsstack:orchestrate` skill. That skill runs the full coder → reviewer pipeline, handles the fix loop, and holds a per-task commit gate. You hand it one scoped task at a time; it returns a reviewed result.
 
 If `airsstack:orchestrate` does not resolve — because the `airsstack` main plugin is not installed — degrade gracefully to **guided inline execution**:
 
@@ -42,7 +42,7 @@ Execute each task in the `TodoWrite` list in order. For each:
 1. Mark the task `in_progress`.
 2. Drive the implementation through `airsstack:orchestrate` (or inline, if degraded). Provide the orchestrate skill with the task description, its acceptance criteria, and the verifications the plan names.
 3. Run every verification the plan specifies for this task.
-4. Pause and surface the result to the user before moving on: what changed (which files, what behavior), each verification's outcome with evidence, and — when driven through `airsstack:orchestrate` — the reviewer and verifier reports from inside that skill, so the user sees the full picture rather than a summary of it.
+4. Pause and surface the result to the user before moving on: what changed (which files, what behavior), each verification's outcome with evidence, and — when driven through `airsstack:orchestrate` — the reviewer's report from inside that skill, so the user sees the full picture rather than a summary of it.
 5. Only when the task passes its review and verification, mark it `completed` and move to the next.
 
 Do not start the next task until the current one is marked complete. A task that fails verification is not complete. If the plan designates explicit checkpoint boundaries (for example, "pause for user review after tasks 1–3"), honor those as hard stops: present all accumulated results for that batch and wait for the user to say "continue" before proceeding.
@@ -60,6 +60,6 @@ Ask one focused question that unblocks you. Do not enumerate all possible concer
 
 ## Completion
 
-When every task has passed, present the whole run — what was built or changed task by task, the plan verifications and their evidence, the full reviewer and verifier reports (or the inline evidence, on the degraded path), and any deviation from the plan and how it was resolved.
+When every task has passed, present the whole run — what was built or changed task by task, the plan verifications and their evidence, the full reviewer report (or the inline evidence, on the degraded path), and any deviation from the plan and how it was resolved.
 
 Then wait. The user decides whether to commit, merge, or open a pull request. Do not auto-commit, do not auto-merge, and do not auto-push — the commit gate belongs to the user.

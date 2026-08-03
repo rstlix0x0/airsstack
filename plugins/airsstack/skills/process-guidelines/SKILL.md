@@ -17,11 +17,9 @@ load-bearing one-liners; the detail lives in `references/` and is read on demand
   Scope is your own package/member name (or `workspace` / `repo` for cross-cutting changes). Imperative
   mood, subject ≤72 chars, body explains *why*. Every commit passes the stack's Definition of Done on
   its own. → `references/conventional-commits.md`
-- **Model routing** for delegated agents: **Opus** judges (review, debug, analyze, design, verify),
-  **Sonnet** executes (write, edit, run, apply a known plan), **Haiku** for narrow non-judgment trivia
-  only (locate, summarize a grep, draft a commit message from a staged diff). Pin the tier explicitly on
-  every delegated coding/review/thinking agent; never downgrade judgment to save tokens.
-  → `references/model-routing.md`
+- **Model routing** for delegated agents: **Opus** judges, **Sonnet** executes, **Haiku** for
+  non-judgment trivia. Set `model:` and `effort:` explicitly on every delegated agent; lower `effort`
+  to save tokens, never the tier. → `references/model-routing.md`
 - **Agent orchestration**: agents are **leaves** (no agent spawns another); the chain runs FLAT on the
   main thread; findings route back through the orchestrator to a fresh coder; the user is the sole commit
   gate. The operational driver is the `orchestrate` skill. → `references/agent-orchestration.md`
