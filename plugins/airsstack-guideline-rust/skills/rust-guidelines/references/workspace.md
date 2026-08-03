@@ -82,7 +82,7 @@ For `crates.io`-publishable members, the workspace-deps form must include both `
 
 **Gotcha — `path` in `[workspace.dependencies]` is relative to the workspace root, not the member.** Declare it as `some-lib = { path = "crates/some-lib" }` (from the root), *not* `../some-lib` (which is what a bare member-level path dep uses, relative to the member). Cargo resolves the inherited `path` from the directory of the file that *defines* it — the workspace root. Mixing the two up makes `cargo metadata` fail to resolve the member. Only the crates actually depended upon need an entry; a top-level crate that nothing else imports needs none.
 
-The build/lint/test gate lives in the strict-quality reference; `cargo` commands without `-p` operate on `default-members` (if set) or the whole workspace.
+The build/lint/test gate lives in `../SKILL.md` § Definition of Done; `cargo` commands without `-p` operate on `default-members` (if set) or the whole workspace.
 
 ## Publishing order
 
