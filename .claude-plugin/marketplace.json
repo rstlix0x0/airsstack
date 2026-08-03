@@ -9,7 +9,7 @@
     {
       "name": "airsstack",
       "source": "./plugins/airsstack",
-      "description": "Execution engine: a TDD coder, a merged code+spec reviewer, a claim verifier, and a read-only explorer, plus an orchestration driver, process guidelines, project-local memory, and a concise output mode (inspired by the caveman plugin, github.com/juliusbrussee/caveman)."
+      "description": "Execution engine: a TDD coder, a merged code+spec reviewer, and a read-only explorer, plus an orchestration driver, process guidelines, project-local memory, and a concise response mode (inspired by the caveman plugin, github.com/juliusbrussee/caveman)."
     },
     {
       "name": "airsstack-sdd",

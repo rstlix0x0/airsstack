@@ -58,6 +58,8 @@ Read the one that matches your task:
   exceptions; why `Arc<Inner>` for cheap-`Clone` services is not a trait-object pattern.
 - `references/mod-rs-export-only.md` — `mod.rs`/`lib.rs` are table-of-contents only (module docs +
   `mod`/`pub use`); implementation lives in sibling files named after the item.
+- `references/modularity.md` — one responsibility per unit, one canonical type per concept: the
+  God-object gate and the duplicate-type gate.
 - `references/doc-comment-discipline.md` — rustdoc and `//` comments target downstream engineers; no
   internal planning paths, plan/phase identifiers, workflow vocabulary, or AI/agent names in source.
 - `references/unit-test-mandate.md` — every logic-bearing `src/*.rs` ships colocated
