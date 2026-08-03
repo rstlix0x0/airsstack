@@ -6,8 +6,11 @@ This rule reinforces `M-STATIC-VERIFICATION` and `M-LINT-OVERRIDE-EXPECT` from t
 
 ## Zero warnings — everywhere
 
-- `cargo build` MUST produce zero warnings on every target.
-- `cargo clippy` MUST produce zero warnings (including pedantic categories enabled by `clippy.toml`).
+- Compilation MUST produce zero warnings on every target. `cargo clippy -- -D warnings` enforces
+  this for rustc warnings as well as clippy lints, which is why the gate has no separate
+  `cargo build` step.
+- `cargo clippy` MUST produce zero warnings (including the pedantic and nursery categories the
+  workspace lint table enables).
 - `cargo doc` MUST produce zero warnings (no broken intra-doc links, no missing docs on public items).
 - `rustdoc` warnings count as build warnings. Treat `[broken_intra_doc_links]`, `[missing_docs]`, `[private_intra_doc_links]` as errors.
 
@@ -17,28 +20,17 @@ Prefer **flag-based** enforcement over source-level `#![deny(warnings)]`:
 
 - CI passes `RUSTFLAGS="-D warnings"` and `RUSTDOCFLAGS="-D warnings"`.
 - `cargo clippy -- -D warnings` in CI and pre-commit.
-- Per-crate `lints` table in `Cargo.toml` (Cargo ≥ 1.74) is acceptable for repo-wide lint policy:
-
-  ```toml
-  [workspace.lints.rust]
-  unsafe_code = "deny"
-  missing_docs = "warn"
-  rust_2018_idioms = { level = "warn", priority = -1 }
-
-  [workspace.lints.clippy]
-  all = { level = "warn", priority = -1 }
-  pedantic = { level = "warn", priority = -1 }
-  nursery = { level = "warn", priority = -1 }
-  cargo = { level = "warn", priority = -1 }
-  ```
-
-  Then each crate opts in with `[lints] workspace = true`.
+- A `[workspace.lints]` table in the root `Cargo.toml` (Cargo ≥ 1.74) is the repo-wide lint policy;
+  each crate opts in with `[lints] workspace = true`. This workspace's root manifest is the
+  authoritative list — read `Cargo.toml` rather than any copy of it. Notable entries:
+  `unsafe_code = "forbid"`, `unused_must_use = "deny"`, and on the clippy side `unwrap_used`,
+  `panic`, and `dbg_macro` all `"deny"`, with `pedantic` and `nursery` at `"warn"`.
 
 - Do NOT use `#![deny(warnings)]` in source. Toolchain bumps introduce new lints; a source-level deny turns every `cargo update` of `rustc` into a breaking build. Flag-based denials live in CI / `Cargo.toml` lints table where they can be relaxed for a release without touching code.
 
 ### Lint suppressions
 
-Suppression of any lint requires `#[expect(lint_name, reason = "...")]` (per `M-LINT-OVERRIDE-EXPECT`). `#[allow]` is reserved for cases where the lint fires conditionally (feature-gated code) and `#[expect]` would itself warn. Every suppression carries a `reason = "..."` string; reviews reject suppressions without one.
+Suppression of any lint requires `#[expect(lint_name, reason = "...")]` (per `M-LINT-OVERRIDE-EXPECT`). `#[allow]` is reserved for the case where the lint fires only under some build configurations, so `#[expect]` would itself warn in the others — a situation this featureless workspace does not currently produce. Every suppression carries a `reason = "..."` string; reviews reject suppressions without one.
 
 ## All tests green — including doctests
 
@@ -57,20 +49,9 @@ Skipped or ignored tests need a `// reason: ...` comment and a tracking issue li
 
 ## Definition of Done
 
-A Rust change is complete when ALL of these pass on a clean checkout (no cached `target/`):
-
-```bash
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
-cargo test  --workspace --all-targets --all-features   # single all-on test run
-cargo test  --workspace --all-features --doc           # doctests
-```
-
-Scope note: when a change touches a single crate, scope the test runs to it
-(`-p <crate>`) instead of `--workspace` — there is no value re-testing an
-untouched member. Reserve the `--workspace` form for changes that actually
-cross crates.
+The command set lives in `../SKILL.md` § Definition of Done (the gate) — one canonical copy, so this
+file states the policy and never restates the commands. A change is complete when every command
+there exits `0` with no warnings on a clean checkout (no cached `target/`).
 
 Optional but recommended before merging significant changes:
 
