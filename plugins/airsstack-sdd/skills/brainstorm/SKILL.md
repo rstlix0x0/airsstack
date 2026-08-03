@@ -15,7 +15,7 @@ Do NOT invoke any implementation skill, write code, or scaffold anything until y
 
 Work through these steps in order. Create a `TodoWrite` item for each step so progress is visible.
 
-1. **Explore project context.** Read relevant files, docs, and recent commits to understand the codebase, its conventions, and what already exists. Do not design in a vacuum. **Check for RFCs:** an engineer may have dropped an RFC into the SDD `rfcs/` directory (location in `../../references/artifact-paths.md`) as design input. If the user explicitly named an RFC — by path or filename — load it as primary design input; if that named file is missing, report the path and ask for a correct reference rather than guessing. Otherwise auto-scan `rfcs/` for any files: if it holds RFCs, surface them and ask which (if any) are relevant before proceeding; if it is empty or absent, proceed normally with no RFC prompt. RFCs are read-only input — never create, edit, move, or delete one. **Detect the active stack:** infer the project's language(s) from repo markers (e.g. `Cargo.toml` → Rust) and, for each active stack whose guideline skill is installed (e.g. `airsstack-guideline-rust:rust-guidelines`), load it now — see "Honor the active stack's guidelines" below.
+1. **Explore project context.** Read relevant files, docs, and recent commits to understand the codebase, its conventions, and what already exists. Do not design in a vacuum. **Check for RFCs:** an engineer may have dropped an RFC into the SDD `rfcs/` directory (location in `../../references/artifact-paths.md`) as design input. If the user explicitly named an RFC — by path or filename — load it as primary design input; if that named file is missing, report the path and ask for a correct reference rather than guessing. Otherwise auto-scan `rfcs/` for any files: if it holds RFCs, surface them and ask which (if any) are relevant before proceeding; if it is empty or absent, proceed normally with no RFC prompt. RFCs are read-only input — never create, edit, move, or delete one. **Detect the active stack** and load its guideline now — see below.
 
 2. **Assess scope.** Before refining any details, judge whether the request spans multiple independent subsystems. If it does, flag this immediately and help the user decompose it into separate, sequenced scopes — each one gets its own spec, plan, and implementation cycle. Do not proceed with a multi-scope design as though it were one unit of work.
 
@@ -43,9 +43,7 @@ Before proposing architecture, detect the project's active stack(s) and load the
 
 ## Key principles
 
-- **One question at a time.** A barrage of questions stalls the dialogue. Ask the one that matters most right now.
-- **Multiple-choice preferred.** Concrete options help the user see what you are thinking and respond faster than an open-ended question.
-- **YAGNI ruthlessly.** Do not design for imagined future requirements. Every component that appears in the spec should have a concrete, immediate reason to exist.
-- **Always explore 2–3 alternatives.** A single proposal is an opinion. Two or three alternatives is a design conversation.
-- **Incremental validation.** Get agreement section by section, not all at once at the end. Early disagreement caught early is cheap; disagreement caught after the spec is written is expensive.
-- **Be flexible.** If the user redirects the design mid-dialogue, update your understanding and carry forward without defending the prior path.
+The checklist carries the dialogue rules (one question at a time, multiple-choice where natural, 2–3 alternatives, agreement section by section). Two more bind throughout:
+
+- **YAGNI ruthlessly.** No designing for imagined future requirements. Every component in the spec has a concrete, immediate reason to exist.
+- **Be flexible.** If the user redirects mid-dialogue, update your understanding and carry forward without defending the prior path.

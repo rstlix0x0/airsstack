@@ -1,9 +1,9 @@
 # Artifact Lifecycle
 
-How specs, plans, and RFCs are organized, how they relate, and when a plan is safe to
-delete. Under the SDD layout no artifact lives in git history — RFCs sit under the
-git-ignored `.airsstack/` tree, specs and plans in the HOME-global store outside any repo —
-so plan deletion is irreversible — read this before removing any plan.
+How specs, plans, and RFCs relate, and when a plan is safe to delete. No SDD artifact
+lives in git history: RFCs sit under the git-ignored `.airsstack/` tree, specs and plans in
+the HOME-global store outside any repo. Plan deletion is therefore irreversible — read
+§ Irreversibility before removing any plan.
 
 ## Where artifacts live
 
@@ -42,18 +42,9 @@ engineer's responsibility, out of band. Spec and plan cleanup never touches `rfc
 
 ## One objective per plan
 
-A plan file covers **exactly one objective**: one coherent outcome that can be stated in a
-single sentence without an "and". If the goal sentence needs "and" to connect two distinct
-outcomes, it describes more than one objective — split it into separate plan files.
-
-A spec that covers multiple objectives produces multiple plan files, one per objective.
-Each plan file is independently completable, reviewable, and deletable. Tasks within a
-plan are not objectives — several tasks may each implement part of the same feature and
-still belong in one plan, because they all serve one goal.
-
-Sibling plan files from the same spec should be named to distinguish their topics:
-`2026-06-01-auth-token-validation.md` and `2026-06-01-auth-session-management.md` are
-clear; `2026-06-01-auth-plan-1.md` and `2026-06-01-auth-plan-2.md` are not.
+The rule and the sibling-naming convention are stated in `write-plan`'s SKILL.md § Scope
+check. What matters here: because each plan covers one objective, each is independently
+completable, reviewable, and **deletable** — the gates below apply per plan file.
 
 ## Deletion lifecycle — three gates
 
@@ -70,11 +61,10 @@ first.
 ### Gate 2 — durable decisions are in committed source control
 
 Any decision in the plan that belongs permanently in the project has been copied to a
-committed durable location: project documentation, configuration, a rules file, or
-project memory. This gate matters more under the HOME-global layout: the store lives outside any repo, so
-the spec itself is **not** a committed durable location, and "the spec explains why we
-chose X" does not satisfy this gate. A plan that holds the only record of a key architectural decision
-cannot be deleted until that decision is captured somewhere committed.
+committed durable location: documentation, configuration, a rules file, or project memory.
+The store lives outside any repo, so the spec is **not** a committed durable location —
+"the spec explains why we chose X" does not satisfy this gate. A plan holding the only
+record of a key architectural decision cannot be deleted until that record is committed.
 
 ### Gate 3 — manual, per-spec judgment
 

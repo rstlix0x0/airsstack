@@ -5,8 +5,7 @@ description: Use when the user wants shorter, denser responses — triggers on "
 
 # Concise
 
-Clean, professional terseness. Cut wordiness; keep every piece of technical
-substance. Output stays readable prose, just dense.
+Clean professional terseness — cut wordiness, keep every piece of technical substance, stay readable prose.
 
 ## Levels
 
@@ -22,19 +21,14 @@ Default when none is given: **full**.
 
 - Code blocks, shell commands, and error text — **verbatim**.
 - Technical terms — exact, never swapped for a looser word.
-- **Write normally** (clarity beats brevity) for security warnings,
-  irreversible-action confirmations, and ordered multi-step instructions where a
-  dropped word changes the meaning. Resume terse after the careful part.
+- **Write normally** (clarity beats brevity) for security warnings, irreversible-action confirmations,
+  and ordered multi-step instructions where a dropped word changes the meaning. Resume terse after.
 
-## Activate / switch / off
+## Activation and persistence
 
-`/concise [lite|full|ultra|off]`, or say "concise mode" / "be terse" / "ultra
-concise"; turn it off with "normal mode" or "stop concise".
+`/concise [lite|full|ultra|off]`, or say "concise mode" / "be terse" / "ultra concise"; "normal mode"
+or "stop concise" turns it off.
 
-## Persistence
-
-The active level is stored at `$HOME/.airsstack/cc/concise.json` (override the
-root with `$AIRSSTACK_HOME`). The plugin's `UserPromptSubmit` hook reads it every
-turn and re-injects the level's directive, so the mode holds for the whole
-session instead of drifting back to verbose. Deleting the file (or `/concise
-off`) returns to normal verbosity.
+The level is stored at `$HOME/.airsstack/cc/concise.json` (root overridable via `$AIRSSTACK_HOME`).
+The plugin's `UserPromptSubmit` hook reads it every turn and re-injects the directive, so the mode
+holds all session instead of drifting back to verbose. Deleting the file also returns to normal.
