@@ -13,12 +13,11 @@
 //! - Implement [`ChatResource::send_cached`] — same as `send` but attaches
 //!   gateway edge-cache control headers and returns a [`crate::chat::Cached`]
 //!   envelope carrying the cache outcome.
-//! - Implement [`ChatResource::stream`] (gated `streaming`) — sets
-//!   `stream: true`, sends as SSE, and returns a [`crate::chat::ChatStream`]
-//!   that yields one chunk per SSE `data:` line.
-//! - Implement [`ChatResource::stream_cached`] (gated `streaming`) — combines
-//!   edge-cache control with SSE streaming; returns a
-//!   <code>Cached\<[ChatStream]\></code>.
+//! - Implement [`ChatResource::stream`] — sets `stream: true`, sends as SSE,
+//!   and returns a [`crate::chat::ChatStream`] that yields one chunk per SSE
+//!   `data:` line.
+//! - Implement [`ChatResource::stream_cached`] — combines edge-cache control
+//!   with SSE streaming; returns a <code>Cached\<[ChatStream]\></code>.
 //!
 //! Not responsible for:
 //! - Retry / backoff — handled by a separate layer above this resource.
