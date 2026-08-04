@@ -91,8 +91,8 @@ impl ClientBuilderFields {
 
 /// Builder for [`Client<T>`].
 ///
-/// Construct via [`Client::builder`] (feature-gated default reqwest
-/// transport) or [`Client::builder_with_transport`] (any custom
+/// Construct via [`Client::builder`] (the default reqwest transport) or
+/// [`Client::builder_with_transport`] (any custom
 /// transport). The first type parameter encodes whether the API key has
 /// been supplied; `build()` only exists once it reaches `Present`.
 pub struct ClientBuilder<Key, T>

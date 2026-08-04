@@ -1,0 +1,30 @@
+{
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "disableWorkflows": true,
+  "enabledPlugins": {
+    "airsstack@airsstack": true,
+    "airsstack-sdd@airsstack": true,
+    "airsstack-guideline-rust@airsstack": true,
+    "airsstack-journal@airsstack": true,
+    "airsstack-plugin-dev@airsstack": true,
+    "airsstack-cmux@airsstack": true,
+    "airsstack-okf@airsstack": true
+  },
+  "extraKnownMarketplaces": {
+    "airsstack": {
+      "source": {
+        "source": "directory",
+        "path": "../.."
+      }
+    }
+  },
+  "feedbackSurveyRate": 0,
+  "companyAnnouncements": [
+    "clauders — Rust SDK targeting parity with Anthropic's official SDKs.",
+    "Messages API and Agent SDK are implemented; Managed Agents is not started."
+  ],
+  "editorMode": "vim"
+}

@@ -1,13 +1,15 @@
 //! Models resource (`GET /v1/models`, `GET /v1/models/{id}`).
 //!
-//! Exists as a feature-gated module so the models types and HTTP dispatch
-//! are only compiled when the `models` Cargo feature is enabled.
+//! Exists as its own module tree so the model-discovery types and their HTTP
+//! dispatch are scoped separately from the Messages API surface, which shares
+//! no wire types with them.
 //!
 //! Responsibilities:
-//! - Re-export [`ModelInfo`], [`ModelInfoKind`], [`ModelList`], and
-//!   [`ModelsResource`] as the public surface of this module.
-//! - Declare the `resource` and `types` submodules that hold the
-//!   implementations.
+//! - Re-export [`ModelInfo`], [`ModelInfoKind`], [`ModelList`],
+//!   [`ModelsResource`], and the [`ModelCapabilities`] tree as the public
+//!   surface of this module.
+//! - Declare the `capabilities`, `resource`, and `types` submodules that hold
+//!   the implementations.
 //!
 //! Not responsible for:
 //! - HTTP transport — that is owned by [`crate::transport`].
