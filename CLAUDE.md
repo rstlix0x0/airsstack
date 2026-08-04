@@ -59,11 +59,13 @@ is for when the author asks "what is left".
   compatibility with Anthropic's official SDKs** across three pillars: the Messages API, the Agent
   SDK (drives the `claude` Code CLI as a subprocess), and Managed Agents (server-hosted stateful
   agents). A Rust caller gets what a Python or TypeScript caller gets, with idiomatic Rust
-  ergonomics. Authoritative statement:
-  [`crates/clauders/docs/vision-and-strategy.md`](crates/clauders/docs/vision-and-strategy.md).
+  ergonomics. The Messages API and Agent SDK are implemented; Managed Agents is not started. Pillar
+  map and internal structure:
+  [`crates/clauders/docs/architecture.md`](crates/clauders/docs/architecture.md); docs index:
+  [`crates/clauders/docs/README.md`](crates/clauders/docs/README.md).
 - `crates/openrouter-rs` — an **independent** standalone OpenRouter SDK. Its former
-  `OpenRouterRuntime`/`RoutingRuntime` integration into `clauders` was severed per vision §9.1; the
-  crate itself is kept.
+  `OpenRouterRuntime`/`RoutingRuntime` integration into `clauders` was severed at the parity pivot;
+  the crate itself is kept.
 - `crates/airs-transport` — generic async transport with an HTTP/reqwest layer, shared by both SDK
   crates.
 

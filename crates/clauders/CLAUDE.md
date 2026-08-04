@@ -123,14 +123,56 @@ use`, no implementation.
 - **`tests/messages_snapshot.rs`** — `insta` snapshots of serialized request JSON in `tests/snapshots/`.
 - **`tests/builder_compile.rs`** — `trybuild` fixtures locking the type-state contracts.
 
-## Parity docs, and their drift
+## Docs
 
-`docs/vision-and-strategy.md` is the authoritative scope statement — read it before adding a surface,
-especially §5 (what was removed) and §8 (what may return). The per-pillar gap tables are
-`docs/messages-api/feature-parity.md` and `docs/agent-sdk/feature-parity.md`;
-`docs/agent-sdk/development-phases.md` records the fixed five-phase Agent SDK split.
+`docs/` follows [Diátaxis](https://diataxis.fr/) — four modes kept structurally separate, indexed by
+`docs/README.md`. Per pillar: `tutorial.md`, `how-to.md`, `explanation.md`, `feature-parity.md` under
+`docs/messages-sdk/` and `docs/agent-sdk/`. Cross-cutting: `docs/architecture.md` (pillar map, the
+Agent SDK's four layers, crate conventions) and `docs/divergences.md`.
 
-**These tables lag the code.** The Agent SDK scorecard still lists the five session filesystem ops as
-behind, but `SessionArchive::{list,info,messages,rename,tag}` are implemented in
-`src/agent/sessions/archive.rs:59-185`; warm start is in `src/agent/warm.rs`. When a doc and the source
+Read `docs/architecture.md` before adding a surface, and `docs/divergences.md` before "fixing"
+behaviour that looks wrong — several departures from the official SDKs are deliberate and pinned by
+test.
+
+The two `feature-parity.md` files are the reference quadrant: what the official Python and TypeScript
+SDKs do, what this crate does, and where they differ. They are graded against shipped artifacts
+(`sdk.d.ts`/`sdk.mjs`, the Python sdist, the `@anthropic-ai/sdk` tarball, the live binary), and each
+row carries a `file:line`. **They still lag the code between revisions.** When a doc and the source
 disagree, the source wins — and say so in the reply rather than repeating the table.
+
+### Docs describe the software, never the work that produced it
+
+Everything under `docs/`, every `README.md`, and every rustdoc comment is written for someone using
+this crate. They have no view into how it gets built and no reason to want one. Development vocabulary
+in a user-facing document is noise at best; at worst the reader tries to decode it and concludes the
+crate is half-finished.
+
+**Never appears in user-facing docs:**
+
+| Banned | Why | Write instead |
+|---|---|---|
+| phases, phase 1/2/…, workstreams, WS A/1, epics, milestones, sprints | internal sequencing | nothing — describe what exists |
+| tasks, task items, backlog, TODO | a work queue | nothing, or name the gap plainly |
+| plans, action plans, specs, RFCs, roadmaps | planning artifacts | nothing |
+| "delivered", "landed", "shipped", "closed", "now supports", "no longer fails" | change history | plain present tense: "carries", "returns", "supports" |
+| "prior revision", "this revision", "as of \<date\>", "used to", "was wrong" | doc changelog | state the current fact and stop |
+| commit SHAs as status markers | internal history | omit; `file:line` is the useful citation |
+| "planned", "coming soon", "not yet", "future work" | promises | a plain ❌ or a gap entry |
+
+The exceptions are literal, and narrow: a domain term that happens to collide (`PermissionMode::Plan`,
+`taskBudget`, an async *task*, a *closed* enum), a verbatim quote from another project's source, and
+the pinned upstream versions a parity table is graded against.
+
+**Two rules follow from this.**
+
+Present tense, not narrative. A parity table records what is true now, not what changed and when. If a
+row would read "delivered in X" it should read "present" — and if it is at parity it is simply ✅ with
+a `file:line`.
+
+A gap is not a plan. Something the official SDKs do and this crate does not is a fact about the
+current state, so record it, rank it by how likely a caller is to hit it, and stop. Do not attach an
+intention, an owner, an estimate, or an ordering.
+
+The same rule governs source comments: `references/doc-comment-discipline.md` in the
+`airsstack-guideline-rust` skill bans internal planning paths, phase identifiers, workflow vocabulary,
+and AI/agent names from rustdoc and `//` comments. This is that rule extended to `docs/`.

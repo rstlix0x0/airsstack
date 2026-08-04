@@ -21,12 +21,14 @@ framework, `clauders` — the Claude SDK crate — now targets **100% feature pa
 compatibility with Anthropic's official SDKs**, so a Rust caller gets the same capabilities a Python
 or TypeScript caller gets, with idiomatic Rust ergonomics. It covers three official surfaces: the
 **Messages API** (base SDK), the **Agent SDK** (drives the `claude` Code CLI), and **Managed Agents**
-(server-hosted stateful agents). The full rationale and scope are in
-[`crates/clauders/docs/vision-and-strategy.md`](crates/clauders/docs/vision-and-strategy.md).
+(server-hosted stateful agents). The Messages API and Agent SDK are implemented; Managed Agents is
+not started. The pillar map and the crate's internal structure are in
+[`crates/clauders/docs/architecture.md`](crates/clauders/docs/architecture.md), and the docs index is
+[`crates/clauders/docs/README.md`](crates/clauders/docs/README.md).
 
 Token-efficiency via mixed routing to cheaper models remains a longer-term direction, deliberately
-shelved until the parity core is complete (see the vision doc §8). `openrouter-rs` stays in the
-workspace as an independent standalone SDK crate, no longer wired into `clauders`.
+shelved until the parity core is complete. `openrouter-rs` stays in the workspace as an independent
+standalone SDK crate, no longer wired into `clauders`.
 
 ## Rust crates (the AI-SDK & Tools)
 
