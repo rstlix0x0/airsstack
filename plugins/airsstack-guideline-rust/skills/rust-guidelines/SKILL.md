@@ -10,35 +10,37 @@ the detail lives in `references/` and is read on demand.
 
 ## Definition of Done (the gate)
 
-Every Rust change must pass ALL of the following before it is considered complete. Zero warnings is a
-hard bar, not a target. Scope the runs to the crate you touched with `-p <crate> --all-features`; run
-the whole workspace with `cargo test --workspace --all-targets --all-features` before a release. Every
-test run carries `--all-features` — a default-feature run is not a gate (see the caution below).
+This block is the gate — the single canonical command set. Every command must exit `0` with no
+warnings on a clean checkout before a change is complete. `references/strict-quality.md` explains the
+policy behind it; it does not restate the commands.
 
 ```bash
-cargo fmt --check
-cargo build --all-features                        # zero warnings (treat warnings as errors)
-cargo clippy --all-features --all-targets -- -D warnings  # lints test/example/bench code too
-cargo test --all-features --all-targets           # unit + integration + examples as tests
-cargo test --all-features --doc                   # doctests (--all-targets excludes them)
-cargo doc --no-deps --all-features                # zero rustdoc warnings
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --all-features --no-deps
+cargo test  --workspace --all-targets --all-features   # unit + integration + examples + benches
+cargo test  --workspace --all-features --doc           # doctests (--all-targets excludes them)
 ```
 
 Rules of the gate:
 
-- **Zero warnings** from build, clippy, and rustdoc. A warning is a failure.
+- **Zero warnings** from clippy, rustdoc, and the test build. A warning is a failure.
+- **`RUSTDOCFLAGS="-D warnings"` is what makes the doc step a gate.** Plain
+  `cargo doc` prints rustdoc warnings and still exits `0`, so without the flag the step asserts a bar
+  it does not enforce.
+- **There is deliberately no separate `cargo build`.** `cargo clippy -- -D warnings` promotes plain
+  rustc warnings to errors, not only clippy lints, and `cargo test --all-targets` performs the full
+  codegen-and-link build. A `cargo build` step adds compile time without adding coverage.
 - **`--all-targets` is mandatory for clippy and the test run.** Without it, clippy and `cargo test`
   skip test/example/bench targets and their `#[cfg(test)]` modules — so a lint or failure that lives
   only in test code passes silently. The zero-warning bar covers test code too.
 - **Doctests count, and need a separate `--doc` run.** `--all-targets` *excludes* doctests, so they
-  are invoked explicitly with `cargo test --all-features --doc`. A failing doctest fails the gate.
-- **`--all-features` is mandatory for the test run, never optional.** Plain `cargo test` /
-  `cargo test -p <crate>` / `cargo test --workspace` compiles only the default features and
-  **silently skips** every `#[cfg(feature = "…")]`-gated test (e.g. the `__test-mocks` mock and
-  integration tests). A green default-feature run is NOT a passing gate; only `--all-features` runs
-  count.
-- **Scope to the touched crate** with `-p <crate>` during development; widen to the full workspace
-  before release.
+  are invoked explicitly. A failing doctest fails the gate.
+- **`--all-features` is carried for forward-safety, not because a feature gate exists.** No crate in
+  this workspace declares Cargo `[features]`, so today the flag equals the default build. Keep it in
+  every command so the gate stays correct the day a feature is added.
+- **Scope to the touched crate** with `-p <crate>` in place of `--workspace` while developing a
+  single-crate change; use the `--workspace` form for cross-crate changes and before a release.
 - No change lands with a `#[allow(...)]` added to silence the gate. Use `#[expect(...)]` with a reason
   when a suppression is genuinely temporary (it auto-fails once unneeded). See the doc-comment and
   strict-quality references.
@@ -47,8 +49,8 @@ Rules of the gate:
 
 Read the one that matches your task:
 
-- `references/strict-quality.md` — the full pass/fail bar: zero-warning policy, the DoD command set in
-  depth, what "green" means for tests and doctests.
+- `references/strict-quality.md` — the policy behind the gate above: zero-warning scope, flag-based
+  vs source-level enforcement, lint-suppression rules, what "green" means for tests and doctests.
 - `references/strong-types.md` — no primitive obsession: newtype domain values, parse-don't-validate at
   construction, type-state builders for required fields and ordered lifecycles, no `bool` params for
   semantic flags.
@@ -56,6 +58,8 @@ Read the one that matches your task:
   exceptions; why `Arc<Inner>` for cheap-`Clone` services is not a trait-object pattern.
 - `references/mod-rs-export-only.md` — `mod.rs`/`lib.rs` are table-of-contents only (module docs +
   `mod`/`pub use`); implementation lives in sibling files named after the item.
+- `references/modularity.md` — one responsibility per unit, one canonical type per concept: the
+  God-object gate and the duplicate-type gate.
 - `references/doc-comment-discipline.md` — rustdoc and `//` comments target downstream engineers; no
   internal planning paths, plan/phase identifiers, workflow vocabulary, or AI/agent names in source.
 - `references/unit-test-mandate.md` — every logic-bearing `src/*.rs` ships colocated

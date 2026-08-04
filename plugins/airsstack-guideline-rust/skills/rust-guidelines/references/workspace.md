@@ -13,58 +13,7 @@ A Cargo workspace has one or more members under `crates/` and stays a workspace 
 
 ## Root `Cargo.toml` shape
 
-The workspace root has **no `[package]` section**. Use this template:
-
-```toml
-[workspace]
-resolver = "3"
-members = [
-    "crates/my-crate",
-    # add new members here as they are created
-]
-# Optional: exclude scratch crates from the workspace
-# exclude = ["scratch/*"]
-# Optional: limit `cargo build` / `cargo test` when run without -p
-# default-members = ["crates/my-crate"]
-
-[workspace.package]
-edition      = "2024"
-rust-version = "1.85"   # bump in lockstep across all crates
-license      = "Apache-2.0"
-repository   = "https://github.com/example/my-project"
-authors      = ["author <author@example.com>"]
-publish      = false    # flip per-crate when a member is ready for crates.io
-
-[workspace.dependencies]
-# Pin once, reuse everywhere via `dep.workspace = true`
-tokio       = { version = "1", features = ["macros", "rt-multi-thread"] }
-serde       = { version = "1", features = ["derive"] }
-serde_json  = "1"
-thiserror   = "2"
-anyhow      = "1"
-tracing     = "0.1"
-reqwest     = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
-
-# Internal crates referenced by other workspace members.
-# When a member depends on another, declare it here:
-#   some-lib = { version = "0.1.0", path = "crates/some-lib" }
-
-[workspace.lints.rust]
-unsafe_code        = "deny"
-missing_docs       = "warn"
-rust_2018_idioms   = { level = "warn", priority = -1 }
-
-[workspace.lints.clippy]
-all      = { level = "warn", priority = -1 }
-pedantic = { level = "warn", priority = -1 }
-nursery  = { level = "warn", priority = -1 }
-cargo    = { level = "warn", priority = -1 }
-
-[profile.release]
-lto           = "thin"
-codegen-units = 1
-strip         = "symbols"
-```
+The workspace root has **no `[package]` section**; this repo's own root `Cargo.toml` is the authoritative example — `[workspace]` with `resolver = "3"` and `members = ["crates/airs-transport", "crates/clauders", "crates/openrouter-rs"]`, then `[workspace.package]` (`edition = "2024"`, `rust-version = "1.85"`, license/repository/authors, `publish = false`), `[workspace.dependencies]`, `[workspace.lints.rust]` + `[workspace.lints.clippy]`, and `[profile.release]`.
 
 `resolver = "3"` is required for Edition 2024 and matches the latest Cargo book guidance. Keep `rust-version` in sync across all crates by inheriting it (`rust-version.workspace = true`).
 
@@ -72,32 +21,7 @@ Profiles (`[profile.dev]`, `[profile.release]`) are **only valid in the workspac
 
 ## Member `Cargo.toml` shape
 
-Every member crate inherits metadata and deps from the root:
-
-```toml
-[package]
-name         = "my-crate"
-version      = "0.1.0"   # members version independently; no workspace version key
-edition.workspace      = true
-rust-version.workspace = true
-license.workspace      = true
-repository.workspace   = true
-authors.workspace      = true
-description = "A short description of what this crate does."
-readme      = "README.md"
-
-[dependencies]
-tokio       = { workspace = true }
-serde       = { workspace = true }
-thiserror   = { workspace = true }
-tracing     = { workspace = true }
-
-[dev-dependencies]
-tokio = { workspace = true, features = ["test-util", "macros", "rt"] }
-
-[lints]
-workspace = true
-```
+Every member crate inherits metadata and deps from the root: `edition.workspace = true` (likewise `rust-version`, `license`, `repository`, `authors`), each dep as `{ workspace = true }`, and `[lints] workspace = true`. Members carry their own `version` — there is no workspace version key.
 
 Rules:
 
@@ -154,34 +78,11 @@ vs the bare path dep (acceptable for early prototyping; convert to workspace-dep
 some-lib = { path = "../some-lib" }
 ```
 
-For `crates.io`-publishable members, the workspace-deps form must include both `version` and `path` (Cargo uses `path` for local builds, `version` for the published crate). Already shown in the root template above.
+For `crates.io`-publishable members, the workspace-deps form must include both `version` and `path` (Cargo uses `path` for local builds, `version` for the published crate).
 
 **Gotcha — `path` in `[workspace.dependencies]` is relative to the workspace root, not the member.** Declare it as `some-lib = { path = "crates/some-lib" }` (from the root), *not* `../some-lib` (which is what a bare member-level path dep uses, relative to the member). Cargo resolves the inherited `path` from the directory of the file that *defines* it — the workspace root. Mixing the two up makes `cargo metadata` fail to resolve the member. Only the crates actually depended upon need an entry; a top-level crate that nothing else imports needs none.
 
-## Common commands
-
-```bash
-# Build / check the whole workspace
-cargo build
-cargo check --workspace --all-targets --all-features
-
-# Build / test one crate (tests always carry --all-features:
-# a default-feature run silently skips feature-gated tests)
-cargo build -p <crate> --all-features
-cargo test  -p <crate> --all-features
-
-# Run a binary crate
-# cargo run -p <bin-crate> -- <args>
-
-# Apply lint / format policy uniformly
-cargo fmt --all
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-
-# Publish (one crate at a time; dependents first)
-cargo publish -p <crate>
-```
-
-`cargo` commands without `-p` operate on `default-members` (if set) or the whole workspace.
+The build/lint/test gate lives in `../SKILL.md` § Definition of Done; `cargo` commands without `-p` operate on `default-members` (if set) or the whole workspace.
 
 ## Publishing order
 

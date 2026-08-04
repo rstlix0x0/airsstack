@@ -1,35 +1,18 @@
 # Artifact Lifecycle
 
-How specs, plans, and RFCs are organized, how they relate, and when a plan is safe to
-delete. Under the SDD layout no artifact lives in git history — RFCs sit under the
-git-ignored `.airsstack/` tree, specs and plans in the HOME-global store outside any repo —
-so plan deletion is irreversible — read this before removing any plan.
-
-## Why this matters
-
-Once multiple objectives are in flight, a flat artifact directory stops being scannable:
-you cannot tell which plan belongs to which spec, which work is in-progress versus
-complete, or which plans are safe to clean up. And without a deletion policy, plans
-accumulate as dead scaffolding long after the work they described has shipped. This
-document fixes both problems: it defines what granularity artifacts should have and when
-plans may be removed.
+How specs, plans, and RFCs relate, and when a plan is safe to delete. No SDD artifact
+lives in git history: RFCs sit under the git-ignored `.airsstack/` tree, specs and plans in
+the HOME-global store outside any repo. Plan deletion is therefore irreversible — read
+§ Irreversibility before removing any plan.
 
 ## Where artifacts live
 
-SDD artifacts live under **two roots**, defined in
-`../../../references/artifact-paths.md` (the prose single source of truth for these
-paths). In summary:
+`../../../references/artifact-paths.md` is the single source of truth for the two roots,
+the per-repo `<key>`, and every artifact's directory and naming. Read the paths there, not
+here.
 
-- RFCs → the worktree-local `rfcs/` directory (human-authored input, read-only to the
-  plugin; transient, not shared across worktrees)
-- Specs → the HOME-global `specs/` directory (`YYYY-MM-DD-<topic>.md`)
-- Plans → the HOME-global `plans/` directory (`YYYY-MM-DD-<topic>.md`)
-- Archived plans → the HOME-global `plans/_archive/` directory
-
-The HOME-global root is keyed per repo and shared across every worktree of that repo, so
-a spec or plan written from one worktree is visible to all of them and survives worktree
-teardown. Any sub-directory layout beyond this — organising artifacts by component,
-package, or domain — is a project-local choice and is not imposed here. Keep the
+Any sub-directory layout beyond that scheme — organising artifacts by component, package,
+or domain — is a project-local choice and is not imposed here. Keep the
 `YYYY-MM-DD-<topic>` naming so it stays the scannable identifier.
 
 ## Specs are durable, plans are derived
@@ -59,18 +42,9 @@ engineer's responsibility, out of band. Spec and plan cleanup never touches `rfc
 
 ## One objective per plan
 
-A plan file covers **exactly one objective**: one coherent outcome that can be stated in a
-single sentence without an "and". If the goal sentence needs "and" to connect two distinct
-outcomes, it describes more than one objective — split it into separate plan files.
-
-A spec that covers multiple objectives produces multiple plan files, one per objective.
-Each plan file is independently completable, reviewable, and deletable. Tasks within a
-plan are not objectives — several tasks may each implement part of the same feature and
-still belong in one plan, because they all serve one goal.
-
-Sibling plan files from the same spec should be named to distinguish their topics:
-`2026-06-01-auth-token-validation.md` and `2026-06-01-auth-session-management.md` are
-clear; `2026-06-01-auth-plan-1.md` and `2026-06-01-auth-plan-2.md` are not.
+The rule and the sibling-naming convention are stated in `write-plan`'s SKILL.md § Scope
+check. What matters here: because each plan covers one objective, each is independently
+completable, reviewable, and **deletable** — the gates below apply per plan file.
 
 ## Deletion lifecycle — three gates
 
@@ -87,11 +61,10 @@ first.
 ### Gate 2 — durable decisions are in committed source control
 
 Any decision in the plan that belongs permanently in the project has been copied to a
-committed durable location: project documentation, configuration, a rules file, or
-project memory. This gate matters more under the HOME-global layout: the store lives outside any repo, so
-the spec itself is **not** a committed durable location, and "the spec explains why we
-chose X" does not satisfy this gate. A plan that holds the only record of a key architectural decision
-cannot be deleted until that decision is captured somewhere committed.
+committed durable location: documentation, configuration, a rules file, or project memory.
+The store lives outside any repo, so the spec is **not** a committed durable location —
+"the spec explains why we chose X" does not satisfy this gate. A plan holding the only
+record of a key architectural decision cannot be deleted until that record is committed.
 
 ### Gate 3 — manual, per-spec judgment
 
@@ -111,20 +84,5 @@ be recovered from git history. Deletion is permanent. Therefore:
   the construction trail intact.
 - Before deleting outright, get explicit confirmation from whoever owns the work.
 - Never delete plans in an automated sweep. The decision is made once per spec, by a
-  person, after all three gates pass.
-
-## Anti-patterns
-
-- A plan file whose goal sentence contains "and" joining two distinct outcomes — it
-  carries two objectives and cannot be cleanly deleted or reviewed as one unit. Split it.
-- Deleting a plan whose spec still has unmerged amendments or undocumented decisions — the
-  plan is the only record of those decisions until they are folded back into a committed
-  location.
-- An automatic "delete all completed plans" sweep — deletion is per-spec, confirmed,
-  deliberate.
-- Deleting rather than archiving when recall value is unclear — git history cannot recover
-  an ignored file.
-- Skipping the three-gate check because the work "obviously shipped" — the gates exist
-  precisely for cases that feel obvious.
-- Editing, moving, or deleting a file under `rfcs/` — RFCs are human-owned input the
-  plugin only reads.
+  person, after all three gates pass — including when the work "obviously shipped", which
+  is precisely the case the gates exist for.

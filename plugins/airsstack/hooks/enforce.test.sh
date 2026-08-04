@@ -68,6 +68,9 @@ printf '%s' "$out" | grep -q '"permissionDecision"' \
   || fail "case1: permissionDecision missing"
 printf '%s' "$out" | grep -q 'defer' \
   || fail "case1: permissionDecision is not defer"
+# code phase runs a build, so the pointer must name the Definition of Done
+printf '%s' "$out" | grep -q 'Definition of Done' \
+  || fail "case1: code-phase pointer lost the Definition of Done wording"
 
 # --- case 2: dedup → 2nd call same session is silent -------------------
 out2=$(run s1 "$repo/src/other.rs" "$repo")
@@ -94,6 +97,11 @@ out6=$(printf '{"session_id":"s6","cwd":"%s","tool_input":{"file_path":"%s"}}' \
 out4=$(run s4 "$specdir/2026-01-01-x.md" "$repo")
 printf '%s' "$out4" | grep -q 'airsstack-guideline-rust:rust-guidelines' \
   || fail "case4: design-phase rust pointer not injected"
+# a spec/plan has no build to run — the pointer must ask for architecture only
+printf '%s' "$out4" | grep -q 'architecture rules' \
+  || fail "case4: design-phase pointer missing the architecture wording"
+printf '%s' "$out4" | grep -q 'Definition of Done' \
+  && fail "case4: design-phase pointer must not demand the Definition of Done"
 
 # --- case 7: polyglot design → both rust and python pointers ----------
 printf '%s' "$out4" | grep -q 'airsstack-guideline-python:python-guidelines' \

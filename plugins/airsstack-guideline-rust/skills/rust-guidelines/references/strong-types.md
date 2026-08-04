@@ -38,30 +38,7 @@ Any of the following on a public boundary:
 
 ### Canonical newtype shape
 
-```rust
-/// A user identifier.
-///
-/// Use [`UserId::new`] to construct a validated instance.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(transparent)]
-pub struct UserId(String);
-
-impl UserId {
-    /// Construct a `UserId` from a string.
-    ///
-    /// # Errors
-    /// Returns [`InvalidUserId`] if `s` is empty or contains whitespace.
-    pub fn new(s: impl Into<String>) -> Result<Self, InvalidUserId> { /* validate */ }
-
-    pub fn as_str(&self) -> &str { &self.0 }
-}
-
-impl std::fmt::Display for UserId { /* prints inner */ }
-impl std::str::FromStr for UserId {
-    type Err = InvalidUserId;
-    fn from_str(s: &str) -> Result<Self, Self::Err> { Self::new(s) }
-}
-```
+A private tuple struct over the inner value, a fallible named constructor documented with `# Errors`, an `as_str`/`get` accessor, `Display`, and a `FromStr` that delegates to the constructor.
 
 Notes:
 
@@ -73,19 +50,6 @@ Notes:
 
 ### Validated numeric newtype
 
-```rust
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct Port(u16);
-
-impl Port {
-    pub const fn new(n: u16) -> Result<Self, InvalidPort> {
-        if n == 0 { return Err(InvalidPort(n)); }
-        Ok(Self(n))
-    }
-    pub const fn get(self) -> u16 { self.0 }
-}
-```
-
 Const constructors give compile-time validation for literals (`Port::new(8080).expect("literal valid")` → checkable in `const` context). The `# Errors` doc section is required per `M-CANONICAL-DOCS`.
 
 The valid range `1..=65535` (TCP/UDP port space) is the canonical example of a parse-don't-validate bounded integer.
@@ -96,17 +60,7 @@ Prefer hand-written newtypes for SDK public types. Macro-generated newtypes hide
 
 ## No `bool` parameters
 
-`bool` is `M-STRONG-TYPES`-banned at public boundaries when it expresses a decision:
-
-```rust
-// BAD: caller writes `client.send(msg, true)` — true what?
-pub fn send(&self, msg: Message, retry: bool) -> Result<…>
-
-// GOOD:
-#[derive(Clone, Copy, Debug)]
-pub enum RetryPolicy { Disabled, ExponentialBackoff }
-pub fn send(&self, msg: Message, retry: RetryPolicy) -> Result<…>
-```
+`bool` is `M-STRONG-TYPES`-banned at public boundaries when it expresses a decision.
 
 Two-state enums cost the same as `bool`, document the call site, and leave room to grow (a third variant like `LinearBackoff { interval: Duration }` is a non-breaking change for callers who already use a named enum, but a breaking change if you tried to expand a `bool`).
 
@@ -120,58 +74,7 @@ Use type-state when:
 - Some fields are **required** before a constructor can succeed and others are optional. The builder should refuse to compile `build()` until the required fields are set.
 - The valid operations on a value **change as the value progresses** through its lifecycle (open → in-progress → committed).
 
-Implementation outline (Cliffle's recommended shape):
-
-```rust
-mod sealed {
-    pub trait Sealed {}
-}
-
-pub trait BuilderState: sealed::Sealed {}
-
-pub struct Missing;
-pub struct Present;
-impl sealed::Sealed for Missing {}
-impl sealed::Sealed for Present {}
-impl BuilderState for Missing {}
-impl BuilderState for Present {}
-
-pub struct RepositoryBuilder<Url = Missing>
-where
-    Url: BuilderState,
-{
-    url: Option<String>,
-    pool_size: Option<u32>,
-    _marker: PhantomData<Url>,
-}
-
-impl RepositoryBuilder<Missing> {
-    pub fn new() -> Self { /* ... */ }
-
-    pub fn url(self, url: impl Into<String>) -> RepositoryBuilder<Present> {
-        RepositoryBuilder {
-            url: Some(url.into()),
-            pool_size: self.pool_size,
-            _marker: PhantomData,
-        }
-    }
-}
-
-impl<S: BuilderState> RepositoryBuilder<S> {
-    pub fn pool_size(mut self, n: u32) -> Self { self.pool_size = Some(n); self }
-}
-
-// `build` only exists once url is `Present`.
-impl RepositoryBuilder<Present> {
-    pub fn build(self) -> Result<Repository, BuildError> { /* ... */ }
-}
-```
-
-Compile-time effect:
-
-- `RepositoryBuilder::new().build()` → **compile error**: no `build` method on `RepositoryBuilder<Missing>`.
-- `RepositoryBuilder::new().url("postgres://…").build()` → compiles.
-- The `Sealed` trait closes the state set so downstream crates cannot invent new `BuilderState` impls.
+Implementation shape (Cliffle's recommended one): a marker struct per state (`Missing` / `Present`), a sealed `BuilderState` trait bounding them, `PhantomData<State>` on the builder, setters that move the builder to the next state, and `build()` implemented only on the terminal state — so calling `build()` too early is a compile error, not a runtime one. The `Sealed` trait closes the state set so downstream crates cannot invent new `BuilderState` impls.
 
 ### When type-state is overkill
 
@@ -186,20 +89,6 @@ For trivial cases, a `Result<Built, BuildError>` returned from `build()` is simp
 ## Validated parse, then trust
 
 Per *Parse, Don't Validate*: once a value is wrapped in its newtype, downstream code does not re-validate. The newtype IS the proof.
-
-```rust
-// BAD — function takes the unrestricted primitive and re-checks every call.
-fn connect(user: String, port: u16) -> Result<…> {
-    if user.is_empty() { return Err(...); }
-    if port == 0 { return Err(...); }
-    /* ... */
-}
-
-// GOOD — types carry the invariant once.
-fn connect(user: UserId, port: Port) -> Result<…> {
-    /* no validation needed — the types prove it */
-}
-```
 
 This compounds with `M-PANIC-IS-STOP` (panics signal *bugs*, not user errors): downstream `unwrap()` on a type whose invariants are enforced at construction is *not* a `unwrap` to remove — it is an assertion that the type system is doing its job. Use `.expect("invariant: <type> guarantees <property>")` to document why panicking is sound.
 

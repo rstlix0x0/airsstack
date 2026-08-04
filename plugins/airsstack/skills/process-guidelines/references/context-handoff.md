@@ -66,9 +66,9 @@ gate are unchanged.
 
 Every spawn writes exactly one handoff file — its own, never another agent's, never
 source. `coder` writes with its `Write` tool. The read-only agents (`explorer`,
-`reviewer`, `verifier`) carry `Write` **scoped by instruction** to the handoff directory
-only — writing the report is a first-class duty, distinct from mutating source, which
-they still must never do.
+`reviewer`) carry `Write` **scoped by instruction** to the handoff directory only —
+writing the report is a first-class duty, distinct from mutating source, which they still
+must never do.
 
 ## Session lifecycle (via handoff.sh)
 

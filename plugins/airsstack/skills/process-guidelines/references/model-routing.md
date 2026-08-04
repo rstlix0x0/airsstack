@@ -1,71 +1,34 @@
 # Model Routing for Delegated Agents
 
-How to pick the model tier when delegating work to subagents. This governs **delegated agents only** —
-anything spawned via the `Agent` tool or a workflow `agent()` call. It does NOT control the main
-conversation loop, which runs on the session model the user selected; a routing rule cannot downgrade
-that mid-session. "Use Haiku for commit messages" means *spawn a Haiku subagent for it*, not *the main
-loop becomes Haiku*. If a trivial task is faster done inline, do that — the table applies when you choose
-to delegate.
+Governs **delegated agents only** — anything spawned via the `Agent` tool. It cannot change the main
+loop, which runs on the session model the user picked. If a trivial task is faster inline, do it
+inline; this applies once you have chosen to delegate.
 
-This exists because cheaper tiers silently win by default: an agent that inherits an unannotated default
-may run below the tier its task needs. The fix is to make the tier an explicit, reviewed decision.
+Two independent dials. `model:` is capability, `effort:` is thinking budget — set both.
 
-## The mapping
+| Tier | `model` | Use for |
+|------|---------|---------|
+| Opus | `opus` | Reviewing, analyzing, debugging, design, spec synthesis — anything where a wrong conclusion is expensive. |
+| Sonnet | `sonnet` | Execution: writing code, editing files, running tests, applying a known plan. |
+| Haiku | `haiku` | Trivia only, per the boundary below. |
 
-| Tier | `model` alias | Use for |
-|------|---------------|---------|
-| Opus | `opus` | Thinking, analyzing, reviewing, debugging, architecture/design, adversarial verification, spec/plan synthesis. Anything where a wrong conclusion is expensive. |
-| Sonnet | `sonnet` | Execution: writing code, editing files, running tests, applying a known plan, mechanical refactors with a clear target. |
-| Haiku | `haiku` | Out-of-scope-for-engineering trivia only — see the boundary below. |
+`effort:` takes `low` / `medium` / `high` / `xhigh` / `max`, or an integer, and is the dial to move
+first when trading cost against depth. Drop it only where the task is narrow and mechanical; keep it
+up wherever a wrong answer is expensive. The three bundled agents set theirs in frontmatter:
+`explorer` low, `coder` high, `reviewer` high.
 
-### Haiku boundary (narrow)
+Effort is definition-only — the `Agent` tool's spawn parameters expose `model` but not `effort`, so a
+per-spawn override is not available.
 
-Haiku is permitted ONLY for tasks that touch no code logic, no design, and no review judgment:
+## Haiku boundary (narrow)
 
-- Locating code / mapping a directory and returning `file:line` tables (no evaluation).
-- Drafting a commit message from an already-staged diff.
-- Mechanical file operations (move/rename/delete a named file, stage paths).
-- Simple lookups and summarizing a grep/`ls` result.
-- Formatting / whitespace / text cleanup with no semantic decision.
+Haiku is permitted ONLY where nothing turns on code logic, design, or review judgment: locating code
+and returning `file:line` tables, drafting a commit message from a staged diff, mechanical file
+operations, summarizing a grep, whitespace cleanup.
 
-Anything that reads code to form a judgment, locates-and-then-evaluates, writes or reviews logic, or
-reasons about design is NOT Haiku — it is Sonnet (executing) or Opus (judging). When a "simple" task
-turns out to require reading code to decide *what* to do, it has left the Haiku boundary; escalate.
+The moment a task reads code to decide *what* to do — locate-then-evaluate is the common case — it has
+left the boundary. Escalate to Sonnet (executing) or Opus (judging). Match the dominant verb when
+unsure, and prefer Opus on a mixed task.
 
-### When unsure
-
-Match the **dominant verb**. "Review / analyze / debug / think / verify" → Opus. "Write / edit / run /
-apply" → Sonnet. Never route review, debug, analyze, or design below Opus to save tokens — that is the
-one downgrade this rule forbids. If torn between Sonnet and Opus for a mixed task, pick Opus.
-
-## Canonical tier assignment (the four agents)
-
-The bundled agents fix their tier by role: `coder` = sonnet (executes), `reviewer` = opus (judges),
-`verifier` = opus (audits), `explorer` = haiku (locates only, refuses judgment — the constraint that
-keeps it inside the Haiku boundary).
-
-## How to apply
-
-The tier MUST be explicit on every delegated agent that does coding, review, thinking, analysis, or
-debugging. Do not rely on an `agentType` or workflow default for those.
-
-- **`Agent` tool:** pass `model: 'sonnet' | 'opus' | 'haiku'` on the spawn.
-- **Workflow per-agent:** `agent(prompt, { model: 'opus', ... })`; the `model` override takes precedence
-  over the agent definition's frontmatter. Mirror it on the matching phase entry so the tier is visible.
-- **Custom agent definitions:** pin `model:` in frontmatter when the agent has a fixed role.
-- Trivia agents MAY set `haiku` explicitly — prefer explicit so intent is auditable.
-
-## Interaction with token suppression
-
-Spend deliberately on the high-stakes tiers (Opus for judgment, Sonnet for execution) and recover tokens
-on genuine trivia (Haiku). A wrong review or analysis costs far more than the Opus tokens that would have
-caught it. Suppress tokens by *scoping* the Opus/Sonnet work tightly, not by downgrading work that needs
-the strong tier.
-
-## Anti-patterns
-
-- A review / debug / analysis / design agent with no `model:`, inheriting a cheap default. Pin `opus`.
-- Routing a "locate where X is and decide if it's a bug" task to Haiku because it "looks like a search".
-  Locating-to-judge is Opus/Sonnet, not Haiku.
-- Downgrading an Opus-tier task to save tokens. Forbidden for review/debug/analyze/design.
-- Using a full model ID string where the `model` param expects the `opus`/`sonnet`/`haiku` alias.
+Never downgrade review, debug, analyze, or design below Opus to save tokens. Recover tokens by scoping
+that work tightly, or by lowering `effort` — not by dropping the tier.

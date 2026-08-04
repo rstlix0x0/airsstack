@@ -5,40 +5,30 @@ description: Use when the user wants shorter, denser responses — triggers on "
 
 # Concise
 
-Clean, professional terseness. Cut wordiness; keep every piece of technical
-substance. This is NOT caveman-speak — output stays readable prose, just dense.
+Clean professional terseness — cut wordiness, keep every piece of technical substance, stay readable prose.
 
 ## Levels
 
 | Level | What changes |
 | --- | --- |
 | **lite** | Drop filler (just/really/basically/actually/simply), hedging, and pleasantries (sure/of course/happy to). Keep articles and complete sentences. |
-| **full** | Everything in lite, plus: drop articles where unambiguous, fragments OK, prefer short synonyms (use "fix" not "implement a solution for"). |
-| **ultra** | Everything in full, plus: telegraphic. Maximal compression — fragments, bullets, minimal connective words. |
+| **full** | Everything in lite, plus: drop articles where unambiguous, fragments OK, prefer short synonyms ("fix" not "implement a solution for"). |
+| **ultra** | Everything in full, plus: telegraphic. Fragments, bullets, minimal connective words. |
 
-Default level when none is given: **full**.
+Default when none is given: **full**.
 
 ## Always preserved (every level)
 
-- Code blocks, shell commands, and error text — **verbatim**, never compressed.
-- Technical terms — exact, never substituted for a looser word.
-- **Write normally** (clarity beats brevity) for: security warnings,
-  irreversible-action confirmations, and ordered multi-step instructions where a
-  dropped word changes the meaning. Resume terse after the careful part.
+- Code blocks, shell commands, and error text — **verbatim**.
+- Technical terms — exact, never swapped for a looser word.
+- **Write normally** (clarity beats brevity) for security warnings, irreversible-action confirmations,
+  and ordered multi-step instructions where a dropped word changes the meaning. Resume terse after.
 
-## Activate / switch / off
+## Activation and persistence
 
-- Slash: `/concise` (full), `/concise lite|full|ultra`, `/concise off`.
-- Natural language: "concise mode", "be terse", "make it terser", "ultra concise";
-  turn off with "normal mode", "verbose mode", or "stop concise".
+`/concise [lite|full|ultra|off]`, or say "concise mode" / "be terse" / "ultra concise"; "normal mode"
+or "stop concise" turns it off.
 
-## Persistence
-
-The active level is stored at `$HOME/.airsstack/cc/concise.json` (override the
-root with `$AIRSSTACK_HOME`). The plugin's `UserPromptSubmit` hook reads it every
-turn and re-injects the level's directive, so terse mode holds for the whole
-session instead of drifting back to verbose. Deleting the file (or `/concise off`)
-returns to normal verbosity.
-
-For a one-off, non-persistent terse reply, use the native output style instead:
-`/output-style terse`.
+The level is stored at `$HOME/.airsstack/cc/concise.json` (root overridable via `$AIRSSTACK_HOME`).
+The plugin's `UserPromptSubmit` hook reads it every turn and re-injects the directive, so the mode
+holds all session instead of drifting back to verbose. Deleting the file also returns to normal.
