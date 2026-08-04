@@ -108,7 +108,7 @@ every constructor takes `impl Into<MessageContent>`.
 
 ### `ContentPart`
 
-One variant in this release:
+One variant:
 
 ```rust
 ContentPart::Text { text: String, cache_control: Option<CacheControl> }

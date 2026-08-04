@@ -68,7 +68,7 @@ pub enum CacheTtl {
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CacheControl {
-    /// The cache discriminator. Always [`CacheKind::Ephemeral`] today.
+    /// The cache discriminator. Always [`CacheKind::Ephemeral`].
     #[serde(rename = "type")]
     pub kind: CacheKind,
     /// Optional TTL; omitted from the wire when `None`.

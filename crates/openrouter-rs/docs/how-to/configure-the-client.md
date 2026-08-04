@@ -48,13 +48,13 @@ slash — and endpoint paths carry no leading slash.
 
 ## Enforce a request timeout
 
-⚠️ **`ClientBuilder::timeout` does not currently affect requests.** The value is
-stored on `Config` and readable through `client.config().timeout()` (default 60
-seconds), but nothing in the request path passes it to the transport, and the
+⚠️ **`ClientBuilder::timeout` does not affect requests.** The value is stored on
+`Config` and readable through `client.config().timeout()` (default 60 seconds),
+but nothing in the request path passes it to the transport, and the
 `reqwest::Client` built by `Client::builder()` is constructed without a timeout.
 
-To get a wall-clock timeout today, configure it on a `reqwest::Client` and
-supply that transport yourself:
+To enforce a wall-clock timeout, configure it on a `reqwest::Client` and supply
+that transport yourself:
 
 ```rust
 use std::time::Duration;
@@ -126,5 +126,5 @@ diagnostic, not a synchronisation primitive.
 - **Leak the key.** `Debug` on `Client`, `Auth`, and `ApiKey` all mask the
   credential; `ApiKey` prints `ApiKey("***")`.
 - **Validate late.** Every setter takes an already-validated value, so `build()`
-  cannot reject your configuration. It returns `Result` only to reserve the
-  failure path for future cross-field checks.
+  cannot reject your configuration. It returns `Result` so you propagate with
+  `?`.

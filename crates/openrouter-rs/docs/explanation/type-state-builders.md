@@ -108,7 +108,7 @@ The hazard is designed out rather than remembered.
 `ChatRequestFields` does the same for the request builder, using
 `ChatRequestFields { model: Some(m), ..self.fields }` for the same reason.
 
-Both crates' tests guard this directly: set an optional *before* the required
+Both builders' tests guard this directly: set an optional *before* the required
 transition and assert it survives.
 
 ## Proving the negative
@@ -138,12 +138,12 @@ TRYBUILD=overwrite cargo test -p openrouter-rs --test builder_compile
 ## When `build()` still returns `Result`
 
 `ClientBuilder::build()` returns `Result<Client<T>, BuildError>` even though it
-cannot fail today. That is a deliberate reservation: a future cross-field
-validation should not be a breaking change to the signature.
+cannot fail. The signature keeps the caller writing `?`, which is what makes
+`BuildError` extensible without breaking downstream code.
 
 `ChatRequestBuilder::build()` returns a bare `ChatRequest`. Every value it holds
-is an already-validated newtype and there is no cross-field rule to add, so there
-is nothing to reserve.
+is an already-validated newtype, and the builder holds no cross-field rule, so
+there is nothing for a `Result` to carry.
 
 Both contain one `expect` on the required-field `Option`, unreachable by
 construction, with the type-state invariant named in the reason string.

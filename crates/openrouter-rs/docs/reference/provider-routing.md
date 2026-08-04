@@ -57,7 +57,7 @@ Each serialises to a bare JSON boolean and carries an `as_bool()` accessor.
 | `Latency` | `"latency"` | lowest time-to-first-token |
 | `Exacto` | `"exacto"` | exact ordering, no fallback reordering |
 
-The object form (`{by, partition}`) is not supported in this release.
+The object form (`{by, partition}`) is not supported.
 
 ### `Quantization`
 

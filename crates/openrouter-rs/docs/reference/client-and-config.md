@@ -56,9 +56,9 @@ is sealed, so downstream crates cannot add states.
 | `api_key(ApiKey)` | `ClientBuilder<Missing, T>` | `ClientBuilder<Present, T>` |
 | `build()` | `ClientBuilder<Present, T>` | `Result<Client<T>, BuildError>` |
 
-`build()` cannot fail in the current implementation — every value it holds was
-validated at construction. The `Result` reserves the failure path so a future
-cross-field validation is not a breaking change.
+`build()` cannot fail — every value it holds was validated at construction. It
+returns `Result` so that callers propagate with `?`; `BuildError` is
+`#[non_exhaustive]`.
 
 Optional fields set *before* `api_key` survive the transition. All mutable
 builder data lives in one private non-generic struct that the transition moves
@@ -98,10 +98,10 @@ and pass it via `ReqwestTransport::from_client` +
 pub enum Auth { Bearer(ApiKey) }
 ```
 
-A closed set with one variant today. `api_key(&self) -> Option<&ApiKey>` returns
-the key when the scheme is `Bearer`. Match arms should carry a `_` arm so a
-future scheme is not a breaking change. `Debug` does not leak the secret,
-because `ApiKey` masks its own.
+A closed set with one variant. `api_key(&self) -> Option<&ApiKey>` returns the
+key when the scheme is `Bearer`. Carry a `_` arm in your match expressions so an
+added scheme does not break your code. `Debug` does not leak the secret, because
+`ApiKey` masks its own.
 
 ## Headers sent on every request
 

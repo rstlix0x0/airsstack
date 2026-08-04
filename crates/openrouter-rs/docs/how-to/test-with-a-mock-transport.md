@@ -175,16 +175,3 @@ async fn summarise<T: HttpTransport>(client: &Client<T>, text: &str) -> Result<S
 Production passes `Client<ReqwestTransport>`; tests pass `Client<CannedTransport>`.
 Both monomorphise — there is no dynamic dispatch and no runtime cost for the
 seam.
-
-## For contributors to this crate
-
-Inside the crate, `crate::test_support::MockHttpTransport` is a `mockall` double
-with the full expectation API:
-
-```rust
-let mut transport = MockHttpTransport::new();
-transport.expect_send().times(1).returning(|_req| { /* ... */ });
-```
-
-It is `#[cfg(test)]`-only and gated behind no Cargo feature — the crate declares
-none.

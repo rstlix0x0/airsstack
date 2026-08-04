@@ -28,10 +28,9 @@ nothing else. It is created at the call site, used for one call, and dropped. It
 is not a builder, does not accumulate state, and is not worth storing.
 
 The reason for the layer at all is that endpoint-specific dispatch has to live
-*somewhere*, and putting it on `Client` would grow the handle every time an
-endpoint is added. Two endpoints exist today, `chat` and `models`; a third would
-be a third resource module and one new method on `Client`, with nothing else
-touched.
+*somewhere*, and putting it on `Client` would grow the handle for every
+endpoint. The crate has two, `chat` and `models`, and each is self-contained:
+one resource module and one method on `Client`, with nothing else touched.
 
 ## The transport is a generic parameter, never a trait object
 

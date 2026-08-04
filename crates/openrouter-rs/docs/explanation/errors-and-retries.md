@@ -119,16 +119,17 @@ the application can answer.
 
 ## Forward compatibility, on purpose
 
-Several decisions in the error surface exist to keep future changes non-breaking:
+Several decisions in the error surface exist so that the API can grow without
+breaking your code:
 
 - `Error`, `BuildError`, `TransportError`, and most `Invalid*` enums are
-  `#[non_exhaustive]`.
+  `#[non_exhaustive]`, so a `match` on them needs a `_` arm.
 - `FinishReason::Unknown` is `#[serde(other)]`, so a new server value decodes
   instead of failing.
 - Response DTOs ignore unknown fields.
-- `ClientBuilder::build()` returns `Result` despite being currently infallible.
+- `ClientBuilder::build()` returns `Result` despite being infallible.
 - `BuildError::BaseUrl` and `BuildError::InvalidConfig` are declared but never
-  constructed — reserved slots.
+  constructed.
 
 The pattern throughout: the client bends rather than breaks when the server
 changes underneath it.

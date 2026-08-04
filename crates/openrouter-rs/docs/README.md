@@ -10,8 +10,8 @@ question, so start from the one that matches what you are doing.
 | **Work** | [How-to guides](#how-to-guides) — solve a task | [Reference](#reference) — look something up |
 
 Everything here describes the crate **as implemented at version 0.1.0**. Where a
-type exists but is not yet wired into the request path, that is stated
-explicitly rather than glossed over.
+type exists but has no effect on the request path, the page that covers it says
+so.
 
 ## Tutorials
 

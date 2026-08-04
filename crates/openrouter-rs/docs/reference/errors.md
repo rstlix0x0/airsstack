@@ -55,16 +55,15 @@ Returns the value only for `RateLimit`; `None` for every other variant.
 
 ## `BuildError`
 
-| Variant | Message | Constructed today |
+| Variant | Message | Constructed |
 |---|---|---|
 | `Transport(String)` | `transport construction failed: …` | ✅ — the only one, from `Client::builder()` when `reqwest::Client` cannot initialise |
-| `BaseUrl(String)` | `invalid base URL: …` | ❌ — reserved; `BaseUrl::parse` returns `InvalidBaseUrl` instead |
-| `InvalidConfig(String)` | `invalid config: …` | ❌ — reserved for a future cross-field validation |
+| `BaseUrl(String)` | `invalid base URL: …` | ❌ — `BaseUrl::parse` returns `InvalidBaseUrl` instead |
+| `InvalidConfig(String)` | `invalid config: …` | ❌ |
 
-`ClientBuilder::build()` returns `Result<_, BuildError>` but cannot fail in the
-current implementation: every value it holds was validated at construction. The
-`Result` reserves the failure path so adding a check later is not a breaking
-change.
+`ClientBuilder::build()` returns `Result<_, BuildError>` but cannot fail: every
+value it holds was validated at construction. Propagate it with `?` anyway —
+`Error` carries `#[from] BuildError`, and `BuildError` is `#[non_exhaustive]`.
 
 ## `TransportError`
 

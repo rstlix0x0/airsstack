@@ -5,7 +5,7 @@
 //! `response.rs`.
 //!
 //! Responsibilities:
-//! - [`ToolType`] — the discriminant for tool kinds (currently only `function`).
+//! - [`ToolType`] — the discriminant for tool kinds (only `function`).
 //! - [`FunctionDef`] — the function metadata (name, description, parameters,
 //!   strict flag).
 //! - [`Tool`] — a complete tool definition carrying a [`ToolType`] and a
@@ -20,9 +20,7 @@ use crate::types::FunctionName;
 
 /// The kind of tool being defined.
 ///
-/// `Function` is the only variant recognized by the API in this release;
-/// additional server-side tool types (e.g. built-in web search) are reserved
-/// for future extension.
+/// `Function` is the only variant recognized by the API.
 ///
 /// # Examples
 ///

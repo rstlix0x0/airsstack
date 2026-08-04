@@ -69,7 +69,8 @@ let prefs = ProviderPreferences::builder().sort(ProviderSort::Latency).build();
 | `Latency` | `"latency"` | lowest time-to-first-token first |
 | `Exacto` | `"exacto"` | exact ordering, no fallback reordering |
 
-The object form of `sort` (`{by, partition}`) is not modelled in this release.
+The object form of `sort` (`{by, partition}`) is not modelled — `Sort` is the
+enum above and nothing else.
 
 ## Cap what you pay
 

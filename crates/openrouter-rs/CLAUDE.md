@@ -15,6 +15,18 @@ integration was severed (root CLAUDE.md, vision §9.1). Do not re-couple them.
 Two endpoints are implemented: `POST /chat/completions` (`ChatResource::send`, `send_cached`,
 `stream`, `stream_cached`) and `GET /models` (`ModelsResource::list`).
 
+## Documentation
+
+`docs/` is a Diátaxis tree — tutorials, how-to guides, reference, explanation — indexed by
+`docs/README.md`. Everything in it describes the crate as implemented.
+
+Reader-facing text (`docs/`, `README.md`, rustdoc in `src/`, `examples/`) must not carry
+development-process vocabulary: no phases, plans, specs, roadmaps, "not yet", "currently",
+"reserved for a future X", no internal tooling or session references, no sections addressed to
+maintainers. State observable behaviour without the timeline. Absent surface is documented as
+absent, never as pending. Full rule with the rewrite table and the pre-commit grep:
+[`.claude/rules/documentation-voice.md`](.claude/rules/documentation-voice.md).
+
 ## Commands
 
 The workspace Definition of Done, scoped to this crate while developing here:
