@@ -1,9 +1,9 @@
 //! Message Batches API surface.
 //!
-//! Exists as a feature-gated submodule of `messages` so batch-related
-//! types are only compiled when the `messages-batches` Cargo feature is
-//! enabled. The batches surface is separate from the core Messages API
-//! because most callers never submit batch workloads.
+//! Exists as its own submodule of `messages` because the batch endpoints
+//! carry their own request, status, and result-row wire types that the
+//! synchronous `POST /v1/messages` path never touches, and most callers
+//! never submit batch workloads at all.
 //!
 //! Responsibilities:
 //! - Re-export [`BatchesResource`] as the primary entry point, reached
