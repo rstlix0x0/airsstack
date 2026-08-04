@@ -1,10 +1,9 @@
 //! Asynchronous SSE stream of [`StreamChunk`] items for a streaming chat
 //! completion.
 //!
-//! Exists as its own file, gated behind `streaming`, so the
-//! `eventsource-stream` dependency and the SSE driving logic stay off the
-//! non-streaming surface. Wraps the raw response body as a
-//! `Stream<Item = Result<StreamChunk, Error>>`.
+//! Exists as its own file so the `eventsource-stream` dependency and the SSE
+//! driving logic stay out of the non-streaming request path. Wraps the raw
+//! response body as a `Stream<Item = Result<StreamChunk, Error>>`.
 //!
 //! Responsibilities:
 //! - Define [`ChatStream`], the body-stream wrapper that parses each SSE

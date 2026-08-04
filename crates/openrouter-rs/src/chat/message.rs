@@ -8,7 +8,7 @@
 //! Responsibilities:
 //! - [`Role`] — the author of a message (system / user / assistant / tool).
 //! - [`MessageContent`] — a bare string or a list of [`ContentPart`]s.
-//! - [`ContentPart`] — one piece of structured content (text only in this release).
+//! - [`ContentPart`] — one piece of structured content (text only).
 //! - [`Message`] — a role paired with optional content, with role-named
 //!   constructors. Content is optional so an assistant-replay message that
 //!   carries only `tool_calls` can omit the field on the wire.
@@ -82,7 +82,7 @@ impl From<Vec<ContentPart>> for MessageContent {
 
 /// One structured piece of a message's content.
 ///
-/// Only the `text` variant exists in this release; it serializes to
+/// Only the `text` variant exists; it serializes to
 /// `{ "type": "text", "text": "…" }`, plus an optional `cache_control`
 /// breakpoint marking the part as a prompt-cache prefix.
 ///

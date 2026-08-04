@@ -170,7 +170,7 @@ pub enum DataCollection {
 /// The criterion by which OpenRouter sorts eligible providers.
 ///
 /// Serializes to its lowercase wire token. The object form (`{by, partition}`)
-/// is not supported in this release; use the string variants only.
+/// is not supported; use the string variants only.
 ///
 /// # Examples
 ///

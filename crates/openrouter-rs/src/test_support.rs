@@ -3,8 +3,8 @@
 //! `MockHttpTransport` is a `mockall`-generated fake of the transport
 //! [`airs_transport::Transport`] contract fixed to the HTTP associated types.
 //! Compiled only under `cfg(test)`; `mockall` is a dev-dependency, so neither
-//! this module nor `mockall` is present in a normal build. The un-gated blanket
-//! impl in `airs_transport::http_transport` makes the generated mock an
+//! this module nor `mockall` is present in a normal build. The blanket impl in
+//! `airs_transport::http_transport` makes the generated mock an
 //! `HttpTransport` automatically.
 
 use bytes::Bytes;

@@ -1,0 +1,12 @@
+{
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "disableWorkflows": true,
+  "permissions": {
+    "additionalDirectories": [
+      "../airs-transport"
+    ]
+  }
+}
