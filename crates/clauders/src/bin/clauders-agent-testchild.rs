@@ -35,12 +35,10 @@ fn main() {
         let _ = std::io::stderr().flush();
     }
 
-    if fork_grandchild {
-        if let Ok(exe) = env::current_exe() {
-            // Inherits our process group (no process_group call here), so a
-            // group-kill of our group reaches this grandchild too.
-            let _ = Command::new(exe).arg("--ignore-eof").spawn();
-        }
+    if fork_grandchild && let Ok(exe) = env::current_exe() {
+        // Inherits our process group (no process_group call here), so a
+        // group-kill of our group reaches this grandchild too.
+        let _ = Command::new(exe).arg("--ignore-eof").spawn();
     }
 
     let stdin = std::io::stdin();
@@ -73,10 +71,10 @@ fn main() {
 fn parse_exit_code(args: &[String]) -> i32 {
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
-        if arg == "--exit-code" {
-            if let Some(code) = iter.next() {
-                return code.parse().unwrap_or(0);
-            }
+        if arg == "--exit-code"
+            && let Some(code) = iter.next()
+        {
+            return code.parse().unwrap_or(0);
         }
     }
     0

@@ -185,25 +185,24 @@ fn run_ui(
         terminal.draw(|frame| draw(frame, &app))?;
 
         // Poll for a keystroke; the timeout also paces the spinner.
-        if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press {
-                    match key.code {
-                        KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-                        KeyCode::Up => {
-                            app.follow = false;
-                            app.scroll = app.scroll.saturating_sub(1);
-                        }
-                        KeyCode::Down => app.scroll = app.scroll.saturating_add(1),
-                        KeyCode::PageUp => {
-                            app.follow = false;
-                            app.scroll = app.scroll.saturating_sub(10);
-                        }
-                        KeyCode::PageDown => app.scroll = app.scroll.saturating_add(10),
-                        KeyCode::End => app.follow = true,
-                        _ => {}
-                    }
+        if event::poll(Duration::from_millis(100))?
+            && let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            match key.code {
+                KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
+                KeyCode::Up => {
+                    app.follow = false;
+                    app.scroll = app.scroll.saturating_sub(1);
                 }
+                KeyCode::Down => app.scroll = app.scroll.saturating_add(1),
+                KeyCode::PageUp => {
+                    app.follow = false;
+                    app.scroll = app.scroll.saturating_sub(10);
+                }
+                KeyCode::PageDown => app.scroll = app.scroll.saturating_add(10),
+                KeyCode::End => app.follow = true,
+                _ => {}
             }
         }
 

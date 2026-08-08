@@ -33,7 +33,7 @@ impl CacheStatus {
     /// Parse a `X-OpenRouter-Cache-Status` header value. Case-insensitive;
     /// anything other than `HIT` maps to [`CacheStatus::Miss`].
     #[must_use]
-    pub fn from_header_value(value: &str) -> Self {
+    pub const fn from_header_value(value: &str) -> Self {
         if value.eq_ignore_ascii_case("HIT") {
             Self::Hit
         } else {
