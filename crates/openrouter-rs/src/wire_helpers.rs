@@ -91,19 +91,18 @@ pub(crate) fn decode_api_error_from_parts(
         return Error::RateLimit { retry_after };
     }
 
-    if code == 403 {
-        if let Some(m) = body
+    if code == 403
+        && let Some(m) = body
             .metadata
             .as_ref()
             .and_then(|md| serde_json::from_value::<ModerationMeta>(md.clone()).ok())
-        {
-            return Error::Moderation {
-                reasons: m.reasons,
-                flagged_input: m.flagged_input,
-                provider_name: m.provider_name,
-                model_slug: m.model_slug,
-            };
-        }
+    {
+        return Error::Moderation {
+            reasons: m.reasons,
+            flagged_input: m.flagged_input,
+            provider_name: m.provider_name,
+            model_slug: m.model_slug,
+        };
     }
 
     if let Some(p) = body

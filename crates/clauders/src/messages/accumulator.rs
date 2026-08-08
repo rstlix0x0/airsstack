@@ -223,10 +223,8 @@ impl MessageAccumulator {
                 self.snapshot.as_ref().and_then(|s| s.content.get(idx)),
                 Some(ContentBlock::ToolUse(_) | ContentBlock::ServerToolUse(_))
             );
-            if addresses_tool_block {
-                if let Some(buffer) = self.json_bufs.get_mut(idx) {
-                    buffer.push_str(partial_json);
-                }
+            if addresses_tool_block && let Some(buffer) = self.json_bufs.get_mut(idx) {
+                buffer.push_str(partial_json);
             }
             return;
         }

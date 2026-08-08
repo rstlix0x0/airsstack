@@ -60,7 +60,7 @@ impl AnthropicVersion {
 
     /// Borrow the version string for HTTP header construction.
     #[must_use]
-    pub fn as_str(&self) -> &str {
+    pub const fn as_str(&self) -> &str {
         match &self.0 {
             VersionRepr::Static(s) => s,
             VersionRepr::Owned(s) => s.as_str(),
