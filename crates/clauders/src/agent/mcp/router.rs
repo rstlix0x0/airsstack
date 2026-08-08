@@ -50,10 +50,10 @@ fn tool_list(server: &SdkMcpServer) -> Vec<serde_json::Value> {
                 "description": t.description(),
                 "inputSchema": t.input_schema(),
             });
-            if let Some(annotations) = t.annotations().and_then(ToolAnnotations::to_wire) {
-                if let Some(map) = obj.as_object_mut() {
-                    map.insert("annotations".to_string(), annotations);
-                }
+            if let Some(annotations) = t.annotations().and_then(ToolAnnotations::to_wire)
+                && let Some(map) = obj.as_object_mut()
+            {
+                map.insert("annotations".to_string(), annotations);
             }
             obj
         })

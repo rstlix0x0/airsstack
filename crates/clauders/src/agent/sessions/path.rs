@@ -251,10 +251,10 @@ pub(crate) async fn find_session_file(
     }
     let mut rd = tokio::fs::read_dir(root).await.ok()?;
     while let Ok(Some(entry)) = rd.next_entry().await {
-        if entry.file_type().await.map(|t| t.is_dir()).unwrap_or(false) {
-            if let Some(found) = probe(&entry.path(), &file_name, None).await {
-                return Some(found);
-            }
+        if entry.file_type().await.map(|t| t.is_dir()).unwrap_or(false)
+            && let Some(found) = probe(&entry.path(), &file_name, None).await
+        {
+            return Some(found);
         }
     }
     None

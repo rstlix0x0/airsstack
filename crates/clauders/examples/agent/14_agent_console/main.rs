@@ -316,14 +316,12 @@ fn run_ui(
         terminal.draw(|frame| draw(frame, &app))?;
 
         // The poll timeout also paces the spinner.
-        if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press
-                    && !handle_key(&mut app, key.code, key.modifiers, cmd)
-                {
-                    return Ok(());
-                }
-            }
+        if event::poll(Duration::from_millis(100))?
+            && let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+            && !handle_key(&mut app, key.code, key.modifiers, cmd)
+        {
+            return Ok(());
         }
 
         while let Ok(event) = rx.try_recv() {
@@ -342,18 +340,18 @@ fn handle_key(
     cmd: &UnboundedSender<Command>,
 ) -> bool {
     // A pending permission question takes over y/n before anything else.
-    if app.pending.is_some() {
-        if let KeyCode::Char(answer @ ('y' | 'n')) = code {
-            if let Some((tool, reply)) = app.pending.take() {
-                let allow = answer == 'y';
-                let _ = reply.send(allow);
-                app.push(
-                    Kind::Gate,
-                    &format!("{} {tool}", if allow { "allowed" } else { "denied" }),
-                );
-            }
-            return true;
+    if app.pending.is_some()
+        && let KeyCode::Char(answer @ ('y' | 'n')) = code
+    {
+        if let Some((tool, reply)) = app.pending.take() {
+            let allow = answer == 'y';
+            let _ = reply.send(allow);
+            app.push(
+                Kind::Gate,
+                &format!("{} {tool}", if allow { "allowed" } else { "denied" }),
+            );
         }
+        return true;
     }
 
     if modifiers.contains(KeyModifiers::CONTROL) {

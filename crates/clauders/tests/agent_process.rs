@@ -150,14 +150,23 @@ async fn shutdown_is_idempotent() {
 }
 
 /// Read the pids belonging to process group `pgid` via `ps`.
+///
+/// Lists every process with its pgid and filters here rather than asking `ps` to select the group,
+/// because `ps -g` is not portable: on BSD it selects by process group, but on procps-ng it selects
+/// by session or effective group name, so it silently matches nothing on Linux.
 fn pids_in_group(pgid: u32) -> Vec<u32> {
     let output = std::process::Command::new("ps")
-        .args(["-o", "pid=", "-g", &pgid.to_string()])
+        .args(["-e", "-o", "pid=,pgid="])
         .output();
     match output {
         Ok(out) => String::from_utf8_lossy(&out.stdout)
-            .split_whitespace()
-            .filter_map(|s| s.parse::<u32>().ok())
+            .lines()
+            .filter_map(|line| {
+                let mut fields = line.split_whitespace();
+                let member = fields.next()?.parse::<u32>().ok()?;
+                let member_group = fields.next()?.parse::<u32>().ok()?;
+                (member_group == pgid).then_some(member)
+            })
             .collect(),
         Err(_) => Vec::new(),
     }

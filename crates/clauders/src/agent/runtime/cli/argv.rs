@@ -263,11 +263,11 @@ fn trailing_flag_args(options: &Options) -> Vec<String> {
                 args.push("disabled".to_string());
             }
         }
-        if !matches!(thinking.mode, ThinkingMode::Disabled) {
-            if let Some(display) = thinking.display {
-                args.push("--thinking-display".to_string());
-                args.push(display.as_str().to_string());
-            }
+        if !matches!(thinking.mode, ThinkingMode::Disabled)
+            && let Some(display) = thinking.display
+        {
+            args.push("--thinking-display".to_string());
+            args.push(display.as_str().to_string());
         }
     } else if let Some(budget) = options.max_thinking_tokens {
         if budget == 0 {
