@@ -16,7 +16,7 @@ use mlua::Table;
 
 use crate::engine::Engine;
 use crate::error::{Error, Result};
-use crate::modules::{ModuleSet, stdlib};
+use crate::modules::{InstallContext, ModuleSet, stdlib};
 use crate::sandbox::Policy;
 use crate::sandbox::language_surface::{CHUNK_LOADERS, UNSAFE_OS_FUNCTIONS};
 use crate::types::RootTable;
@@ -115,7 +115,7 @@ impl EngineBuilder<Present> {
             Some(set) => set,
             None => stdlib()?,
         };
-        install_modules(&lua, &modules, &self.root)?;
+        install_modules(&lua, &modules, &self.policy, &self.root)?;
 
         Ok(Engine::from_parts(
             lua,
@@ -178,16 +178,25 @@ fn protect_string_metatable(lua: &mlua::Lua) -> Result<()> {
 }
 
 /// Creates the root table and installs every module into it.
-fn install_modules(lua: &mlua::Lua, modules: &ModuleSet, root_table: &RootTable) -> Result<()> {
+///
+/// Every module is told the policy it is being installed under, so a module that guards an
+/// operation reads its authority from the same place [`crate::Engine::policy`] reports it from.
+fn install_modules(
+    lua: &mlua::Lua,
+    modules: &ModuleSet,
+    policy: &Policy,
+    root_table: &RootTable,
+) -> Result<()> {
     let fail = |e: mlua::Error| Error::ModuleInstall {
         module: root_table.to_string(),
         reason: e.to_string(),
     };
 
+    let context = InstallContext::new(policy, root_table);
     let root = lua.create_table().map_err(fail)?;
     for module in modules.iter() {
         let table = lua.create_table().map_err(fail)?;
-        module.install(lua, &table)?;
+        module.install(lua, &table, &context)?;
         root.set(module.name().as_str(), table).map_err(fail)?;
     }
     lua.globals().set(root_table.as_str(), root).map_err(fail)?;

@@ -123,6 +123,29 @@ pub enum Error {
         root: String,
     },
 
+    /// A path could not be expressed relative to the base it was measured against.
+    ///
+    /// Its own variant rather than a generic message because the caller usually wants to fall back
+    /// — reporting the absolute path, say — rather than to abort, and distinguishing "not under
+    /// this root" from "the working directory is unreadable" is what makes that possible.
+    #[error("path `{path}` is outside `{base}`")]
+    PathNotRelative {
+        /// The path that was being made relative.
+        path: String,
+        /// The base it was measured against.
+        base: String,
+    },
+
+    /// A path could not be resolved against the process working directory.
+    #[error("cannot resolve path `{path}`: {source}")]
+    PathResolution {
+        /// The path that could not be resolved.
+        path: String,
+        /// The underlying I/O failure, normally an unreadable working directory.
+        #[source]
+        source: std::io::Error,
+    },
+
     /// A `require` target does not exist under the script directory.
     #[error("module `{module}` not found under `{root}`")]
     RequireNotFound {

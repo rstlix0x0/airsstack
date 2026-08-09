@@ -8,17 +8,20 @@
 //!
 //! Responsibilities:
 //!
-//! - [`registry`] — the [`HostModule`] trait and [`ModuleSet`].
+//! - [`registry`] — the [`HostModule`] trait, [`InstallContext`] and [`ModuleSet`].
 //! - [`json`] — JSON encoding and decoding.
+//! - [`mod@path`] — path manipulation, needing no authority.
 //! - [`mod@stdlib`] — the default module set the engine installs.
 //!
 //! Non-responsibilities: sandboxing. Which Lua standard libraries a script sees is
 //! [`crate::Policy`]'s decision, applied by the engine before any of these are installed.
 
 pub mod json;
+pub mod path;
 pub mod registry;
 pub mod stdlib;
 
 pub use json::Json;
-pub use registry::{HostModule, ModuleSet};
+pub use path::Path;
+pub use registry::{HostModule, InstallContext, ModuleSet};
 pub use stdlib::stdlib;

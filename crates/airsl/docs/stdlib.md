@@ -1,6 +1,6 @@
 # Host standard library
 
-**Status: `json` is implemented. Everything else on this page is proposed.**
+**Status: `json` and `path` are implemented. Everything else on this page is proposed.**
 
 Everything a script can reach arrives under one Lua global, `airsstack`, as subtables installed from
 Rust. This document is the roster, the reasoning, and the rules every module follows.
@@ -40,7 +40,7 @@ story a script author has to learn.
 
 **Grants are checked in Rust, before the operation.** See [sandbox.md](sandbox.md).
 
-## What ships: `airsstack.json`
+## What ships: `airsstack.json` and `airsstack.path`
 
 `encode`, `encode_pretty`, `decode`. One known gap left, and one closed.
 
@@ -58,6 +58,10 @@ produces it by default, and how `encode` treats it — which is why it is not si
 of the module that needs it. It matters more for extensions than for scripts, because extensions
 exchange JSON with the host, so it should be settled with `hook`.
 
+`airsstack.path` ships whole — the roster row below is the shipped surface, not a plan. It needs no
+authority, so it is installed under every preset including `pure`, and it is the one module whose
+behaviour is fully decided by the row in the table.
+
 ## Tier 1 — the modules the plugin corpus needs
 
 Validated against the 29 production scripts in `plugins/`, which between them exercise filesystem
@@ -67,7 +71,7 @@ specification: each module is designed for the general case.
 
 | Module | Surface | Grant | Backing crate |
 |---|---|---|---|
-| `path` | `join`, `dirname`, `basename`, `stem`, `ext`, `normalize`, `relative_to`, `is_absolute`, `absolute` | none | std |
+| `path` **(ships)** | `join`, `dirname`, `basename`, `stem`, `ext`, `normalize`, `relative_to`, `is_absolute`, `absolute` | none | std |
 | `fs` | `read`, `read_lines`, `write`, `append`, `exists`, `is_file`, `is_dir`, `stat`, `list`, `walk`, `mkdir`, `remove`, `remove_dir`, `copy`, `rename`, `canonicalize`, `tempfile`, `tempdir`, `atomic_write`, `create_exclusive`, `same_content` | read roots, write roots | `walkdir`, `tempfile` |
 | `env` | `get`, `all`, `set` | name allowlist | std |
 | `proc` | `run(argv) -> {stdout, stderr, status}`, `which` | executable allowlist | std |
@@ -137,13 +141,19 @@ duplicates it would add surface without adding capability.
 
 ## Sequencing
 
-`path` first: no grants, no I/O, pure functions. It proves the module shape, the error convention and
-the test harness at the lowest possible cost.
+`path` is done: no grants, no I/O, pure functions, and it fixed the module shape, the error
+convention and the test harness at the lowest possible cost. Two decisions it settled are worth
+carrying forward — a function returns an empty string rather than `nil` for "no extension", so that
+absence and failure are never the same value; and `relative_to` refuses a path outside its base
+instead of walking up with `..`, because the caller asked "where is this under that", not "how do I
+get from one to the other".
 
 Then `fs` and `env`, which unblock most of the plugin corpus and are where the grant machinery gets
-designed against something real. `Policy` is settled, so `fs` is unblocked: its composing type ships
-with the grant axis typed and empty, waiting for the first module that needs a grant to give the
-vocabulary something to constrain.
+designed against something real. The plumbing is in place: `HostModule::install` receives an
+`InstallContext` carrying the policy, so a module reads its authority from the same object the
+engine reports. What `fs` adds is the vocabulary — the parameterised grant types — plus the answer
+to a question `path` never had to face: whether a module the policy has granted nothing is installed
+and refuses every call, or is not installed at all so that a script can test for it.
 
 Then `proc`, `regex`, `hash`, `glob`, then `stdio` and `hook` to finish the migration. `airsl test`
 should land early enough to test the modules that follow it rather than last.

@@ -18,7 +18,7 @@ independent, they fail differently, and they are at different stages of completi
 
 ```mermaid
 graph TD
-    L3["Layer 3 — Capability surface<br/>host modules under the root table<br/>json ships; the rest are proposed"]
+    L3["Layer 3 — Capability surface<br/>host modules under the root table<br/>json and path ship; the rest are proposed"]
     L2["Layer 2 — Policy<br/>language surface, grants, resource ceilings<br/>surface and ceilings ship; grants proposed"]
     L1["Layer 1 — The VM<br/>Lua 5.4, compiled from C, statically linked<br/>complete"]
     L3 --> L2 --> L1
@@ -48,16 +48,18 @@ unrestricted, or declared-and-currently-empty — because the presets need that 
 until a module exists that takes a grant. [sandbox.md](sandbox.md) has the model it grows into.
 
 **Layer 3 — the capability surface.** Rust functions installed as subtables of a single Lua global,
-named per engine and defaulting to `airsstack`. One module ships (`airsstack.json`); the rest of the
-roster is in [stdlib.md](stdlib.md).
+named per engine and defaulting to `airsstack`. Two modules ship — `airsstack.json` and `airsstack.path` — and the rest of the
+roster is in [stdlib.md](stdlib.md). `path` is the one that fixes the shape: it needs no authority,
+so it proves the module seam, the error convention and the test harness without waiting on a single
+decision about grants.
 
 ## What a script sees today
 
 | Preset | Lua libraries | `require` | Ceilings | Host modules |
 |---|---|---|---|---|
-| `trusted` | everything except `debug` — including `io`, `os`, `package` | Lua's own, unconfined | none | `airsstack.json` |
-| `confined` (default) | `string`, `table`, `math`, `coroutine`, pure `os` | confined to the script directory | 64 MiB, 100M instructions | `airsstack.json` |
-| `pure` | `string`, `table`, `math` | none | 16 MiB, 10M instructions | `airsstack.json` |
+| `trusted` | everything except `debug` — including `io`, `os`, `package` | Lua's own, unconfined | none | `json`, `path` |
+| `confined` (default) | `string`, `table`, `math`, `coroutine`, pure `os` | confined to the script directory | 64 MiB, 100M instructions | `json`, `path` |
+| `pure` | `string`, `table`, `math` | none | 16 MiB, 10M instructions | `json`, `path` |
 
 The practical consequence, and it is easy to miss: **under `--policy trusted`, `airsl` already runs
 arbitrary Lua today.** `io.open`, `os.getenv`, `io.popen` and `require` all work. The host standard
@@ -72,7 +74,7 @@ because it would widen the surface, and gets decided with the standard library.
 
 ## The extension seam
 
-`HostModule` (`registry.rs:44-55`) is a public trait; `ModuleSet` and `stdlib()` are public. A
+`HostModule` is a public trait; `ModuleSet`, `InstallContext` and `stdlib()` are public. A
 downstream crate contributes capabilities without modifying `airsl`:
 
 ```rust
@@ -87,6 +89,13 @@ let engine = Engine::builder()
 
 This was verified from a separate crate outside the workspace: the custom module installed under the
 root table, and the built-in `json` module remained available alongside it. The seam works.
+
+`install` also receives an `InstallContext` carrying the policy the engine was built with. That is
+the one piece of grant machinery that could be built before any grant exists, and it had to be: a
+module constructed with its own copy of the authority could disagree with the engine it was
+installed into, and `airsl doctor` would then describe the policy while the module enforced
+something else. The grant *vocabulary* still waits for `fs`, because the vocabulary is the list of
+modules that need one.
 
 Four gaps used to stand between it and an extension system proper. All four are closed, and what
 each cost is worth recording, because the same trade-offs recur:

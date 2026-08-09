@@ -12,20 +12,21 @@ script can touch.
 
 ## Status: read this first
 
-The runtime foundation ships. The capability *surface* — the modules a script would actually call —
-largely does not. Every document marks each piece, and the table below is the summary.
+The runtime foundation ships. Of the capability *surface* — the modules a script would actually
+call — two are built and the rest are not. Every document marks each piece, and the table below is the summary.
 
 | Area | State |
 |---|---|
 | Embedded Lua 5.4 VM, statically linked | **implemented** |
 | `Engine`, type-state builder, `Script`, `FailurePolicy` | **implemented** |
-| `HostModule` extension seam — `Send + Sync`, `mlua` re-exported, per-engine root table | **implemented** |
+| `HostModule` extension seam — `Send + Sync`, `mlua` re-exported, per-engine root table, policy passed to `install` | **implemented** |
 | Policy — language surface, three presets, memory and instruction ceilings | **implemented** |
 | Confined `require` | **implemented** |
 | `airsstack.json` | **implemented** (sorted keys; `null` still does not round-trip — see [stdlib](stdlib.md)) |
 | `airsl` CLI — `run`, `doctor` | **implemented** |
-| Parameterised capability grants | **proposed** — the axis is typed and empty until `fs` exists to constrain it |
-| Host standard library — `path`, `fs`, `env`, `proc`, `regex`, `hash`, `time`, `glob`, `stdio` | **proposed** |
+| `airsstack.path` | **implemented** |
+| Parameterised capability grants | **proposed** — the plumbing ships (`InstallContext`); the vocabulary waits for `fs` |
+| Host standard library — `fs`, `env`, `proc`, `regex`, `hash`, `time`, `glob`, `stdio` | **proposed** |
 | Extension host — manifests, ceilings, approval, dispatch | **proposed** |
 | `airsl test` | **proposed** |
 
