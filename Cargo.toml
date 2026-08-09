@@ -41,7 +41,7 @@ secrecy            = "0.10.3"
 # required to build the workspace. `serialize` bridges Lua values through serde.
 # Lua 5.4 (not 5.1/LuaJIT) because only 5.3+ distinguishes integers from floats,
 # which the JSON the plugin hooks exchange depends on.
-mlua               = { version = "0.12", features = ["lua54", "vendored", "serialize"] }
+mlua               = { version = "0.12", features = ["lua54", "vendored", "serialize", "send"] }
 # CLI argument parsing (airsl-cli)
 clap               = { version = "4", features = ["derive"] }
 # Host-module support for the Lua standard library
