@@ -9,7 +9,7 @@
 //! Non-responsibilities: installing the modules. The engine does that.
 
 use crate::error::Result;
-use crate::modules::{Json, ModuleSet, Path};
+use crate::modules::{Fs, Json, ModuleSet, Path};
 
 /// Builds the default host-module set.
 ///
@@ -21,6 +21,7 @@ pub fn stdlib() -> Result<ModuleSet> {
     let mut set = ModuleSet::new();
     set.insert(Box::new(Json::new()))?;
     set.insert(Box::new(Path::new()))?;
+    set.insert(Box::new(Fs::new()))?;
     Ok(set)
 }
 

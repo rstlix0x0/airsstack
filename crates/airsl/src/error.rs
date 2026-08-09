@@ -123,6 +123,46 @@ pub enum Error {
         root: String,
     },
 
+    /// A host module refused an operation the policy does not grant.
+    ///
+    /// Names the module, the operation and what was refused, because "permission denied" without
+    /// those three is indistinguishable from the operating system's own refusal and sends whoever
+    /// reads it looking at file modes instead of at the policy.
+    #[error("{module}.{operation} denied: {detail}")]
+    Denied {
+        /// The module that refused, for example `fs`.
+        module: &'static str,
+        /// The function that refused, for example `read`.
+        operation: &'static str,
+        /// What was refused and why.
+        detail: String,
+    },
+
+    /// An operating-system call made on a script's behalf failed.
+    #[error("{operation} failed on `{path}`: {source}")]
+    Io {
+        /// What was being attempted, for example `read`.
+        operation: &'static str,
+        /// The path it was attempted on.
+        path: String,
+        /// The underlying failure.
+        #[source]
+        source: std::io::Error,
+    },
+
+    /// A path could not be resolved to something a grant can be checked against.
+    ///
+    /// Separate from [`Error::Denied`]: the policy did not refuse this, the path could not be
+    /// given a meaning to refuse. A `..` that climbs through a directory which does not exist has
+    /// no filesystem answer, and guessing one lexically is how a containment check gets bypassed.
+    #[error("cannot resolve `{path}` to check it against the policy: {reason}")]
+    UncheckablePath {
+        /// The path as the script wrote it.
+        path: String,
+        /// Why no answer could be given.
+        reason: &'static str,
+    },
+
     /// A path could not be expressed relative to the base it was measured against.
     ///
     /// Its own variant rather than a generic message because the caller usually wants to fall back
