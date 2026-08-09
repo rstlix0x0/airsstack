@@ -36,7 +36,8 @@ airsl doctor [--policy <trusted|confined|pure>]
 ```
 
 Arguments after the script path reach it in the global `arg` table — `arg[1]` where a shell script
-read `$1`. They are passed through untouched, including ones beginning with `-`.
+read `$1`, and `arg[0]` for the script's own name. They are passed through untouched, including ones
+beginning with `-`.
 
 ## `--policy`
 

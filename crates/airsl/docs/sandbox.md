@@ -36,8 +36,8 @@ more until a module exists that takes a grant.
 | Variant | Libraries | Withheld afterwards |
 |---|---|---|
 | `Full` | everything except `debug` | nothing |
-| `Restricted` | `string`, `table`, `math`, `coroutine`, `os` | the four chunk loaders; `os.execute`, `exit`, `getenv`, `remove`, `rename`, `tmpname`, `setlocale` |
-| `Minimal` | `string`, `table`, `math` | the four chunk loaders |
+| `Restricted` | `string`, `table`, `math`, `coroutine`, `os` | the four chunk loaders; `os.execute`, `exit`, `getenv`, `remove`, `rename`, `tmpname`, `setlocale`; the string metatable |
+| `Minimal` | `string`, `table`, `math` | the four chunk loaders; the string metatable |
 
 `os.setlocale` is withheld for a subtler reason than the rest, and it is the clearest statement of
 this crate's values: Lua compares strings with `strcoll`, so a script that changes the locale changes
@@ -142,7 +142,21 @@ The last row of the table matters for engine reuse: because Luau's one-call envi
 unavailable, isolating successive scripts that share one `Engine` has to be built rather than
 borrowed. What the crate does do per evaluation is reset the instruction counter, rewrite the `arg`
 table, and re-point `require` at the current script's root — each of which would be invisible in a
-one-script-per-process CLI and a bug in a dispatcher.
+one-script-per-process CLI and a bug in a dispatcher. Those three are also why an evaluation holds a
+lock for its whole duration: `mlua` locks per operation, so without it two threads sharing an engine
+set each other's arguments, and the ceilings are the least of what goes wrong.
+
+One concrete piece of the isolation problem is closed rather than deferred. Every Lua string shares
+a metatable whose `__index` is the `string` library, so below `Full` that metatable is hidden behind
+`__metatable`. Without it a script could write
+
+```lua
+getmetatable('').__index.upper = function() return 'PWNED' end
+```
+
+and every script afterwards on the same engine would get that function — while reading no global and
+calling no host module, so nothing it did would look suspicious. Method calls are unaffected;
+`('x'):upper()` never goes through `getmetatable`.
 
 ## What this can and cannot promise
 
@@ -179,9 +193,12 @@ than the surface. It is gone; contributions go through `HostModule`, which the r
 
 ## Open questions
 
-- **Isolation between successive scripts on a reused engine.** Still open, still needed for the
-  dispatch path, and `Lua::sandbox` is still unavailable to implement it cheaply. Nothing needs it
-  until registered extensions exist.
+- **Isolation between successive scripts on a reused engine.** Still open for globals generally,
+  and `Lua::sandbox` is still unavailable to implement it cheaply. The string metatable is handled;
+  ordinary globals a script writes are not, and neither is mutation of a shared library table such
+  as `string.foo = ...`. Per-chunk environments via `Chunk::set_environment` would close most of it
+  and would have to carry `require` into loaded modules too, so it is a design pass rather than a
+  patch. Nothing needs it until registered extensions exist.
 - **Grant granularity for `proc`.** An allowlist of executable names is easy to state and easy to
   defeat via a wrapper script. Whether that matters depends on whether `fs` write grants can reach
   anywhere on `PATH`.

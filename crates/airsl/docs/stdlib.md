@@ -42,26 +42,21 @@ story a script author has to learn.
 
 ## What ships: `airsstack.json`
 
-`encode`, `encode_pretty`, `decode`. Two known gaps, both worth fixing before other consumers build
-on it:
+`encode`, `encode_pretty`, `decode`. One known gap left, and one closed.
 
-**Object key order is Lua hash order and varies between runs.** `convert.rs:34` streams an
-`mlua::Value` straight into `serde_json`, so nothing sorts. Four consecutive runs of one script
-encoding the same table:
+**Object keys sort.** They used to come out in Lua hash order, which varies between runs, so the
+same table encoded to a different byte string every time — unusable for an index, a lockfile or any
+cached artifact. `convert::sorted` now routes through `Value::to_serializable().sort_keys(true)`
+(`mlua-0.12.0/src/value.rs:489` and `:681`), which mlua had all along. Sorting is the behaviour
+rather than an option, because a caller could not ask for insertion order anyway — Lua never had it.
+Arrays keep their order; only object keys are affected.
 
-```
-{"kappa":1,"alpha":1,"beta":1,"gamma":1,"zeta":1,"omega":1,"mid":1,"delta":1}
-{"omega":1,"gamma":1,"zeta":1,"alpha":1,"delta":1,"mid":1,"kappa":1,"beta":1}
-{"delta":1,"beta":1,"zeta":1,"alpha":1,"omega":1,"mid":1,"gamma":1,"kappa":1}
-{"zeta":1,"kappa":1,"delta":1,"beta":1,"alpha":1,"omega":1,"mid":1,"gamma":1}
-```
-
-Any consumer writing an index, a lockfile or a cached artifact needs a sorted-key mode.
-
-**JSON `null` does not round-trip.** `convert.rs:56-58` documents it: `null` decodes to Lua `nil`,
+**JSON `null` still does not round-trip.** `convert.rs` documents it: `null` decodes to Lua `nil`,
 which is indistinguishable from an absent key, so `{"a": null}` and `{}` decode identically. A null
-sentinel value fixes it. This matters more for extensions than for scripts, because extensions
-exchange JSON with the host.
+sentinel value fixes it, and the shape of that sentinel is a real API decision — whether `decode`
+produces it by default, and how `encode` treats it — which is why it is not simply bolted on ahead
+of the module that needs it. It matters more for extensions than for scripts, because extensions
+exchange JSON with the host, so it should be settled with `hook`.
 
 ## Tier 1 — the modules the plugin corpus needs
 
@@ -82,8 +77,11 @@ specification: each module is designed for the general case.
 | `glob` | `match(pattern, path)`, `walk(root, pattern)` | inherits `fs` | `globset` |
 
 Six of those eight backing crates — `regex`, `globset`, `walkdir`, `sha2`, `jiff`, `tempfile` — are
-already declared in `Cargo.toml:48-58` and currently unused. The roster is largely what the commit
-that introduced this crate anticipated.
+already declared in `Cargo.toml:48-57` and currently unused. The roster is largely what the commit
+that introduced this crate anticipated. A seventh, `getrandom`, was declared with no module on this
+roster to consume it and has been removed; the SHA-1 crate the `hash` row needs is deliberately not
+declared until `hash` exists, so that the dependency list keeps meaning "something uses this, or is
+about to".
 
 ### Four requirements that are easy to miss
 

@@ -111,8 +111,14 @@ each cost is worth recording, because the same trade-offs recur:
   filesystem to catch is a symlink pointing out of the root. Cycles raise rather than recursing,
   which matters because the alternative is a C stack overflow that aborts the process.
 
-One property `Engine: Sync` does not buy: `require` is a global, so two threads evaluating scripts
-with different roots on one engine contend for it. Give a shared engine scripts under one root.
+What `Engine: Sync` buys is a *shared* engine, not a *parallel* one. `mlua` locks its state per
+operation (`mlua-0.12.0/src/state.rs:58`), and an evaluation is four of them — reset the budget,
+write `arg`, install `require`, run the chunk. That was enough for memory safety and not enough for
+correctness: eight threads evaluating `return arg[1]` on one engine got another thread's argument
+12,247 times out of 16,000. `Engine` now holds a lock spanning the whole sequence
+(`engine.rs:142-161`), which takes that to zero. Lua on one state cannot execute in parallel
+whatever we do, so the lock costs an uncontended acquisition and no throughput — a shared engine is
+a way to avoid rebuilding a state, never a way to get parallelism.
 
 ## Engine lifecycle, and why it is an architectural decision
 
@@ -133,18 +139,31 @@ Roughly a quarter of the eval figure is the instruction hook, which fires on the
 Lifting the ceiling brings the reused path to 3.4 µs. That is the price of being able to stop a
 script that never terminates, and it is a policy choice rather than a fixed cost.
 
-So **engine reuse is an API-shape question, not an optimisation**, and the crate now takes reuse
-seriously in the places it would otherwise have been wrong: the instruction counter resets before
-each evaluation, the `arg` table is written per script rather than once, and `require` is installed
-against the root of the script about to run. Each of those would have been invisible in a
-one-script-per-process CLI and a bug in a dispatcher.
+So **engine reuse is an API-shape question, not an optimisation**, and each thing that has to be
+per-evaluation is one the CLI could never have caught, because it runs one script per process:
+
+| Per evaluation | Kept across evaluations |
+|---|---|
+| the instruction counter, reset before each run | the `require` module cache, keyed by canonical path |
+| the `arg` table, including `arg[0]` | the Lua globals a script wrote |
+| `require`, pointed at the current script's root | whatever garbage the collector has not taken |
+
+The right-hand column is not symmetrical with the left by accident, and one row of it used to be on
+the wrong side: the module cache was rebuilt per evaluation, so a reused engine re-ran every module
+it required — three evaluations of a script requiring a counter returned 1, 2, 3 where Lua's own
+`package.loaded` would give 1, 1, 1. Cached state was being discarded and leaked state was being
+kept, which is exactly inverted for a dispatch path.
 
 What remains unsolved is the rest of the global state a reused engine accumulates. `mlua`'s one-call
 environment restore (`Lua::sandbox(bool)`) is Luau-only —
 `#[cfg(any(feature = "luau", doc))]` at `mlua-0.12.0/src/state.rs:673` — so isolation between
 successive scripts on one engine has to be built rather than borrowed. Nothing needs it until
-registered extensions exist. The memory ceiling has the same shape: it caps the state, not the
-script, so an engine carries earlier scripts' garbage until the collector runs.
+registered extensions exist. One instance of it is closed rather than merely documented: the shared
+string metatable is hidden behind `__metatable` below `Full` (`builder.rs`,
+`protect_string_metatable`), because a script that reached it could replace a method for every
+string in the state — and the next script would call `('x'):upper()` and have no way to notice. The
+memory ceiling has the same shape as the general problem: it caps the state, not the script, so an
+engine carries earlier scripts' garbage until the collector runs.
 
 ## Failure policy
 

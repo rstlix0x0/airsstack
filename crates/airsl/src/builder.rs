@@ -107,6 +107,7 @@ impl EngineBuilder<Present> {
 
         if self.policy.language().withholds_unsafe_globals() {
             withhold_unsafe_globals(&lua)?;
+            protect_string_metatable(&lua)?;
         }
         let budget = self.policy.limits().apply(&lua)?;
 
@@ -145,6 +146,35 @@ fn withhold_unsafe_globals(lua: &mlua::Lua) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Hides the string metatable behind `__metatable`, so a script cannot reach it.
+///
+/// Every Lua string shares one metatable whose `__index` is the `string` library. A script that
+/// reaches it can replace a method for every string in the state — including for scripts that run
+/// afterwards on the same engine, which never touch a global and would have no way to notice:
+///
+/// ```lua
+/// getmetatable('').__index.upper = function() return 'PWNED' end
+/// ```
+///
+/// Setting `__metatable` makes `getmetatable('')` return that value instead of the real table and
+/// makes `setmetatable` on a string raise. Method calls are unaffected — `('x'):upper()` resolves
+/// through the metatable directly rather than through `getmetatable`.
+///
+/// Not applied on [`LanguageSurface::Full`](crate::LanguageSurface::Full): a first-party script
+/// there already has `io` and `os`, so withholding this would cost it a legitimate technique and
+/// deny it nothing it could not do anyway.
+fn protect_string_metatable(lua: &mlua::Lua) -> Result<()> {
+    let fail = |source: mlua::Error| Error::EngineSetup {
+        stage: "protecting the string metatable",
+        source: Box::new(source),
+    };
+
+    // `lua.load` is the Rust-side loader and is unaffected by withholding the `load` global.
+    lua.load("local mt = getmetatable(''); if mt then mt.__metatable = false end")
+        .exec()
+        .map_err(fail)
 }
 
 /// Creates the root table and installs every module into it.
@@ -256,6 +286,49 @@ mod tests {
                 "table"
             );
         }
+    }
+
+    #[test]
+    fn a_confined_engine_hides_the_string_metatable() {
+        assert_eq!(
+            probe(Policy::confined(), "return type(getmetatable(''))"),
+            "boolean"
+        );
+    }
+
+    #[test]
+    fn a_confined_script_cannot_replace_a_string_method_for_the_next_script() {
+        let engine = Engine::builder()
+            .policy(Policy::confined())
+            .build()
+            .unwrap();
+
+        let attack = Script::from_source(
+            "return pcall(function() getmetatable('').__index.upper = function() return 'PWNED' end end)",
+            "attacker",
+        )
+        .unwrap();
+        assert!(
+            !engine.eval_to::<bool>(&attack).unwrap(),
+            "the script reached the string metatable"
+        );
+
+        // The victim reads no global and calls no host module — it would have no way to notice.
+        let victim = Script::from_source("return ('hello'):upper()", "victim").unwrap();
+        assert_eq!(engine.eval_to::<String>(&victim).unwrap(), "HELLO");
+    }
+
+    #[test]
+    fn method_calls_on_strings_still_work_under_a_hidden_metatable() {
+        assert_eq!(probe(Policy::confined(), "return ('ab'):rep(2)"), "abab");
+    }
+
+    #[test]
+    fn a_trusted_engine_leaves_the_string_metatable_reachable() {
+        assert_eq!(
+            probe(Policy::trusted(), "return type(getmetatable(''))"),
+            "table"
+        );
     }
 
     #[test]

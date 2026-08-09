@@ -136,10 +136,12 @@ engine across calls**.
 That last requirement is where the measurements matter: 4.2 µs per call on a reused engine against
 48 µs constructing a fresh one, with 40 µs to build the state. A registered extension pays setup
 once and then dispatches in microseconds. Engine reuse is now correct in the places it would
-otherwise have been wrong — the instruction counter resets per evaluation, and `require` re-points
-at the current script's root — but a long-lived engine still accumulates global state between
-invocations, and `mlua`'s one-call environment restore is Luau-only
-(`mlua-0.12.0/src/state.rs:673`), so isolation between successive dispatches has to be built.
+otherwise have been wrong — the instruction counter and the `arg` table are per evaluation,
+`require` re-points at the current script's root, its module cache persists as `package.loaded`
+does, and evaluations are serialised so threads sharing an engine cannot set each other's arguments.
+A long-lived engine still accumulates global state between invocations, and `mlua`'s one-call
+environment restore is Luau-only (`mlua-0.12.0/src/state.rs:673`), so isolation between successive
+dispatches has to be built.
 
 ## What exists versus what is new
 

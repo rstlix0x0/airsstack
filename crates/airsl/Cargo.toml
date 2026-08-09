@@ -30,6 +30,5 @@ regex      = { workspace = true }
 globset    = { workspace = true }
 walkdir    = { workspace = true }
 sha2       = { workspace = true }
-getrandom  = { workspace = true }
 jiff       = { workspace = true }
 tempfile   = { workspace = true }

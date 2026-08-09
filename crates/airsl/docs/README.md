@@ -22,7 +22,7 @@ largely does not. Every document marks each piece, and the table below is the su
 | `HostModule` extension seam — `Send + Sync`, `mlua` re-exported, per-engine root table | **implemented** |
 | Policy — language surface, three presets, memory and instruction ceilings | **implemented** |
 | Confined `require` | **implemented** |
-| `airsstack.json` | **implemented** (two known gaps — see [stdlib](stdlib.md)) |
+| `airsstack.json` | **implemented** (sorted keys; `null` still does not round-trip — see [stdlib](stdlib.md)) |
 | `airsl` CLI — `run`, `doctor` | **implemented** |
 | Parameterised capability grants | **proposed** — the axis is typed and empty until `fs` exists to constrain it |
 | Host standard library — `path`, `fs`, `env`, `proc`, `regex`, `hash`, `time`, `glob`, `stdio` | **proposed** |
