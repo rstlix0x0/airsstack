@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A new push to the same ref supersedes whatever is still running for it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Incremental artifacts are dead weight in a fresh runner and only bloat the cache.
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  RUSTUP_MAX_RETRIES: 10
+  RUST_BACKTRACE: 1
+
+jobs:
+  dod:
+    name: Definition of Done
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      # `rustup show` resolves the override in rust-toolchain.toml (channel
+      # stable, components rustfmt + clippy) and installs it if the runner's
+      # preinstalled toolchain does not already satisfy it.
+      - name: Install the pinned Rust toolchain
+        run: |
+          rustup show
+          cargo --version
+          cargo clippy --version
+          cargo fmt --version
+
+      - name: Cache cargo registry and target dir
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-make
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-make
+
+      # One command, the same one a developer runs locally: fmt-check, clippy,
+      # rustdoc, tests, doctests — each with warnings as errors.
+      - name: cargo make dod
+        run: cargo make dod
