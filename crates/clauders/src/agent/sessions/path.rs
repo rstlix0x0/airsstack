@@ -183,6 +183,10 @@ pub(crate) async fn append_to_file(path: &Path, text: &str) -> std::io::Result<b
         return Ok(false);
     }
     file.write_all(text.as_bytes()).await?;
+    // `tokio::fs::File` dispatches writes to the blocking pool and does not wait for
+    // them on drop, so returning here without flushing would report an append that a
+    // subsequent read cannot see.
+    file.flush().await?;
     Ok(true)
 }
 
