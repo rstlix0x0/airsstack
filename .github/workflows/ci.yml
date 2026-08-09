@@ -30,9 +30,10 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      # `rustup show` resolves the override in rust-toolchain.toml (channel
-      # stable, components rustfmt + clippy) and installs it if the runner's
-      # preinstalled toolchain does not already satisfy it.
+      # `rustup show` resolves the override in rust-toolchain.toml and installs it.
+      # The pin is an exact patch release, so the runner's preinstalled stable never
+      # satisfies it and this step always downloads a toolchain — the version numbers
+      # printed below are the record of which one the gate actually ran on.
       - name: Install the pinned Rust toolchain
         run: |
           rustup show
