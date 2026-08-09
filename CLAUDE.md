@@ -95,6 +95,12 @@ a feature. So `--all-features` is a no-op that equals the default build.
 The pass/fail gate (Definition of Done) lives in the `airsstack-guideline-rust` plugin. Invoke that
 skill for the command set rather than reconstructing it here.
 
+`Makefile.toml` encodes that same gate as cargo-make tasks — `cargo make dod` runs all five steps,
+`cargo make dod-crate <crate>` scopes them to one crate, and `cargo make --list-all-steps` shows the
+individual steps. `.github/workflows/ci.yml` runs `cargo make dod` on push to `main` and on every pull
+request, so CI and a local run are the same command. The plugin skill stays the source of truth: if
+the two disagree, the skill is right and `Makefile.toml` needs fixing.
+
 ## AI methodology — the airsstack plugin suite
 
 The methodology ships as a Claude Code plugin suite from the in-repo marketplace
