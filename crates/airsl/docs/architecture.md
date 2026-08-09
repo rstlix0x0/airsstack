@@ -18,8 +18,8 @@ independent, they fail differently, and they are at different stages of completi
 
 ```mermaid
 graph TD
-    L3["Layer 3 — Capability surface<br/>host modules under the root table<br/>json and path ship; the rest are proposed"]
-    L2["Layer 2 — Policy<br/>language surface, grants, resource ceilings<br/>surface and ceilings ship; grants proposed"]
+    L3["Layer 3 — Capability surface<br/>host modules under the root table<br/>complete: 11 modules"]
+    L2["Layer 2 — Policy<br/>language surface, grants, resource ceilings<br/>complete"]
     L1["Layer 1 — The VM<br/>Lua 5.4, compiled from C, statically linked<br/>complete"]
     L3 --> L2 --> L1
 ```
@@ -43,23 +43,32 @@ listed beside the variants that withhold them (`sandbox/language_surface.rs:20-3
 (`sandbox/resource_limits.rs:143-165`), so no caller can hold an engine whose ceilings are not yet
 in force.
 
-`GrantSet` answers the second and is the piece that does not ship. It carries two states —
-unrestricted, or declared-and-currently-empty — because the presets need that much, and no more,
-until a module exists that takes a grant. [sandbox.md](sandbox.md) has the model it grows into.
+`GrantSet` answers the second. It is either unrestricted or a set of parameterised allowlists —
+directory roots split by read and write, environment variable names, executable names — reached by a
+module through the `InstallContext` its `install` receives. [sandbox.md](sandbox.md) has the model.
 
 **Layer 3 — the capability surface.** Rust functions installed as subtables of a single Lua global,
-named per engine and defaulting to `airsstack`. Two modules ship — `airsstack.json` and `airsstack.path` — and the rest of the
-roster is in [stdlib.md](stdlib.md). `path` is the one that fixes the shape: it needs no authority,
-so it proves the module seam, the error convention and the test harness without waiting on a single
-decision about grants.
+named per engine and defaulting to `airsstack`. Eleven modules ship: `json`, `path`, `fs`, `env`,
+`proc`, `regex`, `hash`, `time`, `glob`, `stdio` and `hook`. [stdlib.md](stdlib.md) has the roster.
+
+The split that matters is which of them need authority. `path`, `regex`, `time` and `stdio` reach
+nothing and are installed under every preset including `pure`. `fs`, `env` and `proc` each take a
+grant. `hash` and `glob` are the interesting case: most of what they do is pure, but `hash_file` and
+`glob.walk` read the filesystem, so those two functions alone go through the same guard `fs` uses.
+A module is a capability, and sometimes the boundary runs through the middle of one.
 
 ## What a script sees today
 
 | Preset | Lua libraries | `require` | Ceilings | Host modules |
 |---|---|---|---|---|
-| `trusted` | everything except `debug` — including `io`, `os`, `package` | Lua's own, unconfined | none | `json`, `path` |
-| `confined` (default) | `string`, `table`, `math`, `coroutine`, pure `os` | confined to the script directory | 64 MiB, 100M instructions | `json`, `path` |
-| `pure` | `string`, `table`, `math` | none | 16 MiB, 10M instructions | `json`, `path` |
+| `trusted` | everything except `debug` — including `io`, `os`, `package` | Lua's own, unconfined | none | all 11, unrestricted |
+| `confined` (default) | `string`, `table`, `math`, `coroutine`, pure `os` | confined to the script directory | 64 MiB, 100M instructions | all 11, granted nothing by default |
+| `pure` | `string`, `table`, `math` | none | 16 MiB, 10M instructions | all 11, granted nothing by default |
+
+Every module is installed under every preset. A module the policy has granted nothing is present and
+refuses each call with a message naming what *was* granted — rather than being absent, which would
+make a script's `if airsstack.fs then` mean "am I allowed" instead of "does this runtime have it".
+The authority is in the grant, not in the presence of the table.
 
 The practical consequence, and it is easy to miss: **under `--policy trusted`, `airsl` already runs
 arbitrary Lua today.** `io.open`, `os.getenv`, `io.popen` and `require` all work. The host standard

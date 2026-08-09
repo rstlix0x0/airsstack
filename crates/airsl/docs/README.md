@@ -12,8 +12,8 @@ script can touch.
 
 ## Status: read this first
 
-The runtime foundation ships. Of the capability *surface* — the modules a script would actually
-call — two are built and the rest are not. Every document marks each piece, and the table below is the summary.
+The runtime foundation ships, and so does the whole host standard library. What remains unbuilt is
+the extension host — manifests, ceilings, approval and dispatch — and Tier 3. Every document marks each piece, and the table below is the summary.
 
 | Area | State |
 |---|---|
@@ -24,11 +24,10 @@ call — two are built and the rest are not. Every document marks each piece, an
 | Confined `require` | **implemented** |
 | `airsstack.json` | **implemented** (sorted keys; `null` still does not round-trip — see [stdlib](stdlib.md)) |
 | `airsl` CLI — `run`, `doctor` | **implemented** |
-| `airsstack.path` | **implemented** |
-| Parameterised capability grants | **proposed** — the plumbing ships (`InstallContext`); the vocabulary waits for `fs` |
-| Host standard library — `fs`, `env`, `proc`, `regex`, `hash`, `time`, `glob`, `stdio` | **proposed** |
+| Parameterised capability grants — `FsGrant`, `EnvGrant`, `ProcGrant` | **implemented** |
+| Host standard library — `path`, `fs`, `env`, `proc`, `regex`, `hash`, `time`, `glob`, `stdio`, `hook` | **implemented** |
+| `airsl test` | **implemented** |
 | Extension host — manifests, ceilings, approval, dispatch | **proposed** |
-| `airsl test` | **proposed** |
 
 Do not cite these documents as evidence that something works. Where a claim is about code that
 exists, it carries a `file:line`. Where it is about code that does not, it says so.

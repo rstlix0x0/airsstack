@@ -19,7 +19,7 @@ airsl 0.1.0
   grants:       none
   memory:       67108864 bytes
   instructions: 100000000 instructions
-  modules:      json
+  modules:      json, path, fs, env, proc, regex, hash, time, glob, stdio, hook
 ```
 
 Pass `--policy` to describe a different preset rather than the default.
@@ -27,11 +27,14 @@ Pass `--policy` to describe a different preset rather than the default.
 ## Usage
 
 ```
-airsl run [--policy <trusted|confined|pure>]
-          [--memory-limit <BYTES|none>]
-          [--instruction-limit <COUNT|none>]
-          [--fail-open]
-          <script.lua> [args…]
+airsl run  [--policy <trusted|confined|pure>]
+           [--allow-read <DIR>] [--allow-write <DIR>]
+           [--allow-env <NAME>] [--allow-exec <PROGRAM>]
+           [--memory-limit <BYTES|none>]
+           [--instruction-limit <COUNT|none>]
+           [--fail-open]
+           <script.lua> [args…]
+airsl test [--policy <trusted|confined|pure>] [--allow-…] [<path>]
 airsl doctor [--policy <trusted|confined|pure>]
 ```
 
@@ -57,6 +60,60 @@ A script under `confined` may `require` its siblings, including files in subdire
 (`require("lib.index")`). It cannot name anything outside its own directory: a target may not
 contain a path separator or a `..` component, and the resolved path is checked for containment, so a
 symlink pointing out of the directory is refused too.
+
+## Grant flags
+
+Nothing is granted below `--policy trusted`. A script that reads a file, reads an environment
+variable or runs a program says so on the command line, so the authority is visible to whoever reads
+the invocation:
+
+| Flag | Grants | Repeatable |
+|---|---|---|
+| `--allow-read DIR` | reading under `DIR` | yes |
+| `--allow-write DIR` | writing under `DIR` — not implicitly readable | yes |
+| `--allow-env NAME` | reading and setting the variable `NAME` | yes |
+| `--allow-exec PROGRAM` | running `PROGRAM`, matched on the name as written | yes |
+
+```bash
+airsl run --allow-read "$AIRSSTACK_HOME" \
+          --allow-write "$AIRSSTACK_HOME/journal/.index" \
+          --allow-env AIRSSTACK_HOME \
+          --allow-exec git \
+          hooks/index.lua
+```
+
+A refusal names what was granted, because the usual cause is a root one directory too deep:
+
+```
+airsl: fs.read denied: `/etc/hostname` is outside them — granted read roots are /home/me/journal
+```
+
+Under `--policy trusted` these flags are ignored: that preset waives containment entirely, so a
+declared list would narrow nothing and would make `airsl doctor` report something meaningless.
+
+## `airsl test`
+
+Runs the Lua test files under a directory, with the same policy and grant flags as `airsl run`.
+
+```bash
+airsl test --allow-read . plugins/
+```
+
+A test file is named `*_test.lua` or `test_*.lua` and returns a table whose named function values
+are the tests. A test passes by returning and fails by raising, so Lua's own `assert` is the whole
+assertion surface:
+
+```lua
+-- index_test.lua
+return {
+  joins_paths = function()
+    assert(airsstack.path.join("a", "b") == "a/b")
+  end,
+}
+```
+
+Each file gets a fresh engine, so one file cannot leave globals behind for the next. Finding no test
+files at all exits non-zero — "no tests" and "all tests passed" must not read the same to CI.
 
 ## `--memory-limit` and `--instruction-limit`
 
