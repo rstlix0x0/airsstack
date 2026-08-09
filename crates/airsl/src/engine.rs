@@ -110,6 +110,14 @@ mod tests {
     use super::{Engine, ROOT_TABLE};
     use crate::{Sandbox, Script};
 
+    /// Fails to compile if `T` is not shareable between threads.
+    const fn assert_send_sync<T: Send + Sync>() {}
+
+    #[test]
+    fn an_engine_can_be_sent_and_shared_between_threads() {
+        assert_send_sync::<Engine>();
+    }
+
     fn engine() -> Engine {
         Engine::builder()
             .sandbox(Sandbox::Restricted)

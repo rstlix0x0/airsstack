@@ -36,6 +36,15 @@ mod script;
 pub mod modules;
 pub mod types;
 
+/// The Lua binding this crate is built on.
+///
+/// Re-exported because it is part of the public contract rather than an implementation detail:
+/// [`HostModule::install`] receives an `&mlua::Lua` and an `&mlua::Table`, so a module cannot be
+/// written without naming these types. Depending on `airsl::mlua` rather than declaring `mlua`
+/// separately keeps a contributor on the same version the engine was built with — a mismatch
+/// otherwise produces type errors that never mention the real cause.
+pub use mlua;
+
 pub use builder::{EngineBuilder, Missing, Present};
 pub use engine::{Engine, ROOT_TABLE};
 pub use error::{Error, Result};
