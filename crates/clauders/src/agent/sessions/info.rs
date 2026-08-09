@@ -248,10 +248,10 @@ const PROGRAMMATIC_ENTRYPOINTS: [&str; 3] = ["sdk-cli", "sdk-ts", "sdk-py"];
 pub(crate) fn is_programmatic(head: &str, tail: &str) -> bool {
     let entrypoint =
         first_string_field(head, "entrypoint").or_else(|| last_string_field(tail, "entrypoint"));
-    if let Some(ep) = entrypoint {
-        if PROGRAMMATIC_ENTRYPOINTS.contains(&ep.as_str()) {
-            return true;
-        }
+    if let Some(ep) = entrypoint
+        && PROGRAMMATIC_ENTRYPOINTS.contains(&ep.as_str())
+    {
+        return true;
     }
     let line = head
         .split('\n')
@@ -389,10 +389,10 @@ fn last_string_field(text: &str, key: &str) -> Option<String> {
         let mut from = 0;
         while let Some(rel) = text[from..].find(&pat) {
             let a = from + rel;
-            if let Some(v) = read_value_at(text, a + pat.len()) {
-                if best.as_ref().is_none_or(|(pos, _)| a > *pos) {
-                    best = Some((a, v));
-                }
+            if let Some(v) = read_value_at(text, a + pat.len())
+                && best.as_ref().is_none_or(|(pos, _)| a > *pos)
+            {
+                best = Some((a, v));
             }
             from = a + pat.len();
         }
@@ -405,10 +405,10 @@ fn last_string_field(text: &str, key: &str) -> Option<String> {
 fn last_typed_field(text: &str, ty: &str, key: &str) -> Option<String> {
     let type_marker = format!("\"type\":\"{ty}\"");
     for line in text.split('\n').rev() {
-        if line.contains(&type_marker) {
-            if let Some(v) = last_string_field(line, key) {
-                return Some(v);
-            }
+        if line.contains(&type_marker)
+            && let Some(v) = last_string_field(line, key)
+        {
+            return Some(v);
         }
     }
     None

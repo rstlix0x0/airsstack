@@ -22,18 +22,18 @@ pub(super) fn initialize_body(options: &Options) -> serde_json::Value {
             obj.insert("hooks".to_string(), hooks);
         }
     }
-    if let Some(config) = &options.output_format {
-        if let (Some(obj), Ok(value)) = (request.as_object_mut(), serde_json::to_value(config)) {
-            obj.insert("output_format".to_string(), value);
-        }
+    if let Some(config) = &options.output_format
+        && let (Some(obj), Ok(value)) = (request.as_object_mut(), serde_json::to_value(config))
+    {
+        obj.insert("output_format".to_string(), value);
     }
-    if let Some(title) = &options.title {
-        if let Some(obj) = request.as_object_mut() {
-            obj.insert(
-                "title".to_string(),
-                serde_json::Value::String(title.clone()),
-            );
-        }
+    if let Some(title) = &options.title
+        && let Some(obj) = request.as_object_mut()
+    {
+        obj.insert(
+            "title".to_string(),
+            serde_json::Value::String(title.clone()),
+        );
     }
     request
 }

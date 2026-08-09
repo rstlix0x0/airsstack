@@ -25,11 +25,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk?;
-        if let Some(choice) = chunk.choices.first() {
-            if let Some(text) = &choice.delta.content {
-                print!("{text}");
-                std::io::stdout().flush()?;
-            }
+        if let Some(choice) = chunk.choices.first()
+            && let Some(text) = &choice.delta.content
+        {
+            print!("{text}");
+            std::io::stdout().flush()?;
         }
     }
     println!();

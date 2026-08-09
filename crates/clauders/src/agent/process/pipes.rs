@@ -56,20 +56,20 @@ where
         if let Some(pos) = chunk.iter().position(|b| *b == b'\n') {
             buf.extend_from_slice(&chunk[..pos]);
             Pin::new(&mut *reader).consume(pos + 1);
-            if let Some(cap) = cap {
-                if buf.len() > cap {
-                    return Err(LineError::Overflow { cap });
-                }
+            if let Some(cap) = cap
+                && buf.len() > cap
+            {
+                return Err(LineError::Overflow { cap });
             }
             return Ok(true);
         }
         buf.extend_from_slice(chunk);
         let advance = chunk.len();
         Pin::new(&mut *reader).consume(advance);
-        if let Some(cap) = cap {
-            if buf.len() > cap {
-                return Err(LineError::Overflow { cap });
-            }
+        if let Some(cap) = cap
+            && buf.len() > cap
+        {
+            return Err(LineError::Overflow { cap });
         }
     }
 }
