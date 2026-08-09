@@ -36,7 +36,7 @@ pub(crate) fn report(policy: &Policy) -> String {
                 .map(ToString::to_string)
                 .collect();
             let limits = policy.limits();
-            let _ = writeln!(out, "  lua:          {}", lua_version(&engine));
+            let _ = writeln!(out, "  lua:          {}", engine.lua_version());
             let _ = writeln!(out, "  language:     {}", policy.language());
             let _ = writeln!(out, "  root table:   {}", engine.root_table());
             let _ = writeln!(out, "  grants:       {}", policy.grants());
@@ -54,15 +54,6 @@ pub(crate) fn report(policy: &Policy) -> String {
 /// Renders a ceiling, or the word that says there is none.
 fn describe<T: core::fmt::Display>(limit: Option<T>) -> String {
     limit.map_or_else(|| String::from("unlimited"), |value| value.to_string())
-}
-
-/// Asks the Lua state for its own version string.
-fn lua_version(engine: &Engine) -> String {
-    engine
-        .lua()
-        .globals()
-        .get::<String>("_VERSION")
-        .unwrap_or_else(|_| String::from("unknown"))
 }
 
 #[cfg(test)]

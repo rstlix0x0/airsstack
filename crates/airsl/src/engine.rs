@@ -85,10 +85,13 @@ impl Engine {
         &self.policy
     }
 
-    /// The underlying Lua state, for callers registering their own values after construction.
+    /// The version string the Lua state reports for itself.
     #[must_use]
-    pub const fn lua(&self) -> &mlua::Lua {
-        &self.lua
+    pub fn lua_version(&self) -> String {
+        self.lua
+            .globals()
+            .get::<String>("_VERSION")
+            .unwrap_or_else(|_| String::from("unknown"))
     }
 
     /// The names of the installed host modules, in installation order.
@@ -119,12 +122,27 @@ impl Engine {
         if let Some(budget) = self.budget.as_ref() {
             budget.reset();
         }
+        self.set_arguments(script)?;
 
         self.lua
             .load(script.source())
             .set_name(script.name().as_lua())
             .eval::<T>()
             .map_err(|error| self.classify(script, error))
+    }
+
+    /// Installs the script's arguments as the global `arg` table.
+    ///
+    /// Written before every evaluation rather than once at construction, so two scripts run on one
+    /// engine each see their own arguments instead of whichever ran first.
+    fn set_arguments(&self, script: &Script) -> Result<()> {
+        let fail = |source: mlua::Error| Error::lua(script.name().as_str(), source);
+
+        let table = self.lua.create_table().map_err(fail)?;
+        for (index, value) in script.args().iter().enumerate() {
+            table.set(index + 1, value.as_str()).map_err(fail)?;
+        }
+        self.lua.globals().set("arg", table).map_err(fail)
     }
 
     /// Names the failure a script produced, separating a resource breach from a script defect.
@@ -314,6 +332,34 @@ mod tests {
 
         assert!(engine.eval(&script("while true do end")).is_err());
         assert_eq!(engine.eval_to::<i64>(&script("return 7")).unwrap(), 7);
+    }
+
+    #[test]
+    fn a_script_sees_its_own_arguments_in_the_arg_table() {
+        let engine = engine();
+        let source = script("return arg[1] .. arg[2]").with_args(["one", "two"]);
+        assert_eq!(engine.eval_to::<String>(&source).unwrap(), "onetwo");
+    }
+
+    #[test]
+    fn a_script_without_arguments_sees_an_empty_arg_table() {
+        let engine = engine();
+        assert_eq!(engine.eval_to::<i64>(&script("return #arg")).unwrap(), 0);
+    }
+
+    #[test]
+    fn two_scripts_on_one_engine_each_see_their_own_arguments() {
+        let engine = engine();
+        let first = script("return arg[1]").with_args(["first"]);
+        let second = script("return arg[1]").with_args(["second"]);
+        assert_eq!(engine.eval_to::<String>(&first).unwrap(), "first");
+        assert_eq!(engine.eval_to::<String>(&second).unwrap(), "second");
+        assert_eq!(engine.eval_to::<String>(&first).unwrap(), "first");
+    }
+
+    #[test]
+    fn the_engine_reports_the_lua_version_it_embeds() {
+        assert!(engine().lua_version().starts_with("Lua 5."));
     }
 
     #[test]

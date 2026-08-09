@@ -53,28 +53,8 @@ pub(crate) fn run(script: &Path, args: &[String], failure: FailurePolicy, policy
 /// Builds the engine, loads the script, and evaluates it.
 fn execute(script: &Path, args: &[String], policy: &Policy) -> airsl::Result<()> {
     let engine = Engine::builder().policy(policy.clone()).build()?;
-    set_script_args(&engine, args)?;
-    let script = Script::from_file(script)?;
+    let script = Script::from_file(script)?.with_args(args.iter().map(String::as_str));
     engine.eval(&script)
-}
-
-/// Exposes the pass-through arguments to the script as the global `arg` table.
-///
-/// Lua's own convention for a standalone script, so a ported shell script reads `arg[1]` where it
-/// previously read `$1`.
-fn set_script_args(engine: &Engine, args: &[String]) -> airsl::Result<()> {
-    let lua = engine.lua();
-    let table = lua
-        .create_table()
-        .map_err(|e| airsl::Error::lua("<args>", e))?;
-    for (index, value) in args.iter().enumerate() {
-        table
-            .set(index + 1, value.as_str())
-            .map_err(|e| airsl::Error::lua("<args>", e))?;
-    }
-    lua.globals()
-        .set("arg", table)
-        .map_err(|e| airsl::Error::lua("<args>", e))
 }
 
 #[cfg(test)]
