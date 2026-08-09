@@ -1,4 +1,15 @@
 [toolchain]
-channel    = "stable"
+# Pinned to an exact patch release, not "stable", because the `trybuild` fixtures in
+# clauders and openrouter-rs assert verbatim rustc diagnostics — caret art, `= note:`
+# blocks and all. A floating channel means a rustc release that merely rewords a
+# diagnostic turns the gate red with no change to this repository. It also happens to
+# match `rust-version` in the workspace manifest, so the MSRV claim is exercised by
+# every ordinary build rather than asserted and never checked.
+#
+# Bumping: raise the version here, run `TRYBUILD=overwrite cargo test -p clauders --test
+# builder_compile` and the same for `-p openrouter-rs`, then read the resulting `.stderr`
+# diffs. Those files pin the type-state builders' error messages, so a changed message is
+# a user-visible change and worth looking at rather than accepting blind.
+channel    = "1.94.1"
 components = ["rustfmt", "clippy"]
 profile    = "minimal"

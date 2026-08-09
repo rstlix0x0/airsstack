@@ -42,6 +42,9 @@ A Cargo workspace (`crates/`) with three members:
 > lives in the vision doc's §8 re-introduction criteria, not in current scope.
 
 Standard Rust commands apply: `cargo build`, `cargo test -p <crate>`, `cargo clippy`, `cargo fmt`.
+The full pass/fail gate is a [cargo-make](https://github.com/sagiegurari/cargo-make) task —
+`cargo make dod` (or `cargo make dod-crate <crate>` while working in one crate) — defined in
+`Makefile.toml` and run unchanged by CI.
 
 ## The airsstack Claude Code plugin suite (the methodology)
 
