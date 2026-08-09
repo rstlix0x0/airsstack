@@ -32,6 +32,7 @@ mod engine;
 mod error;
 mod failure_policy;
 mod instruction_budget;
+mod require_loader;
 mod script;
 
 pub mod modules;
@@ -56,4 +57,4 @@ pub use sandbox::{
     GrantSet, InstructionLimit, LanguageSurface, MemoryLimit, Policy, ResourceLimits,
 };
 pub use script::Script;
-pub use types::{ChunkName, ModuleName, RootTable};
+pub use types::{ChunkName, ModuleName, RequireTarget, RootTable};

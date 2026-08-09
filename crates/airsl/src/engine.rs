@@ -19,6 +19,7 @@ use crate::builder::{EngineBuilder, Missing};
 use crate::error::{Error, Result};
 use crate::instruction_budget::{BudgetExhausted, InstructionBudget};
 use crate::modules::ModuleSet;
+use crate::require_loader::RequireLoader;
 use crate::sandbox::Policy;
 use crate::script::Script;
 use crate::types::{ModuleName, RootTable};
@@ -123,6 +124,7 @@ impl Engine {
             budget.reset();
         }
         self.set_arguments(script)?;
+        self.set_require(script)?;
 
         self.lua
             .load(script.source())
@@ -143,6 +145,23 @@ impl Engine {
             table.set(index + 1, value.as_str()).map_err(fail)?;
         }
         self.lua.globals().set("arg", table).map_err(fail)
+    }
+
+    /// Installs or clears the confined `require` for the script about to run.
+    ///
+    /// Per evaluation because the directory it resolves against belongs to the script, not to the
+    /// engine. A script built from source has no directory and so gets no `require` at all.
+    ///
+    /// One consequence of an engine being shareable: `require` is a global, so two threads
+    /// evaluating scripts with different roots on one engine would contend for it. Give a shared
+    /// engine scripts under a single root.
+    fn set_require(&self, script: &Script) -> Result<()> {
+        match script.root() {
+            Some(root) if RequireLoader::applies_to(self.policy.language()) => {
+                RequireLoader::new(root).install(&self.lua)
+            }
+            _ => RequireLoader::remove(&self.lua),
+        }
     }
 
     /// Names the failure a script produced, separating a resource breach from a script defect.
@@ -360,6 +379,91 @@ mod tests {
     #[test]
     fn the_engine_reports_the_lua_version_it_embeds() {
         assert!(engine().lua_version().starts_with("Lua 5."));
+    }
+
+    #[test]
+    fn a_script_from_source_has_no_require_at_all() {
+        assert_eq!(
+            engine()
+                .eval_to::<String>(&script("return type(require)"))
+                .unwrap(),
+            "nil"
+        );
+    }
+
+    #[test]
+    fn a_script_on_disk_can_require_a_sibling() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("lib.lua"), "return { answer = 42 }").unwrap();
+        let path = dir.path().join("main.lua");
+        std::fs::write(&path, "return require('lib').answer").unwrap();
+
+        let engine = engine();
+        let script = Script::from_file(&path).unwrap();
+        assert_eq!(engine.eval_to::<i64>(&script).unwrap(), 42);
+    }
+
+    #[test]
+    fn a_required_module_runs_once_however_often_it_is_required() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("counter.lua"),
+            "COUNT = (COUNT or 0) + 1 return COUNT",
+        )
+        .unwrap();
+        let path = dir.path().join("main.lua");
+        std::fs::write(&path, "return require('counter') + require('counter')").unwrap();
+
+        let engine = engine();
+        let script = Script::from_file(&path).unwrap();
+        assert_eq!(engine.eval_to::<i64>(&script).unwrap(), 2);
+    }
+
+    #[test]
+    fn a_require_that_escapes_the_root_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("main.lua");
+        std::fs::write(&path, "return require('../secrets')").unwrap();
+
+        let engine = engine();
+        let err = engine.eval(&Script::from_file(&path).unwrap()).unwrap_err();
+        assert!(err.to_string().contains("require target"), "{err}");
+    }
+
+    #[test]
+    fn a_missing_module_is_reported_rather_than_silently_nil() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("main.lua");
+        std::fs::write(&path, "return require('absent')").unwrap();
+
+        let engine = engine();
+        let err = engine.eval(&Script::from_file(&path).unwrap()).unwrap_err();
+        assert!(err.to_string().contains("not found"), "{err}");
+    }
+
+    #[test]
+    fn a_require_cycle_errors_rather_than_recursing() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("a.lua"), "return require('b')").unwrap();
+        std::fs::write(dir.path().join("b.lua"), "return require('a')").unwrap();
+        let path = dir.path().join("main.lua");
+        std::fs::write(&path, "return require('a')").unwrap();
+
+        let engine = engine();
+        let err = engine.eval(&Script::from_file(&path).unwrap()).unwrap_err();
+        assert!(err.to_string().contains("requires itself"), "{err}");
+    }
+
+    #[test]
+    fn a_pure_policy_gives_no_require_even_to_a_script_on_disk() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("lib.lua"), "return 1").unwrap();
+        let path = dir.path().join("main.lua");
+        std::fs::write(&path, "return type(require)").unwrap();
+
+        let engine = Engine::builder().policy(Policy::pure()).build().unwrap();
+        let script = Script::from_file(&path).unwrap();
+        assert_eq!(engine.eval_to::<String>(&script).unwrap(), "nil");
     }
 
     #[test]

@@ -114,6 +114,15 @@ pub enum Error {
         root: String,
     },
 
+    /// A `require` formed a loop, directly or through a chain of modules.
+    #[error("module `{module}` requires itself, directly or indirectly, under `{root}`")]
+    RequireCycle {
+        /// The module that was required while it was still loading.
+        module: String,
+        /// The directory `require` is confined to.
+        root: String,
+    },
+
     /// A `require` target does not exist under the script directory.
     #[error("module `{module}` not found under `{root}`")]
     RequireNotFound {
