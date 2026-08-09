@@ -48,7 +48,7 @@ pub mod types;
 pub use mlua;
 
 pub use builder::{EngineBuilder, Missing, Present};
-pub use engine::{Engine, ROOT_TABLE};
+pub use engine::Engine;
 pub use error::{Error, ExhaustedLimit, Result};
 pub use failure_policy::FailurePolicy;
 pub use modules::{HostModule, ModuleSet};
@@ -56,4 +56,4 @@ pub use sandbox::{
     GrantSet, InstructionLimit, LanguageSurface, MemoryLimit, Policy, ResourceLimits,
 };
 pub use script::Script;
-pub use types::{ChunkName, ModuleName};
+pub use types::{ChunkName, ModuleName, RootTable};

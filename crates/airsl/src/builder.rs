@@ -14,11 +14,12 @@
 
 use mlua::Table;
 
-use crate::engine::{Engine, ROOT_TABLE};
+use crate::engine::Engine;
 use crate::error::{Error, Result};
 use crate::modules::{ModuleSet, stdlib};
 use crate::sandbox::Policy;
 use crate::sandbox::language_surface::{CHUNK_LOADERS, UNSAFE_OS_FUNCTIONS};
+use crate::types::RootTable;
 
 /// Type-state marker: the policy has not been chosen yet.
 #[derive(Debug)]
@@ -33,16 +34,18 @@ pub struct Present;
 pub struct EngineBuilder<S> {
     policy: Policy,
     modules: Option<ModuleSet>,
+    root: RootTable,
     state: core::marker::PhantomData<S>,
 }
 
 impl EngineBuilder<Missing> {
     /// Starts with no policy chosen.
     #[must_use]
-    pub(crate) const fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             policy: Policy::confined(),
             modules: None,
+            root: RootTable::default(),
             state: core::marker::PhantomData,
         }
     }
@@ -55,6 +58,7 @@ impl EngineBuilder<Missing> {
         EngineBuilder {
             policy,
             modules: self.modules,
+            root: self.root,
             state: core::marker::PhantomData,
         }
     }
@@ -68,6 +72,16 @@ impl EngineBuilder<Present> {
     #[must_use]
     pub fn stdlib(mut self, modules: ModuleSet) -> Self {
         self.modules = Some(modules);
+        self
+    }
+
+    /// Replaces the global the host modules are installed under.
+    ///
+    /// Defaults to `airsstack`. An embedding host should set its own, so that a module contributed
+    /// by a third party does not land in a namespace named after somebody else's system.
+    #[must_use]
+    pub fn root_table(mut self, root: RootTable) -> Self {
+        self.root = root;
         self
     }
 
@@ -100,9 +114,15 @@ impl EngineBuilder<Present> {
             Some(set) => set,
             None => stdlib()?,
         };
-        install_modules(&lua, &modules)?;
+        install_modules(&lua, &modules, &self.root)?;
 
-        Ok(Engine::from_parts(lua, modules, self.policy, budget))
+        Ok(Engine::from_parts(
+            lua,
+            modules,
+            self.policy,
+            budget,
+            self.root,
+        ))
     }
 }
 
@@ -127,10 +147,10 @@ fn withhold_unsafe_globals(lua: &mlua::Lua) -> Result<()> {
     Ok(())
 }
 
-/// Creates the `airsstack` root table and installs every module into it.
-fn install_modules(lua: &mlua::Lua, modules: &ModuleSet) -> Result<()> {
+/// Creates the root table and installs every module into it.
+fn install_modules(lua: &mlua::Lua, modules: &ModuleSet, root_table: &RootTable) -> Result<()> {
     let fail = |e: mlua::Error| Error::ModuleInstall {
-        module: String::from(ROOT_TABLE),
+        module: root_table.to_string(),
         reason: e.to_string(),
     };
 
@@ -140,7 +160,7 @@ fn install_modules(lua: &mlua::Lua, modules: &ModuleSet) -> Result<()> {
         module.install(lua, &table)?;
         root.set(module.name().as_str(), table).map_err(fail)?;
     }
-    lua.globals().set(ROOT_TABLE, root).map_err(fail)?;
+    lua.globals().set(root_table.as_str(), root).map_err(fail)?;
     Ok(())
 }
 

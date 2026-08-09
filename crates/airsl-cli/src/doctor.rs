@@ -38,6 +38,7 @@ pub(crate) fn report(policy: &Policy) -> String {
             let limits = policy.limits();
             let _ = writeln!(out, "  lua:          {}", lua_version(&engine));
             let _ = writeln!(out, "  language:     {}", policy.language());
+            let _ = writeln!(out, "  root table:   {}", engine.root_table());
             let _ = writeln!(out, "  grants:       {}", policy.grants());
             let _ = writeln!(out, "  memory:       {}", describe(limits.memory()));
             let _ = writeln!(out, "  instructions: {}", describe(limits.instructions()));
@@ -93,6 +94,11 @@ mod tests {
         assert!(report(&Policy::confined()).contains("language:     restricted"));
         assert!(report(&Policy::pure()).contains("language:     minimal"));
         assert!(report(&Policy::trusted()).contains("language:     full"));
+    }
+
+    #[test]
+    fn the_report_names_the_root_table_modules_are_installed_under() {
+        assert!(report(&Policy::confined()).contains("root table:   airsstack"));
     }
 
     #[test]

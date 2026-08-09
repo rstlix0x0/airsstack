@@ -21,10 +21,7 @@ use crate::instruction_budget::{BudgetExhausted, InstructionBudget};
 use crate::modules::ModuleSet;
 use crate::sandbox::Policy;
 use crate::script::Script;
-use crate::types::ModuleName;
-
-/// Name of the single global table every host module is installed under.
-pub const ROOT_TABLE: &str = "airsstack";
+use crate::types::{ModuleName, RootTable};
 
 /// A configured Lua state.
 ///
@@ -46,12 +43,13 @@ pub struct Engine {
     modules: ModuleSet,
     policy: Policy,
     budget: Option<InstructionBudget>,
+    root: RootTable,
 }
 
 impl Engine {
     /// Starts configuring an engine.
     #[must_use]
-    pub const fn builder() -> EngineBuilder<Missing> {
+    pub fn builder() -> EngineBuilder<Missing> {
         EngineBuilder::new()
     }
 
@@ -61,13 +59,21 @@ impl Engine {
         modules: ModuleSet,
         policy: Policy,
         budget: Option<InstructionBudget>,
+        root: RootTable,
     ) -> Self {
         Self {
             lua,
             modules,
             policy,
             budget,
+            root,
         }
+    }
+
+    /// The global table this engine installed its host modules under.
+    #[must_use]
+    pub const fn root_table(&self) -> &RootTable {
+        &self.root
     }
 
     /// The policy this engine was built with.
@@ -168,6 +174,7 @@ fn exhausted_memory(error: &mlua::Error) -> bool {
 impl core::fmt::Debug for Engine {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("Engine")
+            .field("root", &self.root)
             .field("policy", &self.policy)
             .field("modules", &self.modules)
             .finish_non_exhaustive()
@@ -181,8 +188,10 @@ mod tests {
         reason = "tests unwrap known-valid fixtures; a panic is the intended failure signal"
     )]
 
-    use super::{Engine, ROOT_TABLE};
-    use crate::{ExhaustedLimit, InstructionLimit, MemoryLimit, Policy, ResourceLimits, Script};
+    use super::Engine;
+    use crate::{
+        ExhaustedLimit, InstructionLimit, MemoryLimit, Policy, ResourceLimits, RootTable, Script,
+    };
 
     /// Fails to compile if `T` is not shareable between threads.
     const fn assert_send_sync<T: Send + Sync>() {}
@@ -201,11 +210,6 @@ mod tests {
 
     fn script(source: &str) -> Script {
         Script::from_source(source, "test").unwrap()
-    }
-
-    #[test]
-    fn the_root_table_is_named_after_the_workspace() {
-        assert_eq!(ROOT_TABLE, "airsstack");
     }
 
     #[test]
@@ -234,7 +238,29 @@ mod tests {
     }
 
     #[test]
-    fn the_root_table_is_visible_to_scripts() {
+    fn a_custom_root_table_replaces_the_default_entirely() {
+        let engine = Engine::builder()
+            .policy(Policy::confined())
+            .root_table(RootTable::new("myapp").unwrap())
+            .build()
+            .unwrap();
+        assert_eq!(engine.root_table().as_str(), "myapp");
+        assert_eq!(
+            engine
+                .eval_to::<String>(&script("return type(myapp.json)"))
+                .unwrap(),
+            "table"
+        );
+        assert_eq!(
+            engine
+                .eval_to::<String>(&script("return type(airsstack)"))
+                .unwrap(),
+            "nil"
+        );
+    }
+
+    #[test]
+    fn the_default_root_table_is_visible_to_scripts() {
         let found = engine()
             .eval_to::<String>(&script("return type(airsstack)"))
             .unwrap();
