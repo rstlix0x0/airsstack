@@ -101,6 +101,11 @@ individual steps. `.github/workflows/ci.yml` runs `cargo make dod` on push to `m
 request, so CI and a local run are the same command. The plugin skill stays the source of truth: if
 the two disagree, the skill is right and `Makefile.toml` needs fixing.
 
+Supply chain is a separate check, not a sixth gate step: `cargo make deny` runs cargo-deny over
+security advisories, licenses, duplicate versions and source registries, with the policy and every
+suppression in `deny.toml`. It is its own CI job because it compiles nothing and answers to a moving
+advisory database, so it can fail on a commit that changed nothing.
+
 ## AI methodology — the airsstack plugin suite
 
 The methodology ships as a Claude Code plugin suite from the in-repo marketplace

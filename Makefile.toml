@@ -91,6 +91,21 @@ command = "cargo"
 args = ["test", "--workspace", "--all-features", "--doc"]
 
 # ---------------------------------------------------------------------------
+# Supply chain
+# ---------------------------------------------------------------------------
+
+[tasks.deny]
+category = "Supply chain"
+description = "cargo-deny: security advisories, licenses, duplicate versions, sources"
+# Deliberately not a dependency of `dod`. The Definition of Done is the five
+# commands the guideline skill owns; adding a sixth here would make this file
+# disagree with its source of truth. This check also answers to a moving
+# advisory database rather than to the working tree, so it can fail on a commit
+# that changed nothing.
+command = "cargo"
+args = ["deny", "check"]
+
+# ---------------------------------------------------------------------------
 # Development helpers
 # ---------------------------------------------------------------------------
 

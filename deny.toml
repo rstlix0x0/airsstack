@@ -1,0 +1,103 @@
+#
+# cargo-deny policy for the airsstack workspace.
+#
+#   cargo make deny        # all four checks
+#   cargo deny check bans  # one of them
+#
+# Four independent checks: security advisories, license acceptability, dependency
+# bans/duplicates, and source registries. CI runs all four.
+#
+# Install: cargo install --locked cargo-deny
+#
+
+[graph]
+# Deliberately no `targets` list. Restricting it would silence findings on
+# platforms this workspace has not ruled out, and the whole-graph view costs
+# nothing while every license present resolves to something permissive.
+all-features = true
+
+[output]
+feature-depth = 1
+
+# ---------------------------------------------------------------------------
+# Security advisories — RustSec
+# ---------------------------------------------------------------------------
+
+[advisories]
+# Everything the database reports is a failure. Suppressions are per-advisory
+# and belong here with a note saying why the exposure does not apply, never as
+# a blanket severity threshold.
+ignore = [
+    { id = "RUSTSEC-2024-0436", reason = "`paste` is unmaintained rather than vulnerable, and the advisory itself says no safe upgrade exists. It arrives only through `ratatui`, a dev-dependency used by the clauders agent-console example, so it is absent from every published artifact and from anything a caller links. Revisit when ratatui drops it." },
+]
+
+# ---------------------------------------------------------------------------
+# Licenses
+# ---------------------------------------------------------------------------
+
+[licenses]
+# Every license actually present in the graph today, all permissive. Anything
+# arriving outside this set fails the check, which is the point: a copyleft
+# dependency should be a decision, not a silent transitive addition.
+#
+# `r-efi` also offers LGPL-2.1-or-later, but it is `OR`-licensed and resolves
+# against Apache-2.0/MIT, so the copyleft option is never taken and is not
+# listed here.
+allow = [
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-3-Clause",
+    "CC0-1.0",
+    "CDLA-Permissive-2.0",  # webpki-root-certs — a certificate data set, not code
+    "ISC",
+    "MIT",
+    "MIT-0",
+    "Unicode-3.0",          # the ICU crates reached through `url`/`idna`
+    "Unlicense",
+]
+confidence-threshold = 0.8
+exceptions = []
+
+[licenses.private]
+# Every workspace member is `publish = false`, so their own license text is not
+# a distribution question. They are Apache-2.0 regardless.
+ignore = false
+
+# ---------------------------------------------------------------------------
+# Bans and duplicate versions
+# ---------------------------------------------------------------------------
+
+[bans]
+# Duplicates are denied rather than warned so a second copy of a crate has to
+# be acknowledged here. The `skip` list below is the set that exists today —
+# it freezes the current state, so a *new* duplicate fails even though the
+# known ones pass.
+multiple-versions = "deny"
+# No `version = "*"` dependencies. The root manifest pins every direct one.
+wildcards = "deny"
+highlight = "all"
+workspace-default-features = "allow"
+external-default-features = "allow"
+allow = []
+deny = []
+
+# Duplicates present in the current lock file. Each is a transitive crate the
+# workspace does not name directly; the extra copy disappears when whichever
+# dependency pins it catches up.
+skip = [
+    { crate = "syn@3.0.3", reason = "`clap_derive` is the only crate in the graph on syn 3; everything else is on syn 2. Nothing the workspace declares can reconcile them, and the duplicate costs one extra proc-macro build." },
+]
+
+skip-tree = []
+
+# ---------------------------------------------------------------------------
+# Sources
+# ---------------------------------------------------------------------------
+
+[sources]
+# crates.io only. A git or vendored dependency slipping into the lock file is a
+# supply-chain change worth failing over.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
