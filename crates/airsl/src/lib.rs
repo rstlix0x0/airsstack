@@ -7,9 +7,9 @@
 //! standard library.
 //!
 //! ```no_run
-//! use airsl::{Engine, FailurePolicy, Sandbox, Script};
+//! use airsl::{Engine, FailurePolicy, Policy, Script};
 //!
-//! let engine = Engine::builder().sandbox(Sandbox::Restricted).build()?;
+//! let engine = Engine::builder().policy(Policy::confined()).build()?;
 //! let script = Script::from_file("hooks/enforce.lua")?;
 //!
 //! if let Err(error) = engine.eval(&script) {
@@ -30,10 +30,12 @@ mod builder;
 mod convert;
 mod engine;
 mod error;
-mod policy;
+mod failure_policy;
+mod instruction_budget;
 mod script;
 
 pub mod modules;
+pub mod sandbox;
 pub mod types;
 
 /// The Lua binding this crate is built on.
@@ -47,8 +49,11 @@ pub use mlua;
 
 pub use builder::{EngineBuilder, Missing, Present};
 pub use engine::{Engine, ROOT_TABLE};
-pub use error::{Error, Result};
+pub use error::{Error, ExhaustedLimit, Result};
+pub use failure_policy::FailurePolicy;
 pub use modules::{HostModule, ModuleSet};
-pub use policy::{FailurePolicy, Sandbox};
+pub use sandbox::{
+    GrantSet, InstructionLimit, LanguageSurface, MemoryLimit, Policy, ResourceLimits,
+};
 pub use script::Script;
 pub use types::{ChunkName, ModuleName};

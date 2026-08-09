@@ -16,7 +16,7 @@
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
-use airsl::{Engine, Sandbox, Script};
+use airsl::{Engine, Policy, Script};
 
 /// Iterations per measurement when invoked as a benchmark.
 const FULL_ITERATIONS: usize = 1000;
@@ -72,7 +72,7 @@ fn report(label: &str, iterations: usize, elapsed: Duration) {
 fn construction(iterations: usize) -> Result<Duration, airsl::Error> {
     let start = Instant::now();
     for _ in 0..iterations {
-        let engine = Engine::builder().sandbox(Sandbox::Restricted).build()?;
+        let engine = Engine::builder().policy(Policy::confined()).build()?;
         black_box(&engine);
     }
     Ok(start.elapsed())
@@ -80,7 +80,7 @@ fn construction(iterations: usize) -> Result<Duration, airsl::Error> {
 
 /// Times evaluating `source` on one engine built up front.
 fn reused(source: &str, iterations: usize) -> Result<Duration, airsl::Error> {
-    let engine = Engine::builder().sandbox(Sandbox::Restricted).build()?;
+    let engine = Engine::builder().policy(Policy::confined()).build()?;
     let script = Script::from_source(source, "bench")?;
 
     let start = Instant::now();
@@ -96,7 +96,7 @@ fn fresh(iterations: usize) -> Result<Duration, airsl::Error> {
 
     let start = Instant::now();
     for _ in 0..iterations {
-        let engine = Engine::builder().sandbox(Sandbox::Restricted).build()?;
+        let engine = Engine::builder().policy(Policy::confined()).build()?;
         black_box(engine.eval_to::<i64>(&script)?);
     }
     Ok(start.elapsed())
