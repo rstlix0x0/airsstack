@@ -53,7 +53,7 @@ is for when the author asks "what is left".
 ## Project
 
 `airsstack` is the author's personal AI technology stack, written in Rust. Cargo workspace,
-`resolver = "3"`, Edition 2024, three members:
+`resolver = "3"`, Edition 2024, five members:
 
 - `crates/clauders` — Claude SDK. The driving objective is **100% feature parity and behavioral
   compatibility with Anthropic's official SDKs** across three pillars: the Messages API, the Agent
@@ -68,6 +68,14 @@ is for when the author asks "what is left".
   the crate itself is kept.
 - `crates/airs-transport` — generic async transport with an HTTP/reqwest layer, shared by both SDK
   crates.
+- `crates/airsl` — embeddable Lua 5.4 runtime. The host decides, from Rust, what a script may reach:
+  Lua is statically linked, the sandbox policy is required at construction, and every capability
+  arrives as a host module under one `airsstack` global. Near-term it replaces the plugin suite's
+  Python/Node/sh scripts; longer-term it is the airsstack extension system. Most of the capability
+  surface is designed, not built — architecture:
+  [`crates/airsl/docs/architecture.md`](crates/airsl/docs/architecture.md); docs index:
+  [`crates/airsl/docs/README.md`](crates/airsl/docs/README.md).
+- `crates/airsl-cli` — the `airsl` binary: `run` and `doctor`, used by the plugin hooks.
 
 Add members under `crates/` only when there is concrete work for them. Be pragmatic; the repo ships
 only what serves the parity target.
