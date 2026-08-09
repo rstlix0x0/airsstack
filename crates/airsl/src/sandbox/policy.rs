@@ -1,9 +1,9 @@
 //! What a script is allowed to reach, and what it may consume doing so.
 //!
-//! Exists as one type composing three because the three axes are genuinely independent and were
-//! previously collapsed into a single switch. A script may need the full language surface and a
-//! tight memory ceiling, or a minimal surface and no ceiling at all; expressing that with one
-//! enum meant the interesting combinations were unrepresentable.
+//! Exists as one type composing three because the three axes are genuinely independent. A script
+//! may need the full language surface and a tight memory ceiling, or a minimal surface and no
+//! ceiling at all, and a single enum over the combinations would have to enumerate their product
+//! to say any of it.
 //!
 //! Responsibilities:
 //!
