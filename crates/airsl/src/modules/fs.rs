@@ -180,10 +180,15 @@ impl HostModule for Fs {
 
         // --- interrogation ---
 
+        // These three refuse an ungranted path rather than answering `false` for it. Answering
+        // would conflate "the policy does not let you ask" with "it is not there", which is the
+        // same distinction `env.get` draws and has to be drawn the same way. It leaks nothing: a
+        // denial says the path is outside the grant, which the caller's own manifest already told
+        // it, and says nothing about whether anything is there.
         let g = guard.clone();
         let exists = lua
             .create_function(move |_, path: mlua::LuaString| {
-                Ok(g.read("exists", &path.to_str()?).is_ok_and(|p| p.exists()))
+                Ok(g.read("exists", &path.to_str()?)?.exists())
             })
             .map_err(fail)?;
         table.set("exists", exists).map_err(fail)?;
@@ -191,8 +196,7 @@ impl HostModule for Fs {
         let g = guard.clone();
         let is_file = lua
             .create_function(move |_, path: mlua::LuaString| {
-                Ok(g.read("is_file", &path.to_str()?)
-                    .is_ok_and(|p| p.is_file()))
+                Ok(g.read("is_file", &path.to_str()?)?.is_file())
             })
             .map_err(fail)?;
         table.set("is_file", is_file).map_err(fail)?;
@@ -200,7 +204,7 @@ impl HostModule for Fs {
         let g = guard.clone();
         let is_dir = lua
             .create_function(move |_, path: mlua::LuaString| {
-                Ok(g.read("is_dir", &path.to_str()?).is_ok_and(|p| p.is_dir()))
+                Ok(g.read("is_dir", &path.to_str()?)?.is_dir())
             })
             .map_err(fail)?;
         table.set("is_dir", is_dir).map_err(fail)?;
@@ -574,11 +578,36 @@ mod tests {
     }
 
     #[test]
-    fn exists_reports_false_rather_than_raising_for_an_ungranted_path() {
-        // Otherwise a script could use `exists` to probe the filesystem outside its grant.
+    fn exists_refuses_an_ungranted_path_rather_than_answering_false() {
+        // Answering would make "you may not ask" indistinguishable from "it is not there", and a
+        // script would report a missing file when it was actually denied. `env.get` draws the same
+        // distinction; the two have to draw it the same way.
         let (_dir, root) = sandbox();
-        let found: bool = run(&root, "return airsstack.fs.exists('/etc/hostname')").unwrap();
+        let err = run::<bool>(&root, "return airsstack.fs.exists('/etc/hostname')").unwrap_err();
+        assert!(err.to_string().contains("fs.exists denied"), "{err}");
+    }
+
+    #[test]
+    fn exists_still_answers_false_for_an_absent_path_inside_the_grant() {
+        let (_dir, root) = sandbox();
+        let found: bool = run(&root, "return airsstack.fs.exists(arg[1] .. '/absent')").unwrap();
         assert!(!found);
+    }
+
+    #[test]
+    fn is_file_and_is_dir_refuse_an_ungranted_path_too() {
+        let (_dir, root) = sandbox();
+        for call in ["is_file", "is_dir"] {
+            let err = run::<bool>(
+                &root,
+                &format!("return airsstack.fs.{call}('/etc/hostname')"),
+            )
+            .unwrap_err();
+            assert!(
+                err.to_string().contains(&format!("fs.{call} denied")),
+                "{err}"
+            );
+        }
     }
 
     #[test]

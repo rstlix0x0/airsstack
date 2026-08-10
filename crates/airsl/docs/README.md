@@ -13,7 +13,8 @@ script can touch.
 ## Status: read this first
 
 The runtime foundation ships, and so does the whole host standard library. What remains unbuilt is
-the extension host — manifests, ceilings, approval and dispatch — and Tier 3. Every document marks each piece, and the table below is the summary.
+the extension host — manifests, ceilings, approval and dispatch — and Tier 3. Every document marks
+each piece, and the table below is the summary.
 
 | Area | State |
 |---|---|
@@ -46,10 +47,11 @@ exists, it carries a `file:line`. Where it is about code that does not, it says 
 ## Why not the four Diátaxis modes yet
 
 The sibling crate's docs (`crates/clauders/docs/`) split into tutorial, how-to, reference and
-explanation. These four are all *explanation*, deliberately: a tutorial for `fs` would teach an API
-nobody can call yet, and a how-to guide would be fiction. The tutorial and how-to layers land with
-the standard library. The reference layer is the rustdoc, generated from source and gated by
-`RUSTDOCFLAGS="-D warnings"`, so it cannot drift:
+explanation. These four are all *explanation*, which was deliberate while the standard library was
+proposed — a tutorial for `fs` would have taught an API nobody could call. That reason has expired:
+the library ships, so the tutorial and how-to layers are now owed rather than premature, and they
+are the largest outstanding gap in these documents. The reference layer is the rustdoc, generated
+from source and gated by `RUSTDOCFLAGS="-D warnings"`, so it cannot drift:
 
 ```bash
 cargo doc -p airsl --no-deps --open
@@ -63,26 +65,30 @@ guarantee, and an earlier snapshot taken elsewhere was roughly twice as slow acr
 
 | What | Ceilings armed | No ceilings |
 |---|---|---|
-| `Engine` construction | 40 µs | 33 µs |
-| In-process eval, engine reused, trivial chunk | 4.2 µs | 3.4 µs |
-| In-process eval, engine reused, 1000 host-function calls | 910 µs | 710 µs |
-| In-process eval, fresh engine per call, trivial chunk | 48 µs | 42 µs |
+| `Engine` construction | 128 µs | 102 µs |
+| In-process eval, engine reused, trivial chunk | 4.6 µs | 3.4 µs |
+| In-process eval, engine reused, 1000 host-function calls | 1073 µs | 955 µs |
+| In-process eval, fresh engine per call, trivial chunk | 136 µs | 100 µs |
 
 | What | Result |
 |---|---|
-| CLI, release build, trivial script | 2.3 ms per run |
-| `python3 -c 'print("hi")'`, same loop | 11.9 ms per run |
-| `sh -c 'echo hi'`, same loop | 1.7 ms per run |
+| CLI, release build, trivial script | 3.2 ms per run |
+| `python3 -c 'print("hi")'`, same loop | 13.8 ms per run |
+| `sh -c 'echo hi'`, same loop | 2.2 ms per run |
 
 Two things follow, and [architecture](architecture.md) develops both.
 
-**Reuse against rebuild is an order of magnitude**, which makes engine lifetime an API-shape question
-rather than an optimisation.
+**Reuse against rebuild is thirty-fold**, which makes engine lifetime an API-shape question rather
+than an optimisation. It widened as the standard library grew: construction installs eleven modules
+now rather than one, and went from 40 µs to 128 µs while the reused path barely moved. The argument
+the number supports got stronger, not weaker.
 
 **The ceilings are not free.** Arming the instruction hook costs roughly a quarter of the eval path,
 because the hook fires on the VM's hot path. That is the price of being able to stop a script that
 never terminates, and it is opt-out per policy — but it should be a decision rather than a surprise.
-For the CLI none of it signifies: a 2.3 ms process spawn dwarfs every row above.
+For the CLI none of it signifies: a 3.2 ms process spawn dwarfs every row above, and the extra
+90 µs the larger standard library costs at construction is lost inside it. `airsl` stays within
+half again of a bare `sh` spawn and is four times faster than starting `python3`.
 
 ## Related
 

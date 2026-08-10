@@ -37,11 +37,22 @@ unrepresentable rather than merely discouraged. `io.popen` takes a shell string,
 single strongest reason to prefer `proc` over it even under `Trusted`.
 
 **Errors are catchable Lua errors,** not sentinel return values, so `pcall` is the one handling
-story a script author has to learn.
+story a script author has to learn. One function deviates on purpose: `fs.create_exclusive` returns
+`false` rather than raising when the file already exists, because losing that race is the expected
+*other outcome* of an atomic claim rather than a failure. A new sentinel return needs an argument of
+that kind, not a preference.
+
+**A refusal is never an answer.** Asking about something the policy does not grant raises; it does
+not return a value that could be mistaken for a fact about the world. `env.get` raises for an
+ungranted name rather than reporting `nil`, and `fs.exists` raises for an ungranted path rather than
+reporting `false` — otherwise a script cannot tell "you may not ask" from "it is not there", and
+will report a missing file or an unset variable when it was actually denied. This costs nothing in
+confidentiality: a denial says the path is outside the grant, which the caller's own manifest
+already told it, and says nothing about what is there.
 
 **Grants are checked in Rust, before the operation.** See [sandbox.md](sandbox.md).
 
-## What ships: `airsstack.json` and `airsstack.path`
+## The one gap left: JSON `null`
 
 `encode`, `encode_pretty`, `decode`. One known gap left, and one closed.
 
@@ -59,9 +70,8 @@ produces it by default, and how `encode` treats it — which is why it is not si
 of the module that needs it. It matters more for extensions than for scripts, because extensions
 exchange JSON with the host, so it should be settled with `hook`.
 
-`airsstack.path` ships whole — the roster row below is the shipped surface, not a plan. It needs no
-authority, so it is installed under every preset including `pure`, and it is the one module whose
-behaviour is fully decided by the row in the table.
+Everything else on this page is built. The roster rows below are the shipped surface, not a plan —
+they were checked against the live table by enumerating `airsstack` under `--policy pure`.
 
 ## Tier 1 — the modules the plugin corpus needs
 
@@ -77,7 +87,7 @@ specification: each module is designed for the general case.
 | `env` | `get`, `all`, `set` | name allowlist | std |
 | `proc` | `run(argv) -> {stdout, stderr, status}`, `which` | executable allowlist | std |
 | `regex` | `compile`, `is_match`, `find`, `find_all`, `captures`, `replace`, `replace_all`, `split` | none | `regex` |
-| `hash` | `sha1`, `sha256`, `hash_file`, hex encoding | none | `sha2`, plus a SHA-1 crate |
+| `hash` | `sha1`, `sha256`, `hash_file`, hex encoding | none, except `hash_file`, which needs the read grant | `sha2`, `sha1` |
 | `time` | `now`, `monotonic`, `format`, `parse` | none | `jiff` |
 | `glob` | `match(pattern, path)`, `walk(root, pattern)` | inherits `fs` | `globset` |
 
@@ -93,7 +103,15 @@ concrete rather than left as a note.
 
 **`env` needs an allowlist, not just a read grant.** The environment routinely carries credentials.
 An extension granted "read env" should see the names it declared, not everything the host process
-inherited.
+inherited. `env.all` returns only granted names for exactly this reason.
+
+`env.set` writes to a per-process overlay rather than to the real environment, and this is worth
+knowing before reading the roster row as "sets the variable". Two reasons: `std::env::set_var` is
+`unsafe` in Edition 2024 because it races every other thread reading the environment, and this crate
+forbids `unsafe`; and a sandboxed script silently changing the *host's* environment is not a
+capability anyone meant to grant. `env.get`, `env.all` and `proc.run` all read the overlay first, so
+from inside Lua the behaviour is what a script expects — what does not change is what the host
+process itself sees.
 
 **`fs.create_exclusive` is a concurrency primitive, not a convenience.** It is `O_CREAT|O_EXCL` — an
 atomic claim. `plugins/airsstack/hooks/enforce.py:321-335` relies on it for a sentinel claim, and its
@@ -116,8 +134,8 @@ zero-segment and the many-segment match.
 
 | Module | Why |
 |---|---|
-| `stdio` | read stdin, write stdout/stderr, `isatty`. `Restricted` has no `io` at all, and every plugin hook receives its payload on stdin |
-| `hook` | the agent-hook contract: parse the payload, emit `hookSpecificOutput`. A thin layer over `stdio` + `json`, already named in `convert.rs:4` |
+| `stdio` | `read`, `lines`, `write`, `error`, `isatty` — read stdin, write stdout/stderr. `Restricted` has no `io` at all, and every plugin hook receives its payload on stdin |
+| `hook` | `payload`, `emit`, `context` — the agent-hook contract. A thin layer over `stdio` + `json` |
 | `test` | not a module but a runner — `airsl test`. See below |
 
 All three ship. `airsl test` deserves emphasis: the plugin suite has test files that neither

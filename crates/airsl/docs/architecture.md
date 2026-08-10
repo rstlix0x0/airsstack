@@ -78,8 +78,9 @@ is blocking what.
 
 `utf8` is absent below `trusted`, and that is worth knowing because it was originally an accident
 rather than a decision — the bit was simply never included in the library set. It needs no authority
-and hazards no determinism, so the argument for adding it is strong; it stays out for now only
-because it would widen the surface, and gets decided with the standard library.
+and hazards no determinism, so the argument for adding it is strong; it stays out only because it
+would widen the surface. This was scheduled to be settled alongside the standard library, which has
+now landed without settling it, so it is an open decision rather than a deferred one.
 
 ## The extension seam
 
@@ -96,15 +97,14 @@ let engine = Engine::builder()
     .build()?;
 ```
 
-This was verified from a separate crate outside the workspace: the custom module installed under the
-root table, and the built-in `json` module remained available alongside it. The seam works.
+This was verified from a separate crate outside the workspace, and re-verified after `install`
+gained its context argument: the custom module installed under a root table named `myapp`, read its
+authority from the `InstallContext`, and all eleven built-ins remained available alongside it.
 
-`install` also receives an `InstallContext` carrying the policy the engine was built with. That is
-the one piece of grant machinery that could be built before any grant exists, and it had to be: a
-module constructed with its own copy of the authority could disagree with the engine it was
-installed into, and `airsl doctor` would then describe the policy while the module enforced
-something else. The grant *vocabulary* still waits for `fs`, because the vocabulary is the list of
-modules that need one.
+`install` also receives an `InstallContext` carrying the policy the engine was built with, which is
+what keeps the authority a module enforces and the authority `airsl doctor` reports the same object.
+A module constructed with its own copy could disagree with the engine it was installed into, and the
+report would then describe the policy while the module enforced something else.
 
 Four gaps used to stand between it and an extension system proper. All four are closed, and what
 each cost is worth recording, because the same trade-offs recur:
@@ -143,18 +143,19 @@ a way to avoid rebuilding a state, never a way to get parallelism.
 Measured on this repository:
 
 ```
-Engine construction:            40 µs
-eval, engine reused:           4.2 µs
-eval, fresh engine each time:   48 µs
+Engine construction:           128 µs
+eval, engine reused:           4.6 µs
+eval, fresh engine each time:  136 µs
 ```
 
-An order of magnitude between reusing a state and rebuilding one. For the CLI it is irrelevant — a
-process spawn costs 2.3 ms, which dwarfs everything above and is itself within 40% of a bare `sh`
-spawn. For an embedded consumer it is the difference between a viable dispatch path and a wasteful
+Thirty-fold between reusing a state and rebuilding one, and the gap widened as the standard library
+grew — construction installs eleven modules now rather than one. For the CLI it is irrelevant — a
+process spawn costs 3.2 ms, which dwarfs everything above and is itself within half again of a bare
+`sh` spawn. For an embedded consumer it is the difference between a viable dispatch path and a wasteful
 one, and for a registered extension called on every event it is the whole design.
 
-Roughly a quarter of the eval figure is the instruction hook, which fires on the VM's hot path.
-Lifting the ceiling brings the reused path to 3.4 µs. That is the price of being able to stop a
+Roughly a quarter of the reused-eval figure is the instruction hook, which fires on the VM's hot
+path. Lifting the ceiling brings the reused path to 3.4 µs. That is the price of being able to stop a
 script that never terminates, and it is a policy choice rather than a fixed cost.
 
 So **engine reuse is an API-shape question, not an optimisation**, and each thing that has to be
