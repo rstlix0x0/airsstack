@@ -24,7 +24,7 @@ each piece, and the table below is the summary.
 | Policy — language surface, three presets, memory and instruction ceilings | **implemented** |
 | Confined `require` | **implemented** |
 | `airsstack.json` | **implemented** (sorted keys; `null` still does not round-trip — see [stdlib](stdlib.md)) |
-| `airsl` CLI — `run`, `doctor` | **implemented** |
+| `airsl` CLI — `run`, `test`, `doctor`, grant flags | **implemented** |
 | Parameterised capability grants — `FsGrant`, `EnvGrant`, `ProcGrant` | **implemented** |
 | Host standard library — `path`, `fs`, `env`, `proc`, `regex`, `hash`, `time`, `glob`, `stdio`, `hook` | **implemented** |
 | `airsl test` | **implemented** |
@@ -35,6 +35,13 @@ exists, it carries a `file:line`. Where it is about code that does not, it says 
 
 ## The documents
 
+Four modes, kept separate on purpose, following [Diátaxis](https://diataxis.fr/): a tutorial that
+stops to explain becomes a bad tutorial *and* a bad explanation, so each document commits to one job.
+
+- **[Tutorial](tutorial.md)** — start here if you have never run a script. From installing the
+  binary to a working agent hook, hitting the sandbox once on purpose along the way.
+- **[How-to](how-to.md)** — recipes for a specific job, from Lua and from Rust: walking a tree,
+  running a program, embedding the runtime, adding your own module.
 - **[Architecture](architecture.md)** — the three layers, what each owns, what ships today, and the
   structural decisions worth understanding before changing anything.
 - **[Sandbox](sandbox.md)** — the capability and policy model: what a grant is, where enforcement
@@ -44,14 +51,11 @@ exists, it carries a `file:line`. Where it is about code that does not, it says 
 - **[Extension system](extensions.md)** — manifests, capability negotiation, the host API, and the
   two extension shapes.
 
-## Why not the four Diátaxis modes yet
+## Where the reference layer lives
 
-The sibling crate's docs (`crates/clauders/docs/`) split into tutorial, how-to, reference and
-explanation. These four are all *explanation*, which was deliberate while the standard library was
-proposed — a tutorial for `fs` would have taught an API nobody could call. That reason has expired:
-the library ships, so the tutorial and how-to layers are now owed rather than premature, and they
-are the largest outstanding gap in these documents. The reference layer is the rustdoc, generated
-from source and gated by `RUSTDOCFLAGS="-D warnings"`, so it cannot drift:
+Tutorial, how-to and explanation are the files above. The fourth Diátaxis mode — reference — is the
+rustdoc rather than a document here, generated from source and gated by
+`RUSTDOCFLAGS="-D warnings"`, so it cannot drift from what it describes:
 
 ```bash
 cargo doc -p airsl --no-deps --open

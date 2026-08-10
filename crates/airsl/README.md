@@ -157,8 +157,14 @@ one Lua state cannot execute in parallel anyway.
 
 ## Documentation
 
-[`docs/`](docs/README.md) covers the architecture, the capability and sandbox model, the host
-standard library roster, and the extension system. Each document says which parts are shipped and
-which are design.
+[`docs/`](docs/README.md) is organised on [Diátaxis](https://diataxis.fr/):
+
+- **[Tutorial](docs/tutorial.md)** — from installing the binary to a working agent hook.
+- **[How-to](docs/how-to.md)** — recipes for a specific job, from Lua and from Rust.
+- **[Architecture](docs/architecture.md)**, **[Sandbox](docs/sandbox.md)**,
+  **[Host stdlib](docs/stdlib.md)**, **[Extensions](docs/extensions.md)** — the explanation layer.
+- Reference is the rustdoc: `cargo doc -p airsl --no-deps --open`.
+
+Each document says which parts are shipped and which are design.
 
 [`mlua`]: https://crates.io/crates/mlua

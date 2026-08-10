@@ -42,7 +42,7 @@ impl FsGrant {
     /// Adds a directory the script may read under.
     #[must_use]
     pub fn read(mut self, root: impl Into<PathBuf>) -> Self {
-        self.read.push(root.into());
+        self.read.push(resolve_root(root.into()));
         self
     }
 
@@ -52,7 +52,7 @@ impl FsGrant {
     /// removes the question of what a write-only grant means when something reads the file back.
     #[must_use]
     pub fn write(mut self, root: impl Into<PathBuf>) -> Self {
-        self.write.push(root.into());
+        self.write.push(resolve_root(root.into()));
         self
     }
 
@@ -85,6 +85,27 @@ impl FsGrant {
     pub const fn is_empty(&self) -> bool {
         self.read.is_empty() && self.write.is_empty()
     }
+}
+
+/// Puts a grant root into the form the paths checked against it will be in.
+///
+/// A path is canonicalised before it is checked, so a root that is not itself canonical can never
+/// contain one. Two ways to write a root that silently grants nothing, both easy to hit:
+///
+/// - **A relative root.** `--allow-read .` stores `.`, and no absolute path begins with it.
+/// - **A root reached through a symlink.** Granting `/srv/app` when it links to `/mnt/app` fails
+///   every check, because the target resolves past the link to `/mnt/app/...`.
+///
+/// Neither produces an error at the point the grant is written — the policy simply refuses
+/// everything afterwards, with a message naming a root that looks correct. Resolving here means the
+/// two sides are always comparable.
+///
+/// A root that does not exist yet is made absolute but not canonical, since there is nothing to
+/// resolve; that is the ordinary case for a write root the script is about to create.
+fn resolve_root(root: PathBuf) -> PathBuf {
+    root.canonicalize()
+        .or_else(|_| std::path::absolute(&root))
+        .unwrap_or(root)
 }
 
 /// Whether `path` is inside any of `roots`.
@@ -199,6 +220,11 @@ impl ProcGrant {
 
 #[cfg(test)]
 mod tests {
+    #![expect(
+        clippy::unwrap_used,
+        reason = "tests unwrap known-valid fixtures; a panic is the intended failure signal"
+    )]
+
     use super::{EnvGrant, FsGrant, ProcGrant};
     use std::path::Path;
 
@@ -247,6 +273,40 @@ mod tests {
         let grant = FsGrant::none().read("/repo").write("/var/state");
         assert!(grant.allows_write(Path::new("/var/state/a")));
         assert!(!grant.allows_read(Path::new("/var/state/a")));
+    }
+
+    #[test]
+    fn a_relative_root_resolves_against_the_working_directory() {
+        // `--allow-read .` is the obvious thing to type. Stored verbatim it grants nothing at all,
+        // because every path it is checked against is absolute.
+        let here = std::env::current_dir().unwrap().canonicalize().unwrap();
+        let grant = FsGrant::none().read(".");
+        assert_eq!(grant.read_roots(), std::slice::from_ref(&here));
+        assert!(grant.allows_read(&here.join("Cargo.toml")));
+    }
+
+    #[test]
+    fn a_symlinked_root_resolves_to_what_it_points_at() {
+        // Otherwise granting the link grants nothing: a path under it canonicalises past the link,
+        // and the refusal names a root that looks exactly right.
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        std::fs::create_dir(base.join("real")).unwrap();
+        std::os::unix::fs::symlink(base.join("real"), base.join("link")).unwrap();
+
+        let grant = FsGrant::none().read(base.join("link"));
+        assert_eq!(grant.read_roots(), [base.join("real")]);
+        assert!(grant.allows_read(&base.join("real/a.txt")));
+    }
+
+    #[test]
+    fn a_root_that_does_not_exist_yet_is_made_absolute_but_kept() {
+        // The ordinary case for a write root: the script is about to create it.
+        let grant = FsGrant::none().write("/definitely/not/here");
+        assert_eq!(
+            grant.write_roots(),
+            [std::path::PathBuf::from("/definitely/not/here")]
+        );
     }
 
     #[test]
