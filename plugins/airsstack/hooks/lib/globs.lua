@@ -1,10 +1,16 @@
 -- Compiling a path glob into an anchored regular expression.
 --
--- Deliberately not `airsstack.glob`, which is backed by `globset` and whose `*` crosses `/`:
--- under it a manifest declaring `match: ["*.rs"]` would also match `deeply/nested/file.rs`,
--- silently enforcing a rule over files the manifest author never named. Widening enforcement is
--- the one direction a port must not drift in, so the semantics the manifests were written against
--- are compiled here instead.
+-- Deliberately not `airsstack.glob`. The two now agree on `*`, `?` and `**` — the host module's
+-- `*` used to cross `/`, and that was fixed rather than worked around — but `globset` accepts a
+-- strictly larger grammar than the manifests were written against. Brace alternation is the case
+-- that matters: `*.{lua,rs}` matches nothing here and matches `a.rs` there, so delegating would
+-- start enforcing rules over files whose manifests never selected them. Widening enforcement is
+-- the one direction this must not drift in, and a manifest is a contract with plugin authors
+-- outside this repository, so its grammar changes when someone decides to change it.
+--
+-- One further divergence, harmless and recorded so it is not mistaken for a bug: an unclosed `[`
+-- is a literal here and a compile error in `globset`, where `matches_any` would disable that one
+-- pattern.
 --
 -- `**/` matches ZERO or more leading segments, which is what makes `**/Cargo.toml` match a
 -- root-level `Cargo.toml` — this repository's most important Rust file.

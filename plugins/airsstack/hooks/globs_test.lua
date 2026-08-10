@@ -10,9 +10,9 @@ end
 
 return {
   a_star_does_not_cross_a_path_separator = function()
-    -- The property `airsstack.glob` does not have, and the reason this module exists: under
-    -- globset `*.rs` also matches `src/main.rs`, which would enforce a rule over files the
-    -- manifest never named.
+    -- `airsstack.glob` agrees with this now; it did not when this module was written, and the
+    -- host module was fixed rather than worked around. Pinned here anyway: this compiler is what
+    -- the manifests are actually matched against.
     assert(matches("*.rs", "main.rs") == true)
     assert(matches("*.rs", "src/main.rs") == false)
     assert(matches("src/*.rs", "src/main.rs") == true)

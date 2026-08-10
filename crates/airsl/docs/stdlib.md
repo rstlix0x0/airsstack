@@ -205,11 +205,19 @@ cost a workaround worth naming, because the next consumer will hit the same ones
 | No JSON `null` or empty-array constructor | `airsstack.json.decode("[]")` as the empty-array idiom |
 | No random source — `getrandom` was removed with no module consuming it | `math.random`, which Lua 5.4 seeds per state, for a session-directory suffix |
 
-A fifth is not a gap but a difference worth knowing: **`airsstack.glob`'s `*` crosses `/`**,
-because `globset` does not set `literal_separator`. The enforcement manifests were written
-against `[^/]*`, where `*.rs` does not match `src/main.rs`, so the dispatcher compiles its own
-globs rather than delegating (`plugins/airsstack/hooks/lib/globs.lua`). Anything matching paths
-segment-by-segment needs to know this before reaching for the module.
+The port also found one outright defect, since fixed. **`airsstack.glob`'s `*` used to cross
+`/`**, because `matcher` left `literal_separator` off — and said in a comment that it did so
+"the way the plugin scripts expect", which was the reverse of the truth. Under it a manifest
+declaring `match: ["*.rs"]` also selected `deeply/nested/file.rs`, enforcing a rule over files
+its author never named. `*` and `?` now stop at a separator, `**` stays recursive, and two
+regression tests pin both halves (`modules/glob.rs`).
+
+The dispatcher still compiles its own globs
+(`plugins/airsstack/hooks/lib/globs.lua`) rather than delegating, for a different reason than
+before: `globset` accepts a strictly larger grammar than the enforcement manifests were written
+against. `*.{lua,rs}` matches here and not there, so delegating would widen matching for any
+manifest using braces — and a manifest is a contract with plugin authors outside this
+repository.
 
 ## See also
 
