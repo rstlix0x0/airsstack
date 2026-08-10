@@ -29,7 +29,7 @@ full lifecycle against the v0.1 draft; the working contract ships as
 | `okf-enrich` (skill) | Batch-produce concepts for a source scope via the isolated `okf-enricher` agent, then regenerate the index and lint. |
 | `okf-recall` (skill) | Answer questions index-first; broad queries go through the read-only `okf-recall` agent (pointers, ≤10 concept reads). |
 | `okf-lint` (skill) | Deterministic v0.1 conformance check: hard bar fails, everything else warns. |
-| `scripts/` | `okf-root.sh` (bundle detection), `gen-index.sh` (byte-reproducible index regeneration), `okf-lint.sh` — each with a sibling `.test.sh`. |
+| `scripts/` | `okf-root.lua` (bundle detection), `gen-index.lua` (byte-reproducible index regeneration), `okf-lint.lua`, over the shared `lib/` modules — each with a sibling `*_test.lua` run by `airsl test`. |
 
 ## Usage
 

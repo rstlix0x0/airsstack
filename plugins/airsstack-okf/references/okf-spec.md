@@ -56,7 +56,7 @@ prose. Three headings carry conventional meaning — use when applicable:
   disclosure. NO frontmatter — except the bundle-root `index.md`, which
   may carry exactly `okf_version: "0.1"` (this plugin uses that block as
   the bundle marker). In this plugin `index.md` is SCRIPT-OWNED
-  (`gen-index.sh`): never hand-edit it; regenerate it.
+  (`gen-index.lua`): never hand-edit it; regenerate it.
 - `log.md` — newest-first change history: `## YYYY-MM-DD` ISO date
   headings, entries as list items with a bold leading keyword
   (`**Creation**`, `**Update**`, `**Deprecation**` — convention, not
