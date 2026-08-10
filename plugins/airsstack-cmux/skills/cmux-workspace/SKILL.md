@@ -43,12 +43,14 @@ Useful `new-workspace` flags:
 
 ## Layouts
 
-Use `${CLAUDE_PLUGIN_ROOT}/skills/cmux-workspace/scripts/cmux-layout` to build a named workspace
+Use `airsl run --policy confined --allow-env CMUX_QUIET --allow-exec cmux \
+  ${CLAUDE_PLUGIN_ROOT}/skills/cmux-workspace/scripts/cmux-layout.lua` to build a named workspace
 with splits and optional per-pane startup commands in one call:
 
 ```sh
 # Example: 2-pane layout, dev server on the right.
-${CLAUDE_PLUGIN_ROOT}/skills/cmux-workspace/scripts/cmux-layout \
+airsl run --policy confined --allow-env CMUX_QUIET --allow-exec cmux \
+  ${CLAUDE_PLUGIN_ROOT}/skills/cmux-workspace/scripts/cmux-layout.lua \
   --name dev \
   --split right \
   --cmd "npm run dev"

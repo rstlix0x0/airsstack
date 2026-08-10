@@ -24,12 +24,12 @@ later phases.
   `.index/summaries.tsv`) — a rebuildable cache the recall phase will consume.
   The Markdown corpus is the sole source of truth; the index is fully
   reconstructible from it.
-- **`provision.sh`** (POSIX sh) creates the vault directories idempotently.
-- **`build-index.py`** (python3, standard library only) scans the corpus and
-  writes the derived index.
-- **`session-start.sh`** runs on `SessionStart`: it provisions, then rebuilds
-  the index only when stale or absent, failing open so a missing `python3` or a
-  malformed note never blocks a session.
+- **`provision.lua`** creates the vault directories idempotently.
+- **`build-index.lua`** scans the corpus and writes the derived index.
+- **`session-start.sh`** is the launcher the `SessionStart` hook runs. It checks
+  that `airsl` is installed and then runs `session-start.lua`, which provisions,
+  rebuilds the index only when stale or absent, and injects the orientation card
+  — failing open so a malformed note never blocks a session.
 - **`/airsstack-journal:journal-setup`** explicitly provisions and force-rebuilds
   the index.
 
@@ -39,15 +39,18 @@ convention) is documented in `references/note-schema.md`.
 ## Tests
 
 ```sh
-sh plugins/airsstack-journal/scripts/provision.test.sh
-sh plugins/airsstack-journal/scripts/session-start.test.sh
-python3 plugins/airsstack-journal/scripts/build-index.test.py
+airsl test --allow-read /tmp --allow-write /tmp plugins/airsstack-journal/scripts
 ```
+
+Every script in this plugin runs on [`airsl`](../../crates/airsl), the embedded
+Lua runtime, under `--policy confined`: the authority each one needs is named on
+its own command line, so what a script may read, write, or run is visible in the
+invocation rather than buried in the script.
 
 ## Phase 2 — Capture (manual storytelling subagents)
 
 Phase 2 adds two **manual** capture surfaces. Each is a thin trigger skill that
-resolves the session id, transcript path (`scripts/transcript-path.sh`), and
+resolves the session id, transcript path (`scripts/transcript-path.lua`), and
 project floor on the main thread, then spawns an **isolated subagent** that
 reads the session transcript and writes a single grounded, Obsidian-compatible
 storytelling note. Only a one-line receipt returns to the main thread, so the
@@ -63,8 +66,8 @@ capture and no SessionEnd hook — the user decides when to write.
   `session: <id8>` field so the session story can list them under
   "Notes spun off".
 
-Both writers link their note into the day's daily note (`scripts/daily-link.sh`)
-and refresh the derived index (`scripts/build-index.py`). The vault layout and
+Both writers link their note into the day's daily note (`scripts/daily-link.lua`)
+and refresh the derived index (`scripts/build-index.lua`). The vault layout and
 `.index/` format are unchanged from Phase 1; typed-edge/backlink graph
 enrichment is deferred to Phase 3 (Recall).
 
@@ -72,7 +75,7 @@ enrichment is deferred to Phase 3 (Recall).
 
 Phase 3 lets the agent *read* prior notes instead of re-deriving them — the
 payoff of the token-efficiency mandate. It is additive: the Phase-1/2 storage
-contract is unchanged, and `build-index.py` now also emits the enriched
+contract is unchanged, and `build-index.lua` now also emits the enriched
 `.index/index.json` (node metadata + structurally-typed edges + backlinks +
 unresolved) consumed by recall.
 
@@ -88,33 +91,30 @@ unresolved) consumed by recall.
   (subject excluded), reusing the recall machinery.
 - `/airsstack-journal:journal-helped <stem>` — confirms a recalled note aided
   the work, incrementing its `helped:` counter (deterministic, no subagent)
-  via `scripts/bump-helped.sh` and refreshing the index.
-- **SessionStart orientation card** — `scripts/orientation.sh` prints a tight,
+  via `scripts/bump-helped.lua` and refreshing the index.
+- **SessionStart orientation card** — `scripts/orientation.lua` prints a tight,
   project-scoped recent-activity card (recent sessions + recently-updated
   notes) from `summaries.tsv`; `session-start.sh` injects it as
-  `additionalContext`. Pure shell, no model, fail-open.
+  `additionalContext`. No model, fail-open.
 
 Typed `depends-on` / `supersedes` edges, MOC promotion, progressive
 summarisation, and the daily narrative are deferred to Phase 4 (Review).
 
 ### Tests (Phase 3 additions)
 
-```sh
-sh plugins/airsstack-journal/scripts/bump-helped.test.sh
-sh plugins/airsstack-journal/scripts/orientation.test.sh
-```
+Covered by the suite-wide run above — `notes_test.lua` and `orientation_test.lua`.
 
 ## Phase 4 — Review
 
 `/journal-review` tidies the vault in one command. It runs deterministic,
-model-free steps on the main thread — a vault backup (`journal-backup.sh`) and a
-graph-health report (`graph-health.py`) — then delegates judgment-bound tidying
+model-free steps on the main thread — a vault backup (`journal-backup.lua`) and a
+graph-health report (`graph-health.lua`) — then delegates judgment-bound tidying
 to the isolated opus `journal-curator` subagent, which applies **additive-only**
 changes: MOC index notes, a `## TL;DR` layer on long notes, a `## Narrative` on
 daily notes, typed `depends-on`/`supersedes` edges, and high-confidence missing
 links. The curator never deletes or overwrites existing prose, never touches
 `sessions/`, and never commits; a backup precedes every run, so any run is
-reversible (`tar xzf .backups/<ts>.tar.gz -C <vault>`). `build-index.py` now
+reversible (`tar xzf .backups/<ts>.tar.gz -C <vault>`). `build-index.lua` now
 also resolves the typed frontmatter fields into typed `index.json` edges.
 
 `/journal-review` reviews the current project; `/journal-review all` reviews the
@@ -123,7 +123,5 @@ whole vault.
 Run the Phase 4 tests:
 
 ```sh
-python3 plugins/airsstack-journal/scripts/build-index.test.py
-sh plugins/airsstack-journal/scripts/journal-backup.test.sh
-sh plugins/airsstack-journal/scripts/graph-health.test.sh
+airsl test --allow-read /tmp --allow-write /tmp plugins/airsstack-journal/scripts
 ```

@@ -19,7 +19,8 @@ hand-edited — the script regenerates it.
 1. Resolve the bundle root (optional explicit path from the user):
 
    ```sh
-   sh "${CLAUDE_PLUGIN_ROOT}/scripts/okf-root.sh" [explicit-path]
+   airsl run --policy confined --allow-read . --allow-exec git \
+     "${CLAUDE_PLUGIN_ROOT}/scripts/okf-root.lua" [explicit-path]
    ```
 
    Exit 2 → relay the stderr message (it names `/airsstack-okf:okf-setup`
@@ -48,7 +49,8 @@ hand-edited — the script regenerates it.
 6. Regenerate the index:
 
    ```sh
-   sh "${CLAUDE_PLUGIN_ROOT}/scripts/gen-index.sh" "<root>"
+   airsl run --policy confined --allow-read "<root>" --allow-write "<root>" \
+     "${CLAUDE_PLUGIN_ROOT}/scripts/gen-index.lua" "<root>"
    ```
 
 7. Report the concept ID and files touched. Do NOT commit — that is the

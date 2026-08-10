@@ -22,7 +22,7 @@ from the primary.
 ```sh
 cp ~/.config/cmux/cmux.json ~/.config/cmux/cmux.json.$(date +%Y%m%d-%H%M%S).bak
 ```
-Or use `cmux-settings backup-then <cmd>` to do this automatically with validation and
+Or use `cmux-settings.lua backup-then <cmd>` to do this automatically with validation and
 rollback.
 
 ---

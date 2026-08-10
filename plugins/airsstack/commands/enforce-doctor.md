@@ -7,7 +7,11 @@ Diagnose the airsstack rule-enforcement dispatcher for the path `$ARGUMENTS`.
 Run exactly this, from the current working directory:
 
 ```
-python3 "${CLAUDE_PLUGIN_ROOT}/hooks/enforce.py" --explain "$ARGUMENTS"
+airsl run --policy confined \
+  --allow-env HOME --allow-env TMPDIR --allow-env AIRSSTACK_HOME \
+  --allow-env AIRSSTACK_ENFORCE_REGISTRY \
+  --allow-read / --allow-write "${TMPDIR:-/tmp}" --allow-exec git \
+  "${CLAUDE_PLUGIN_ROOT}/hooks/enforce.lua" --explain "$ARGUMENTS"
 ```
 
 If `$ARGUMENTS` is empty, ask which file path to diagnose and stop; do not guess one.

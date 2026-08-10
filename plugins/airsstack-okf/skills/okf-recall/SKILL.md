@@ -18,7 +18,8 @@ start by globbing concept bodies.
 1. Resolve the bundle root:
 
    ```sh
-   sh "${CLAUDE_PLUGIN_ROOT}/scripts/okf-root.sh" [explicit-path]
+   airsl run --policy confined --allow-read . --allow-exec git \
+     "${CLAUDE_PLUGIN_ROOT}/scripts/okf-root.lua" [explicit-path]
    ```
 
    Exit 2 → relay stderr and STOP.

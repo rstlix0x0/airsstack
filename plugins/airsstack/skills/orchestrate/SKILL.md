@@ -29,18 +29,18 @@ Namespaced as `airsstack:coder`, `airsstack:reviewer`, etc. Spawn each via the `
 
 Subagents report through the filesystem so the main thread holds summaries, not full detail. Drive it:
 
-1. **Session start.** Run `sh "${CLAUDE_PLUGIN_ROOT}/scripts/handoff.sh" init` once at the top of the
+1. **Session start.** Run `handoff.lua init` (full invocation in `references/context-handoff.md`) once at the top of the
    pipeline. It prints the session dir and id; keep them. It also prunes stale prior sessions and writes
    the `.active` lease.
 2. **Per spawn.** Assign the spawn a file `<NN>-<agent>-<slug>.md` under the session dir and pass that
-   **full write-path** in the agent's brief. Call `sh "${CLAUDE_PLUGIN_ROOT}/scripts/handoff.sh" beat
+   **full write-path** in the agent's brief. Call `handoff.lua beat
    <session-dir>` as a heartbeat so a long run is never pruned by a concurrent session.
 3. **On return.** The agent returns its `<summary>` + the relative handoff path — NOT the detail. Route
    off the summary. Pull `<detail>` (read the file yourself) only when YOU must judge it.
 4. **Downstream needs detail.** Pass the upstream `handoff:` path plus a targeted `need:` pointer in the
    next agent's brief; it reads the slice into its own context. Detail never transits you unless you must
    reason over it.
-5. **Session end.** `sh "${CLAUDE_PLUGIN_ROOT}/scripts/handoff.sh" end <session-dir>` drops the lease
+5. **Session end.** `handoff.lua end <session-dir>` drops the lease
    (optional; the grace window self-heals a crash).
 
 The full protocol — file schema, contract, retention — is `process-guidelines/references/context-handoff.md`.

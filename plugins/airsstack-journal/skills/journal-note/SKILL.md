@@ -26,7 +26,11 @@ isolated `journal-note` subagent.
 3. Resolve the transcript path:
 
    ```sh
-   sh "${CLAUDE_PLUGIN_ROOT}/scripts/transcript-path.sh" "${CLAUDE_SESSION_ID}"
+   HOME_ROOT="${AIRSSTACK_HOME:-$HOME/.airsstack}"
+airsl run --policy confined \
+  --allow-env CLAUDE_CONFIG_DIR --allow-env HOME --allow-env PWD \
+  --allow-read . --allow-read "$HOME/.claude" \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/transcript-path.lua" "${CLAUDE_SESSION_ID}"
    ```
 
    Capture stdout as `tpath` (empty/non-zero ⇒ the agent degrades).
@@ -34,7 +38,9 @@ isolated `journal-note` subagent.
 4. Resolve the project floor:
 
    ```sh
-   sh "${CLAUDE_PLUGIN_ROOT}/scripts/project-key.sh"
+   airsl run --policy confined \
+  --allow-read . --allow-exec git \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/project-key.lua"
    ```
 
    Capture stdout as `project`.
@@ -42,7 +48,10 @@ isolated `journal-note` subagent.
 5. Provision the vault (idempotent):
 
    ```sh
-   sh "${CLAUDE_PLUGIN_ROOT}/scripts/provision.sh"
+   HOME_ROOT="${AIRSSTACK_HOME:-$HOME/.airsstack}"
+airsl run --policy confined \
+  --allow-env AIRSSTACK_HOME --allow-env HOME --allow-write "$HOME_ROOT" \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/provision.lua"
    ```
 
 6. Spawn the `journal-note` subagent (Task / Agent tool,

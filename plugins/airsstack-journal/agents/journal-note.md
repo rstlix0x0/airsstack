@@ -20,7 +20,7 @@ return only a one-line receipt.
 - `topic` — the subject the user asked to capture (e.g. "auth rbac architecture").
 - `session_id`, `id8` — the Claude session id and its first eight characters.
 - `tpath` — absolute path to the transcript JSONL, or empty if none.
-- `project` — the human-readable project floor (from `project-key.sh`).
+- `project` — the human-readable project floor (from `project-key.lua`).
 
 ## Procedure
 
@@ -42,9 +42,23 @@ return only a one-line receipt.
    `## The reasoning`, `## Implications`. Plain Obsidian-compatible Markdown;
    `[[wikilinks]]` you know from the transcript (do not query the index — that
    is recall, Phase 3).
-6. Run `sh "${CLAUDE_PLUGIN_ROOT}/scripts/daily-link.sh" <today> <stem>`
+6. Run the daily-link script:
+
+   ```sh
+   HOME_ROOT="${AIRSSTACK_HOME:-$HOME/.airsstack}"
+   airsl run --policy confined \
+     --allow-env AIRSSTACK_HOME --allow-env HOME \
+     --allow-read "$HOME_ROOT" --allow-write "$HOME_ROOT" \
+     "${CLAUDE_PLUGIN_ROOT}/scripts/daily-link.lua" <today> <stem>
+   ```
+
+   to
    (`<today>` = `date +%F`).
-7. Run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/build-index.py" --force`.
+7. Run `HOME_ROOT="${AIRSSTACK_HOME:-$HOME/.airsstack}"
+airsl run --policy confined \
+  --allow-env AIRSSTACK_HOME --allow-env HOME \
+  --allow-read "$HOME_ROOT" --allow-write "$HOME_ROOT" \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/build-index.lua"`.
 8. Return a one-line receipt, e.g. `wrote notes/<stem>.md` or
    `updated notes/<stem>.md`.
 

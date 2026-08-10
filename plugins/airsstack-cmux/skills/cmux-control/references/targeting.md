@@ -47,7 +47,11 @@ ${CMUX_SOCKET_PATH}                 # override
 ```
 
 Override `CMUX_SOCKET_PATH` to target a debug or tagged socket. The cmux-preflight helper
-(`${CLAUDE_PLUGIN_ROOT}/skills/cmux-control/scripts/cmux-preflight`) validates that the socket
+(`airsl run --policy confined \
+  --allow-env HOME --allow-env CMUX_SOCKET_PATH --allow-env CMUX_WORKSPACE_ID \
+  --allow-env CMUX_SURFACE_ID --allow-env CMUX_QUIET \
+  --allow-read "$HOME/.local/state/cmux" --allow-exec cmux \
+  ${CLAUDE_PLUGIN_ROOT}/skills/cmux-control/scripts/cmux-preflight.lua`) validates that the socket
 is present and `cmux ping` succeeds before automation begins.
 
 ---

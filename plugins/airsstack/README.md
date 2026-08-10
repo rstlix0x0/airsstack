@@ -51,9 +51,10 @@ The session hooks **nudge only** — you (the model) keep the selection and dura
 
 ### Concise hook runtime
 
-The `UserPromptSubmit` hook prefers `python3` and falls back to `node` (which Claude Code always
-ships), exiting silently if neither is found. It is therefore effectively zero-extra-dependency —
-install `python3` only if you want the preferred path; nothing breaks without it.
+The `UserPromptSubmit` hook runs on [`airsl`](../../crates/airsl), the embedded Lua runtime, and
+its launcher exits silently when the `airsl` binary is not installed — so a machine without it
+loses the hook rather than seeing an error on every prompt. `cargo install --path
+crates/airsl-cli` is the one prerequisite.
 
 ## Project snapshots
 
@@ -99,8 +100,8 @@ matching their `summary`, so they remain findable.
 ## Enforcement dispatcher
 
 The `airsstack` plugin is the suite's single rule-enforcement dispatcher. A
-`PreToolUse(Read|Edit|Write)` hook (`hooks/enforce.sh` → `enforce.py`;
-python3 only) reads `~/.claude/plugins/installed_plugins.json`, keeps only
+`PreToolUse(Read|Edit|Write)` hook (`hooks/enforce.sh` → `enforce.lua`, on
+the `airsl` runtime under `--policy confined`) reads `~/.claude/plugins/installed_plugins.json`, keeps only
 airsstack-marketplace plugins (keys ending `@airsstack`), and loads each one's
 root `enforcement.json`. For the file being read or written it surfaces the
 matching guideline skill — once per `stack:phase` per session **per agent
@@ -123,7 +124,7 @@ Three gates must all pass:
    or more leading segments, so `**/Cargo.toml` covers a workspace-root
    manifest.
 
-A `SessionStart(compact)` hook (`hooks/rearm.sh` → `rearm.py`) clears that
+A `SessionStart(compact)` hook (`hooks/rearm.sh` → `rearm.lua`) clears that
 session's dedup sentinels, so the pointer re-enters context after compaction
 drops it. The session id survives compaction; the injected context does not.
 
@@ -170,7 +171,7 @@ did not hit, and an already-fired pointer are all just *silence*. That
 indistinguishability is precisely how the framework stayed dead for weeks without
 anyone noticing.
 
-`/airsstack:enforce-doctor <path>` runs `enforce.py --explain <path>` — the same
+`/airsstack:enforce-doctor <path>` runs `enforce.lua --explain <path>` — the same
 `resolve()` the hook drives, with a trace attached — and names the stage that
 ended the run. It also reports the runtime, the resolved project key, the
 repo-relative path the globs were tested against, which registry record (i.e.

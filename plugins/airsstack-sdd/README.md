@@ -65,7 +65,7 @@ Both roots and the `.gitignore` entry are provisioned three ways, all idempotent
 - lazily by `brainstorm` and `write-plan` immediately before their first write.
 
 Canonical path definitions live in two mirrored authorities: prose in
-`references/artifact-paths.md`, shell in `hooks/ensure-layout.sh`. They must agree.
+`references/artifact-paths.md`, code in `hooks/lib/layout.lua`. They must agree.
 
 ## RFCs as input
 

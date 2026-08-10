@@ -59,10 +59,11 @@ cmux browser surface:2 wait --url-contains "/dashboard" --timeout 10
 cmux browser surface:2 get url
 ```
 
-Using `cmux-snap` for the click collapses snapshot + act into one call:
+Using `cmux-snap.lua` for the click collapses snapshot + act into one call:
 
 ```sh
-${CLAUDE_PLUGIN_ROOT}/skills/cmux-browser/scripts/cmux-snap surface:2 click "button[type=submit]"
+airsl run --policy confined --allow-env CMUX_QUIET --allow-exec cmux \
+  ${CLAUDE_PLUGIN_ROOT}/skills/cmux-browser/scripts/cmux-snap.lua surface:2 click "button[type=submit]"
 ```
 
 ---

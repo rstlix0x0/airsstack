@@ -70,12 +70,13 @@ is for when the author asks "what is left".
   crates.
 - `crates/airsl` — embeddable Lua 5.4 runtime. The host decides, from Rust, what a script may reach:
   Lua is statically linked, the sandbox policy is required at construction, and every capability
-  arrives as a host module under one `airsstack` global. Near-term it replaces the plugin suite's
-  Python/Node/sh scripts; longer-term it is the airsstack extension system. Most of the capability
-  surface is designed, not built — architecture:
+  arrives as a host module under one `airsstack` global. It has replaced the plugin suite's
+  Python/Node/sh scripts, which now run on it under `--policy confined`; longer-term it is the
+  airsstack extension system, which is designed but not built — architecture:
   [`crates/airsl/docs/architecture.md`](crates/airsl/docs/architecture.md); docs index:
   [`crates/airsl/docs/README.md`](crates/airsl/docs/README.md).
-- `crates/airsl-cli` — the `airsl` binary: `run` and `doctor`, used by the plugin hooks.
+- `crates/airsl-cli` — the `airsl` binary: `run`, `test`, `check` and `doctor`, used by the
+  plugin hooks and by `cargo make plugins`.
 
 Add members under `crates/` only when there is concrete work for them. Be pragmatic; the repo ships
 only what serves the parity target.
@@ -108,6 +109,21 @@ skill for the command set rather than reconstructing it here.
 individual steps. `.github/workflows/ci.yml` runs `cargo make dod` on push to `main` and on every pull
 request, so CI and a local run are the same command. The plugin skill stays the source of truth: if
 the two disagree, the skill is right and `Makefile.toml` needs fixing.
+
+The plugin suite has its own check for the same reason: `cargo make plugins` runs `airsl check`
+then `airsl test` over the Lua scripts in `plugins/`, and needs the `airsl` binary installed
+(`cargo make install-airsl`) rather than only the workspace built. The two answer different
+questions — `check` compiles every file including the drivers no test loads, `test` runs the
+244 assertions — and either can be run alone as `cargo make plugins-check` /
+`cargo make plugins-test`. They belong in `.github/workflows/lua.yml` as separate jobs — a
+workflow of its own, because it gates the Lua rather than the Rust workspace. Its `paths:` filter
+covers `crates/airsl` and `crates/airsl-cli` as well as `plugins/`, and those entries are
+load-bearing: a change confined to Rust can alter what every script does without touching one
+`.lua` file, which is what turning on `literal_separator` in the glob module did. If that file is
+missing, add it: a session whose GitHub token lacks the `workflow` scope cannot push anything
+under `.github/workflows/`, so it has to arrive by hand.
+Before the suite moved onto airsl its Python and sh tests ran only by hand, and CI executed
+none of them.
 
 Supply chain is a separate check, not a sixth gate step: `cargo make deny` runs cargo-deny over
 security advisories, licenses, duplicate versions and source registries, with the policy and every

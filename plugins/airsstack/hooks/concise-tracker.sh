@@ -1,16 +1,22 @@
 #!/bin/sh
 # airsstack concise hook launcher.
 #
-# Prefer python3; fall back to node. Forward stdin to whichever runtime is
-# present so the hook works on machines with either. If neither exists, exit
-# silently (0) so the user prompt is never blocked.
+# `airsl` is not ambient the way `sh` was: until the binary is installed it is not there, and a
+# launcher that checks first keeps a missing runtime silent rather than broken. Exiting silently is
+# the right failure here — a UserPromptSubmit hook must never block the prompt.
+#
+# Deliberately no `exec`: that would replace the shell and hand airsl's status straight back to
+# Claude Code.
 
-DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+DIR=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd) || exit 0
+[ -n "$DIR" ] || exit 0
+command -v airsl >/dev/null 2>&1 || exit 0
 
-if command -v python3 >/dev/null 2>&1; then
-  exec python3 "$DIR/concise-tracker.py"
-elif command -v node >/dev/null 2>&1; then
-  exec node "$DIR/concise-tracker.js"
-fi
+HOME_ROOT="${AIRSSTACK_HOME:-$HOME/.airsstack}"
+
+airsl run --fail-open --policy confined \
+  --allow-env AIRSSTACK_HOME --allow-env HOME \
+  --allow-read "$HOME_ROOT" --allow-write "$HOME_ROOT" \
+  "$DIR/concise-tracker.lua" || exit 0
 
 exit 0

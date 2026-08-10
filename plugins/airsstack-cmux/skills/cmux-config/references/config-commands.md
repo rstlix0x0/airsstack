@@ -129,7 +129,11 @@ cmux config doctor
 cmux settings path
 
 # 2. Back up + edit + validate (use the helper)
-${CLAUDE_PLUGIN_ROOT}/skills/cmux-config/scripts/cmux-settings backup-then <edit-command>
+airsl run --policy confined \
+  --allow-env HOME --allow-env CMUX_SETTINGS_FILE --allow-env CMUX_QUIET \
+  --allow-read "$HOME/.config/cmux" --allow-write "$HOME/.config/cmux" \
+  --allow-exec cmux \
+  ${CLAUDE_PLUGIN_ROOT}/skills/cmux-config/scripts/cmux-settings.lua backup-then <edit-command>
 
 # 3. Reload
 cmux reload-config
@@ -138,5 +142,5 @@ cmux reload-config
 cmux config doctor
 ```
 
-If `cmux-settings backup-then` exits nonzero, the backup has been restored automatically —
+If `cmux-settings.lua backup-then` exits nonzero, the backup has been restored automatically —
 no manual cleanup required.

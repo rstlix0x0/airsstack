@@ -24,7 +24,9 @@ pick one pointer afterward.
 2. Resolve the project floor:
 
    ```sh
-   sh "${CLAUDE_PLUGIN_ROOT}/scripts/project-key.sh"
+   airsl run --policy confined \
+  --allow-read . --allow-exec git \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/project-key.lua"
    ```
 
    Capture stdout as `project`.

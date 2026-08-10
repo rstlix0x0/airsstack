@@ -17,7 +17,8 @@ orchestrates, regenerates the index, and closes the loop with lint.
 1. Resolve the bundle root:
 
    ```sh
-   sh "${CLAUDE_PLUGIN_ROOT}/scripts/okf-root.sh" [explicit-path]
+   airsl run --policy confined --allow-read . --allow-exec git \
+     "${CLAUDE_PLUGIN_ROOT}/scripts/okf-root.lua" [explicit-path]
    ```
 
    Exit 2 → relay stderr and STOP.
@@ -34,8 +35,10 @@ orchestrates, regenerates the index, and closes the loop with lint.
 4. On receipt, run both scripts:
 
    ```sh
-   sh "${CLAUDE_PLUGIN_ROOT}/scripts/gen-index.sh" "<root>"
-   sh "${CLAUDE_PLUGIN_ROOT}/scripts/okf-lint.sh" "<root>"
+   airsl run --policy confined --allow-read "<root>" --allow-write "<root>" \
+     "${CLAUDE_PLUGIN_ROOT}/scripts/gen-index.lua" "<root>"
+   airsl run --policy confined --allow-read "<root>" \
+     "${CLAUDE_PLUGIN_ROOT}/scripts/okf-lint.lua" "<root>"
    ```
 
    Lint-after-enrich is the producer feedback loop: hard failures mean
