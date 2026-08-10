@@ -58,12 +58,15 @@ airsl run --policy confined \
 4. Open a Context Handoff session and compute the curator's write-path:
 
    ```sh
-   sh "${CLAUDE_PLUGIN_ROOT}/../airsstack/scripts/handoff.sh" init
+   airsl run --policy confined \
+  --allow-env AIRSSTACK_HANDOFF_KEEP --allow-env AIRSSTACK_HANDOFF_GRACE \
+  --allow-read . --allow-write . --allow-exec git \
+  "${CLAUDE_PLUGIN_ROOT}/../airsstack/scripts/handoff.lua" init
    ```
 
    Assign `NN=01`, `agent=journal-curator`, `slug=review`; the curator's
    handoff file is `<session-dir>/01-journal-curator-review.md`. Call
-   `handoff.sh beat <session-dir>` on spawn.
+   `handoff.lua beat <session-dir>` on spawn.
 
 5. Spawn the `journal-curator` subagent (Task / Agent tool,
    `subagent_type: journal-curator`), passing `scope`, the `vault` root, the
@@ -86,7 +89,10 @@ airsl run --policy confined \
 7. Close the handoff session and report:
 
    ```sh
-   sh "${CLAUDE_PLUGIN_ROOT}/../airsstack/scripts/handoff.sh" end <session-dir>
+   airsl run --policy confined \
+  --allow-env AIRSSTACK_HANDOFF_KEEP --allow-env AIRSSTACK_HANDOFF_GRACE \
+  --allow-read . --allow-write . --allow-exec git \
+  "${CLAUDE_PLUGIN_ROOT}/../airsstack/scripts/handoff.lua" end <session-dir>
    ```
 
    Relay the curator's summary, then the one-line **restore** hint naming the

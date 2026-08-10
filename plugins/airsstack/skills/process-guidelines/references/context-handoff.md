@@ -7,7 +7,7 @@ pulled only by whoever must operate on it. This keeps detail out of the expensiv
 long-lived main-thread context unless the main thread itself must reason over it.
 
 The shell side — session lifecycle, the liveness lease, retention — is owned by
-`plugins/airsstack/scripts/handoff.sh`. This prose and that script MUST agree on the
+`plugins/airsstack/scripts/lib/handoff.lua`. This prose and that script MUST agree on the
 path and rules; change one, change the other.
 
 ## Path layout
@@ -18,7 +18,7 @@ Project-local, git-ignored, rooted at the **worktree root**:
 <worktree-root>/.airsstack/cc/plugins/airsstack/handoff/<session-id>/<NN>-<agent>-<slug>.md
 ```
 
-- `<session-id>` = `<YYYYMMDD-HHMMSS>-<rand4>`, minted by `handoff.sh init`.
+- `<session-id>` = `<YYYYMMDD-HHMMSS>-<rand4>`, minted by `handoff.lua init`.
 - `<NN>` = zero-padded spawn sequence within the session, assigned by the orchestrator.
 - `<agent>` = agent role; `<slug>` = short kebab task slug, assigned by the orchestrator.
 
@@ -70,13 +70,13 @@ source. `coder` writes with its `Write` tool. The read-only agents (`explorer`,
 writing the report is a first-class duty, distinct from mutating source, which they still
 must never do.
 
-## Session lifecycle (via handoff.sh)
+## Session lifecycle (via handoff.lua)
 
-- `handoff.sh init` — mint a session, write its `.active` lease, prune old sessions,
+- `handoff.lua init` — mint a session, write its `.active` lease, prune old sessions,
   print the session dir + id. The orchestrator runs this once at pipeline start.
-- `handoff.sh beat <session-dir>` — refresh the `.active` lease; the orchestrator calls
+- `handoff.lua beat <session-dir>` — refresh the `.active` lease; the orchestrator calls
   it on each spawn as a heartbeat.
-- `handoff.sh end <session-dir>` — drop the lease at clean session close.
+- `handoff.lua end <session-dir>` — drop the lease at clean session close.
 
 Retention: keep the last `AIRSSTACK_HANDOFF_KEEP` (default 10) session dirs. A dir beyond
 that is pruned only once its `.active` lease is absent or older than
