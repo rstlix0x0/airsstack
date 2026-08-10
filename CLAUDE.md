@@ -116,11 +116,12 @@ then `airsl test` over the Lua scripts in `plugins/`, and needs the `airsl` bina
 questions — `check` compiles every file including the drivers no test loads, `test` runs the
 244 assertions — and either can be run alone as `cargo make plugins-check` /
 `cargo make plugins-test`. They belong in `.github/workflows/lua.yml` as separate jobs — a
-workflow of its own, because it gates the Lua rather than the Rust workspace, and with no
-`paths:` filter because a change confined to `crates/airsl` can alter what every script does
-without touching one `.lua` file. If that file is missing, add it: a session whose GitHub token
-lacks the `workflow` scope cannot push anything under `.github/workflows/`, so it has to arrive
-by hand.
+workflow of its own, because it gates the Lua rather than the Rust workspace. Its `paths:` filter
+covers `crates/airsl` and `crates/airsl-cli` as well as `plugins/`, and those entries are
+load-bearing: a change confined to Rust can alter what every script does without touching one
+`.lua` file, which is what turning on `literal_separator` in the glob module did. If that file is
+missing, add it: a session whose GitHub token lacks the `workflow` scope cannot push anything
+under `.github/workflows/`, so it has to arrive by hand.
 Before the suite moved onto airsl its Python and sh tests ran only by hand, and CI executed
 none of them.
 
