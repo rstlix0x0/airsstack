@@ -2,7 +2,7 @@
 
 Canonical location and naming for every artifact the airsstack-sdd workflow reads or
 writes. This file is the **single source of truth (prose side)** for these paths. The
-shell side is mirrored in `../hooks/ensure-layout.sh` (the root constants and the key
+shell side is mirrored in `../hooks/lib/layout.lua` (the root constants and the key
 resolution); the two MUST agree. Change one, change the other.
 
 ## Base — two roots, split by artifact type
@@ -50,7 +50,7 @@ key="${base}-${hash8}"   # e.g. airsstack-3f9a2c1b
 
 ## Provisioning
 
-The tree is created by `../hooks/ensure-layout.sh`, invoked three ways: the SessionStart
+The tree is created by `../hooks/ensure-layout.lua`, invoked three ways: the SessionStart
 hook, the `/airsstack-sdd:setup` command, and lazy-create inside the writing skills
 immediately before their first write. All three are idempotent — a skill must still
 ensure its target directory exists before writing, never assuming a wrapper ran. Only the
