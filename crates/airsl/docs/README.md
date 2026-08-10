@@ -25,10 +25,10 @@ each piece, and the table below is the summary.
 | Policy — language surface, three presets, memory and instruction ceilings | **implemented** |
 | Confined `require` | **implemented** |
 | `airsstack.json` | **implemented** (sorted keys; `null` and `[]` round-trip, but neither can be constructed from Lua — see [stdlib](stdlib.md)) |
-| `airsl` CLI — `run`, `test`, `doctor`, grant flags | **implemented** |
+| `airsl` CLI — `run`, `test`, `check`, `doctor`, grant flags | **implemented** |
 | Parameterised capability grants — `FsGrant`, `EnvGrant`, `ProcGrant` | **implemented** |
 | Host standard library — `path`, `fs`, `env`, `proc`, `regex`, `hash`, `time`, `glob`, `stdio`, `hook` | **implemented** |
-| `airsl test` | **implemented** |
+| `airsl test` and `airsl check` | **implemented** |
 | Extension host — manifests, ceilings, approval, dispatch | **proposed** |
 
 Do not cite these documents as evidence that something works. Where a claim is about code that

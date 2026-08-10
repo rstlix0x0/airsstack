@@ -111,13 +111,38 @@ args = ["deny", "check"]
 
 [tasks.plugins]
 category = "Plugin suite"
-description = "airsl test over the Lua plugin scripts"
+description = "Every check over the Lua plugin scripts"
 # Deliberately not a dependency of `dod`, for the same reason `deny` is not: the
 # Definition of Done is the five commands the guideline skill owns, and a sixth
 # here would make this file disagree with its source of truth. It also needs the
 # `airsl` binary installed rather than only the workspace built, which is a
 # different prerequisite from every gate step.
+dependencies = ["plugins-check", "plugins-test"]
+
+[tasks.plugins-check]
+category = "Plugin suite"
+description = "Compile every Lua file, including the ones no test loads"
+# Runs before the tests because it is cheaper and its failures are more
+# fundamental: `airsl test` only compiles what a test file loads, and a hook's
+# entry point is loaded by nothing. Before this existed, a missing `end` in the
+# enforcement dispatcher left the suite at 244 passing and the hook exiting 0 —
+# silent at both ends.
 #
+# No policy and no grants: nothing is executed, so there is no authority to grant.
+script_runner = "@shell"
+script = '''
+set -e
+if ! command -v airsl >/dev/null 2>&1; then
+    echo "airsl is not installed: cargo make install-airsl" >&2
+    exit 1
+fi
+set -x
+airsl check plugins
+'''
+
+[tasks.plugins-test]
+category = "Plugin suite"
+description = "airsl test over the Lua plugin scripts"
 # The grants are what the scripts actually need to run their own tests: read
 # anywhere (a test builds fixtures under the system temp directory and reads
 # repository files), write only under that temp directory, and `git` as the one
@@ -126,7 +151,7 @@ script_runner = "@shell"
 script = '''
 set -e
 if ! command -v airsl >/dev/null 2>&1; then
-    echo "airsl is not installed: cargo install --path crates/airsl-cli --force" >&2
+    echo "airsl is not installed: cargo make install-airsl" >&2
     exit 1
 fi
 set -x

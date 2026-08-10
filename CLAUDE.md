@@ -75,7 +75,8 @@ is for when the author asks "what is left".
   airsstack extension system, which is designed but not built — architecture:
   [`crates/airsl/docs/architecture.md`](crates/airsl/docs/architecture.md); docs index:
   [`crates/airsl/docs/README.md`](crates/airsl/docs/README.md).
-- `crates/airsl-cli` — the `airsl` binary: `run` and `doctor`, used by the plugin hooks.
+- `crates/airsl-cli` — the `airsl` binary: `run`, `test`, `check` and `doctor`, used by the
+  plugin hooks and by `cargo make plugins`.
 
 Add members under `crates/` only when there is concrete work for them. Be pragmatic; the repo ships
 only what serves the parity target.
@@ -109,10 +110,13 @@ individual steps. `.github/workflows/ci.yml` runs `cargo make dod` on push to `m
 request, so CI and a local run are the same command. The plugin skill stays the source of truth: if
 the two disagree, the skill is right and `Makefile.toml` needs fixing.
 
-The plugin suite has its own check for the same reason: `cargo make plugins` runs `airsl test`
-over the Lua scripts in `plugins/`, and needs the `airsl` binary installed
-(`cargo make install-airsl`) rather than only the workspace built. It wants its own CI job,
-which `.github/workflows/ci.yml` does not have yet.
+The plugin suite has its own check for the same reason: `cargo make plugins` runs `airsl check`
+then `airsl test` over the Lua scripts in `plugins/`, and needs the `airsl` binary installed
+(`cargo make install-airsl`) rather than only the workspace built. The two answer different
+questions — `check` compiles every file including the drivers no test loads, `test` runs the
+244 assertions — and either can be run alone as `cargo make plugins-check` /
+`cargo make plugins-test`. It wants its own CI job, which `.github/workflows/ci.yml` does not
+have yet.
 Before the suite moved onto airsl its Python and sh tests ran only by hand, and CI executed
 none of them.
 
