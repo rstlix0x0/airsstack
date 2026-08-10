@@ -119,21 +119,23 @@ from inside Lua the behaviour is what a script expects — what does not change 
 process itself sees.
 
 **`fs.create_exclusive` is a concurrency primitive, not a convenience.** It is `O_CREAT|O_EXCL` — an
-atomic claim. `plugins/airsstack/hooks/enforce.py:321-335` relies on it for a sentinel claim, and its
-comment records that the previous read-then-append design let 3 of 4 concurrent hooks all fire.
-Without this function that hook cannot be ported correctly, only approximately.
+atomic claim. `plugins/airsstack/hooks/lib/enforce.lua:339-347` relies on it for a sentinel claim,
+and its comment records that the previous read-then-append design let 3 of 4 concurrent hooks all
+fire. Without this function that hook could only have been ported approximately.
 
-**`hash` needs SHA-1, not only SHA-256.** `enforce.py:109` uses `hashlib.sha1(...)[:8]` and
-`plugins/airsstack-sdd/hooks/ensure-layout.sh` uses `shasum | cut -c1-8`, which is also SHA-1. These
-produce the per-repository project key that names the HOME-global SDD spec and plan directories and
-the snapshot store. Shipping only SHA-256 silently re-keys every project and orphans existing
-artifacts — invisibly, until someone cannot find last week's plan. SHA-256 should be the default for
-new uses; SHA-1 exists for compatibility and should be documented as such.
+**`hash` needs SHA-1, not only SHA-256.** `plugins/airsstack/hooks/lib/enforce.lua:95` and
+`plugins/airsstack-sdd/hooks/lib/layout.lua:80` both take `sha1(path)[:8]`, replacing a
+`shasum | cut -c1-8` pipeline that was also SHA-1. These produce the per-repository project key
+that names the HOME-global SDD spec and plan directories and the snapshot store. Shipping only
+SHA-256 would silently re-key every project and orphan existing artifacts — invisibly, until
+someone cannot find last week's plan. SHA-256 is the default for new uses; SHA-1 exists for
+compatibility and is documented as such.
 
-**`glob`'s `**/` must match zero or more segments.** `enforce.py:36-38` makes `**/Cargo.toml` match a
-root-level `Cargo.toml`, which is this repository's most important Rust file. `globset` does agree —
-checked against that exact case rather than assumed, and pinned by a test that asserts both the
-zero-segment and the many-segment match.
+**`glob`'s `**/` must match zero or more segments.** `plugins/airsstack/hooks/lib/globs.lua` makes
+`**/Cargo.toml` match a root-level `Cargo.toml`, which is this repository's most important Rust
+file. `globset` agrees — checked against that exact case rather than assumed, and pinned by a test
+that asserts both the zero-segment and the many-segment match. It did **not** agree about `*`; see
+the defect note below.
 
 ## Tier 2 — runtime-class
 

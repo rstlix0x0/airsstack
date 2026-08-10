@@ -154,7 +154,7 @@ mod tests {
 
     #[test]
     fn a_double_star_matches_zero_segments_as_well_as_many() {
-        // The case that has to be checked rather than assumed: `enforce.py` relies on
+        // The case that has to be checked rather than assumed: the enforcement dispatcher relies on
         // `**/Cargo.toml` matching a root-level `Cargo.toml`, which is this repository's most
         // important Rust file. A glob implementation that required at least one segment would
         // silently stop matching it.

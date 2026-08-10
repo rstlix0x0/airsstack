@@ -95,17 +95,14 @@ unresolved) consumed by recall.
 - **SessionStart orientation card** — `scripts/orientation.lua` prints a tight,
   project-scoped recent-activity card (recent sessions + recently-updated
   notes) from `summaries.tsv`; `session-start.sh` injects it as
-  `additionalContext`. Pure shell, no model, fail-open.
+  `additionalContext`. No model, fail-open.
 
 Typed `depends-on` / `supersedes` edges, MOC promotion, progressive
 summarisation, and the daily narrative are deferred to Phase 4 (Review).
 
 ### Tests (Phase 3 additions)
 
-```sh
-sh plugins/airsstack-journal/scripts/bump-helped.test.sh
-sh plugins/airsstack-journal/scripts/orientation.test.sh
-```
+Covered by the suite-wide run above — `notes_test.lua` and `orientation_test.lua`.
 
 ## Phase 4 — Review
 
