@@ -115,8 +115,9 @@ then `airsl test` over the Lua scripts in `plugins/`, and needs the `airsl` bina
 (`cargo make install-airsl`) rather than only the workspace built. The two answer different
 questions — `check` compiles every file including the drivers no test loads, `test` runs the
 244 assertions — and either can be run alone as `cargo make plugins-check` /
-`cargo make plugins-test`. It wants its own CI job, which `.github/workflows/ci.yml` does not
-have yet.
+`cargo make plugins-test`. `.github/workflows/lua.yml` runs the two as separate jobs — a
+workflow of its own, because it gates the Lua rather than the Rust workspace, and with no
+`paths:` filter because a change confined to `crates/airsl` can alter what every script does.
 Before the suite moved onto airsl its Python and sh tests ran only by hand, and CI executed
 none of them.
 
