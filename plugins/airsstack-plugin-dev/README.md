@@ -41,7 +41,7 @@ therefore existed in the repo and in none of the seven install caches, and the
 enforcement dispatcher — which discovers guideline plugins through exactly that
 file — loaded zero manifests and did nothing on every edit for weeks.
 
-`hooks/cache-guard.sh` → `hooks/cache_guard.py` closes it. On
+`hooks/cache-guard.sh` → `hooks/cache_guard.lua` closes it. On
 `SessionStart(startup|resume|clear)` it:
 
 - **Activates only in the main worktree** of a repo hosting the `airsstack`
@@ -70,8 +70,8 @@ file — loaded zero manifests and did nothing on every edit for weeks.
   session; and user-scope installs pull the marketplace from GitHub, so a
   version bump reaches them only once the commit is pushed to `main`.
 
-It is fail-open throughout — a broken module, a missing `python3`, garbage on
-stdin or an unexpected exception all exit 0 without disturbing the session.
+It is fail-open throughout — a broken module, an uninstalled `airsl`, garbage on
+stdin or an unexpected error all exit 0 without disturbing the session.
 
 ### Why the mirror hook does not trigger on `Read`
 
