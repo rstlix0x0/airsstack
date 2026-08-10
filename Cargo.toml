@@ -49,7 +49,10 @@ regex              = "1"
 globset            = "0.4"
 walkdir            = "2.5"
 sha2               = "0.10"
-getrandom          = "0.3"
+# SHA-1 for compatibility only. The plugin suite derives its per-repository
+# project key with `hashlib.sha1(...)[:8]` and `shasum | cut -c1-8`; shipping
+# only SHA-256 would silently re-key every project and orphan its artifacts.
+sha1               = "0.10"
 # Time formatting. `jiff` over `time` because it reads /etc/localtime directly
 # instead of libc `tzset`, so local time resolves in multi-threaded embedders.
 jiff               = "0.2"
