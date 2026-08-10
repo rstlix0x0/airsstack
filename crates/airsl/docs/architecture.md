@@ -62,8 +62,8 @@ A module is a capability, and sometimes the boundary runs through the middle of 
 | Preset | Lua libraries | `require` | Ceilings | Host modules |
 |---|---|---|---|---|
 | `trusted` | everything except `debug` — including `io`, `os`, `package` | Lua's own, unconfined | none | all 11, unrestricted |
-| `confined` (default) | `string`, `table`, `math`, `coroutine`, pure `os` | confined to the script directory | 64 MiB, 100M instructions | all 11, granted nothing by default |
-| `pure` | `string`, `table`, `math` | none | 16 MiB, 10M instructions | all 11, granted nothing by default |
+| `confined` (default) | `string`, `table`, `math`, `utf8`, `coroutine`, pure `os` | confined to the script directory | 64 MiB, 100M instructions | all 11, granted nothing by default |
+| `pure` | `string`, `table`, `math`, `utf8` | none | 16 MiB, 10M instructions | all 11, granted nothing by default |
 
 Every module is installed under every preset. A module the policy has granted nothing is present and
 refuses each call with a message naming what *was* granted — rather than being absent, which would
@@ -76,11 +76,11 @@ library is not what makes Lua scripts runnable — it is what makes them *portab
 grantable*. Those are different goals, and conflating them leads to the wrong conclusion about what
 is blocking what.
 
-`utf8` is absent below `trusted`, and that is worth knowing because it was originally an accident
-rather than a decision — the bit was simply never included in the library set. It needs no authority
-and hazards no determinism, so the argument for adding it is strong; it stays out only because it
-would widen the surface. This was scheduled to be settled alongside the standard library, which has
-now landed without settling it, so it is an open decision rather than a deferred one.
+`utf8` is on every surface, including `pure`. It was absent below `trusted` for a while, by accident
+rather than decision — the bit was simply never named in the library set — and the criterion for
+withholding something has always been authority or nondeterminism rather than size. `utf8` has
+neither. Without it `#s` counts bytes and nothing counts characters, so a confined script could not
+truncate text without risking a cut through the middle of one.
 
 ## The extension seam
 

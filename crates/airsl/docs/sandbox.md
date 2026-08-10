@@ -33,8 +33,8 @@ The grant axis is the one that matters for extensions, because the interesting q
 | Variant | Libraries | Withheld afterwards |
 |---|---|---|
 | `Full` | everything except `debug` | nothing |
-| `Restricted` | `string`, `table`, `math`, `coroutine`, `os` | the four chunk loaders; `os.execute`, `exit`, `getenv`, `remove`, `rename`, `tmpname`, `setlocale`; the string metatable |
-| `Minimal` | `string`, `table`, `math` | the four chunk loaders; the string metatable |
+| `Restricted` | `string`, `table`, `math`, `utf8`, `coroutine`, `os` | the four chunk loaders; `os.execute`, `exit`, `getenv`, `remove`, `rename`, `tmpname`, `setlocale`; the string metatable |
+| `Minimal` | `string`, `table`, `math`, `utf8` | the four chunk loaders; the string metatable |
 
 `os.setlocale` is withheld for a subtler reason than the rest, and it is the clearest statement of
 this crate's values: Lua compares strings with `strcoll`, so a script that changes the locale changes
@@ -228,11 +228,15 @@ than the surface. It is gone; contributions go through `HostModule`, which the r
   as written — so `/bin/echo` is refused when `echo` is granted, and a wrapper earlier on `PATH`
   defeats it. Whether that matters depends on whether the `fs` write grants can reach anywhere on
   `PATH`, which is a question about a specific policy rather than about the mechanism.
-- **`utf8` below `trusted`.** Absent, originally by accident rather than decision. It needs no
-  authority and hazards no determinism, so the case for adding it is strong; it is held only because
-  adding it widens the surface. Decide with the standard library.
 
-Settled since this document was first written: **the CLI default is `confined`**, which is the
+Settled since this document was first written: **`utf8` is on every surface.** It was absent below
+`trusted` by accident rather than decision — the bit was simply never named in the library set — and
+the criterion for `Minimal` was always nondeterminism and authority rather than size. `utf8` has
+neither: it reads a string and returns a number. Without it `#s` counts bytes with no way to count
+characters, so a confined script could not truncate text without risking a cut through the middle of
+one.
+
+Also settled: **the CLI default is `confined`**, which is the
 previous default's language surface plus ceilings — so it is strictly safer and behaviourally
 identical for any script that terminates.
 

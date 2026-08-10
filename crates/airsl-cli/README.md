@@ -49,8 +49,8 @@ What the script may reach, and what it may spend.
 | Preset | Language surface | Ceilings | `require` |
 |---|---|---|---|
 | `trusted` | everything except `debug` — `io`, `os`, `package` included | none | Lua's own, unconfined |
-| `confined` *(default)* | `string`, `table`, `math`, `coroutine`, pure `os` | 64 MiB, 100M instructions | confined to the script's directory |
-| `pure` | `string`, `table`, `math` | 16 MiB, 10M instructions | none |
+| `confined` *(default)* | `string`, `table`, `math`, `utf8`, `coroutine`, pure `os` | 64 MiB, 100M instructions | confined to the script's directory |
+| `pure` | `string`, `table`, `math`, `utf8` | 16 MiB, 10M instructions | none |
 
 `trusted` is for first-party scripts only: one can read and write arbitrary files and spawn
 processes without going through a host module, so none of the containment the host modules provide

@@ -288,6 +288,34 @@ mod tests {
     }
 
     #[test]
+    fn every_preset_can_count_characters_rather_than_only_bytes() {
+        // Without `utf8` a script has `#s`, which counts bytes: "café" is 5 bytes and 4
+        // characters, and truncating on the byte count cuts through the middle of one.
+        for policy in [Policy::trusted(), Policy::confined(), Policy::pure()] {
+            let found = probe(policy, "return utf8.len('café') .. '/' .. #'café'");
+            assert_eq!(found, "4/5");
+        }
+    }
+
+    #[test]
+    fn utf8_is_reachable_on_every_surface() {
+        for policy in [Policy::trusted(), Policy::confined(), Policy::pure()] {
+            assert_eq!(probe(policy, "return type(utf8)"), "table");
+        }
+    }
+
+    #[test]
+    fn a_confined_engine_can_iterate_codepoints() {
+        let found = probe(
+            Policy::confined(),
+            "local out = {}
+             for _, c in utf8.codes('café') do out[#out+1] = c end
+             return table.concat(out, ',')",
+        );
+        assert_eq!(found, "99,97,102,233");
+    }
+
+    #[test]
     fn a_pure_engine_still_has_the_pure_computation_libraries() {
         for name in ["string", "table", "math"] {
             assert_eq!(
