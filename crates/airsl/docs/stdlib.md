@@ -1,7 +1,8 @@
 # Host standard library
 
-**Status: every module on this page is implemented, and so is `airsl test`. What remains proposed
-is Tier 3 and the JSON `null` sentinel.**
+**Status: every module on this page is implemented, and so is `airsl test`. The plugin corpus
+this tier was designed against now runs on it. What remains proposed is Tier 3 and the JSON
+value constructors.**
 
 Everything a script can reach arrives under one Lua global, `airsstack`, as subtables installed from
 Rust. This document is the roster, the reasoning, and the rules every module follows.
@@ -52,9 +53,9 @@ already told it, and says nothing about what is there.
 
 **Grants are checked in Rust, before the operation.** See [sandbox.md](sandbox.md).
 
-## The one gap left: JSON `null`
+## JSON: two gaps closed, one narrower than it looked
 
-`encode`, `encode_pretty`, `decode`. One known gap left, and one closed.
+`encode`, `encode_pretty`, `decode`.
 
 **Object keys sort.** They used to come out in Lua hash order, which varies between runs, so the
 same table encoded to a different byte string every time — unusable for an index, a lockfile or any
@@ -75,10 +76,14 @@ they were checked against the live table by enumerating `airsstack` under `--pol
 
 ## Tier 1 — the modules the plugin corpus needs
 
-Validated against the 29 production scripts in `plugins/`, which between them exercise filesystem
+Validated against the production scripts in `plugins/`, which between them exercise filesystem
 walking, subprocess capture, environment lookup, regex, glob matching, hashing, time formatting and
 JSON round-trips against real data. That corpus is the acceptance test for this tier, not its
 specification: each module is designed for the general case.
+
+It has now been run: the whole suite is Lua, and 244 tests over it run under `airsl test`. Four
+things the corpus asked for that the roster did not supply are recorded under
+[what the port had to work around](#what-the-port-had-to-work-around).
 
 | Module | Surface | Grant | Backing crate |
 |---|---|---|---|
@@ -185,8 +190,26 @@ engine reports. What `fs` adds is the vocabulary — the parameterised grant typ
 to a question `path` never had to face: whether a module the policy has granted nothing is installed
 and refuses every call, or is not installed at all so that a script can test for it.
 
-`proc`, `regex`, `hash`, `glob`, `stdio`, `hook` and `airsl test` are all built. What is left is
-Tier 3, the JSON `null` sentinel, and porting the plugin corpus itself.
+`proc`, `regex`, `hash`, `glob`, `stdio`, `hook` and `airsl test` are all built, and the plugin
+corpus is ported. What is left is Tier 3 and the JSON value constructors.
+
+## What the port had to work around
+
+Four gaps the corpus hit that the roster above does not close. None blocked the migration; each
+cost a workaround worth naming, because the next consumer will hit the same ones.
+
+| Gap | What the port did instead |
+|---|---|
+| `proc.run` takes argv only — no working directory, no stdin, no per-call environment | every git call travels through `git -C <dir>`; `CMUX_QUIET=1 cmux …` becomes an `env.set` on the process overlay |
+| No exit code but 0 and 1 — `os.exit` is withheld below `Full`, and the CLI maps any failure to 1 | the four scripts documenting `exit 2` for a usage error now exit 1; the stderr message is unchanged |
+| No JSON `null` or empty-array constructor | `airsstack.json.decode("[]")` as the empty-array idiom |
+| No random source — `getrandom` was removed with no module consuming it | `math.random`, which Lua 5.4 seeds per state, for a session-directory suffix |
+
+A fifth is not a gap but a difference worth knowing: **`airsstack.glob`'s `*` crosses `/`**,
+because `globset` does not set `literal_separator`. The enforcement manifests were written
+against `[^/]*`, where `*.rs` does not match `src/main.rs`, so the dispatcher compiles its own
+globs rather than delegating (`plugins/airsstack/hooks/lib/globs.lua`). Anything matching paths
+segment-by-segment needs to know this before reaching for the module.
 
 ## See also
 
