@@ -54,10 +54,11 @@ cmux browser surface:2 get title
 The packaged snapshot-then-act helper does steps 2–3 in one call:
 
 ```sh
-${CLAUDE_PLUGIN_ROOT}/skills/cmux-browser/scripts/cmux-snap surface:2 click "button[type=submit]"
+airsl run --policy confined --allow-env CMUX_QUIET --allow-exec cmux \
+  ${CLAUDE_PLUGIN_ROOT}/skills/cmux-browser/scripts/cmux-snap.lua surface:2 click "button[type=submit]"
 ```
 
-`cmux-snap` emits a `snapshot --interactive` first, then the action with `--snapshot-after`, so
+`cmux-snap.lua` emits a `snapshot --interactive` first, then the action with `--snapshot-after`, so
 the agent always sees the view before and after acting.
 
 ## Command groups
@@ -74,7 +75,7 @@ debug capture, session save/restore, and durable screenshot.
 ## Rules
 
 1. **Re-snapshot before acting on a changed view.** A stale accessibility tree causes wrong
-   selectors. Always call `snapshot --interactive` (or use `cmux-snap`) when the page may have
+   selectors. Always call `snapshot --interactive` (or use `cmux-snap.lua`) when the page may have
    changed since the last snapshot.
 2. **Verify URL after navigate.** Call `cmux browser <surface> get url` after every `goto`/
    `navigate`; redirects and SSO flows are common failure modes.

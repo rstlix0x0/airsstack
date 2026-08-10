@@ -19,7 +19,11 @@ starting point, not a contract.
 Before any automation, assert the control surface is live:
 
 ```sh
-${CLAUDE_PLUGIN_ROOT}/skills/cmux-control/scripts/cmux-preflight --json
+airsl run --policy confined \
+  --allow-env HOME --allow-env CMUX_SOCKET_PATH --allow-env CMUX_WORKSPACE_ID \
+  --allow-env CMUX_SURFACE_ID --allow-env CMUX_QUIET \
+  --allow-read "$HOME/.local/state/cmux" --allow-exec cmux \
+  ${CLAUDE_PLUGIN_ROOT}/skills/cmux-control/scripts/cmux-preflight.lua --json
 ```
 
 A zero exit means the preflight is healthy; nonzero means stop — the socket is absent or the
@@ -126,6 +130,6 @@ A grouped inventory of all commands covered by this skill is in
 
 ## Related skills
 
-- **cmux-workspace** — workspace groups, multi-pane layouts, `cmux-layout` helper.
+- **cmux-workspace** — workspace groups, multi-pane layouts, `cmux-layout.lua` helper.
 - **cmux-browser** — in-cmux browser automation, navigate/wait/snapshot/act loop.
 - **cmux-config** — `cmux.json` editing, config doctor/validate, `reload-config`.

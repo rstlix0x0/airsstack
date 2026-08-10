@@ -25,9 +25,17 @@ JSON, **destroying every comment**. See the `jq` caveat below.
 validate and reload:
 
 ```sh
-${CLAUDE_PLUGIN_ROOT}/skills/cmux-config/scripts/cmux-settings backup   # writes cmux.json.<ts>.bak
+airsl run --policy confined \
+  --allow-env HOME --allow-env CMUX_SETTINGS_FILE --allow-env CMUX_QUIET \
+  --allow-read "$HOME/.config/cmux" --allow-write "$HOME/.config/cmux" \
+  --allow-exec cmux \
+  ${CLAUDE_PLUGIN_ROOT}/skills/cmux-config/scripts/cmux-settings.lua backup   # writes cmux.json.<ts>.bak
 # …edit ~/.config/cmux/cmux.json in place (text editor / Edit tool), preserving comments…
-${CLAUDE_PLUGIN_ROOT}/skills/cmux-config/scripts/cmux-settings validate # cmux config validate; nonzero on bad config
+airsl run --policy confined \
+  --allow-env HOME --allow-env CMUX_SETTINGS_FILE --allow-env CMUX_QUIET \
+  --allow-read "$HOME/.config/cmux" --allow-write "$HOME/.config/cmux" \
+  --allow-exec cmux \
+  ${CLAUDE_PLUGIN_ROOT}/skills/cmux-config/scripts/cmux-settings.lua validate # cmux config validate; nonzero on bad config
 cmux reload-config
 ```
 
@@ -39,7 +47,11 @@ runs `<cmd>`, then validates and **auto-restores the backup on failure** — the
 left broken:
 
 ```sh
-${CLAUDE_PLUGIN_ROOT}/skills/cmux-config/scripts/cmux-settings backup-then <cmd>
+airsl run --policy confined \
+  --allow-env HOME --allow-env CMUX_SETTINGS_FILE --allow-env CMUX_QUIET \
+  --allow-read "$HOME/.config/cmux" --allow-write "$HOME/.config/cmux" \
+  --allow-exec cmux \
+  ${CLAUDE_PLUGIN_ROOT}/skills/cmux-config/scripts/cmux-settings.lua backup-then <cmd>
 ```
 
 `<cmd>` must be a JSONC-aware edit (e.g. `sed`/`patch` on the commented file, or a JSONC tool) —
@@ -90,11 +102,11 @@ The full config command family (`doctor`, `check`, `validate`, `path`, `paths`, 
 
 ## Rules
 
-1. **Back up before every edit.** Run `cmux-settings backup` (manual in-place edit) or
-   `cmux-settings backup-then <cmd>` (scripted edit) for any mutation; never edit cmux.json
+1. **Back up before every edit.** Run `cmux-settings.lua backup` (manual in-place edit) or
+   `cmux-settings.lua backup-then <cmd>` (scripted edit) for any mutation; never edit cmux.json
    without a `.bak` copy. Edit the JSONC in place to preserve comments — never `jq`-rewrite it
    (see "Safe editing").
-2. **Validate after every edit.** Run `cmux config validate` (or rely on `cmux-settings`,
+2. **Validate after every edit.** Run `cmux config validate` (or rely on `cmux-settings.lua`,
    which does this automatically) before reloading.
 3. **Prefer Ghostty config for terminal behavior.** Font, cursor, theme, scrollback,
    background transparency (`background-opacity`), and blur (`background-blur`) belong in
@@ -105,5 +117,5 @@ The full config command family (`doctor`, `check`, `validate`, `path`, `paths`, 
 ## Related skills
 
 - **cmux-control** (hub) — mental model, targeting, preflight convention.
-- **cmux-workspace** — workspace groups, multi-pane layouts, `cmux-layout` helper.
+- **cmux-workspace** — workspace groups, multi-pane layouts, `cmux-layout.lua` helper.
 - **cmux-browser** — in-cmux browser automation, navigate/wait/snapshot/act loop.

@@ -1,6 +1,6 @@
 # Layout Recipes
 
-Worked examples using `cmux-layout` and the equivalent raw-CLI sequences,
+Worked examples using `cmux-layout.lua` and the equivalent raw-CLI sequences,
 grounded on `cmux 0.64.17`.
 
 ---
@@ -9,7 +9,8 @@ grounded on `cmux 0.64.17`.
 
 ```sh
 # Using the helper (geometry + per-pane command in one call):
-${CLAUDE_PLUGIN_ROOT}/skills/cmux-workspace/scripts/cmux-layout \
+airsl run --policy confined --allow-env CMUX_QUIET --allow-exec cmux \
+  ${CLAUDE_PLUGIN_ROOT}/skills/cmux-workspace/scripts/cmux-layout.lua \
   --name dev \
   --split right \
   --split down \
@@ -50,7 +51,8 @@ cmux send --surface "$s2" "npm test"   ; cmux send-key --surface "$s2" enter
 
 ```sh
 # Using the helper: two panes, no startup commands.
-${CLAUDE_PLUGIN_ROOT}/skills/cmux-workspace/scripts/cmux-layout \
+airsl run --policy confined --allow-env CMUX_QUIET --allow-exec cmux \
+  ${CLAUDE_PLUGIN_ROOT}/skills/cmux-workspace/scripts/cmux-layout.lua \
   --name diff \
   --split right
 ```
@@ -68,7 +70,8 @@ cmux new-split right --workspace "$ws" --focus false
 
 ```sh
 # Helper: single right split, server on the right, shell on the left.
-${CLAUDE_PLUGIN_ROOT}/skills/cmux-workspace/scripts/cmux-layout \
+airsl run --policy confined --allow-env CMUX_QUIET --allow-exec cmux \
+  ${CLAUDE_PLUGIN_ROOT}/skills/cmux-workspace/scripts/cmux-layout.lua \
   --name scratch \
   --split right \
   --cmd "" \
@@ -111,7 +114,7 @@ cmux current-workspace
 
 | Situation | Recommendation |
 |---|---|
-| Simple geometry, optional per-pane command | Use `cmux-layout` |
+| Simple geometry, optional per-pane command | Use `cmux-layout.lua` |
 | Need `--cwd` per pane, or custom per-surface targeting | Drop to raw commands |
 | Layout from a pre-built JSON spec (`--layout <json>`) | Use `cmux new-workspace --layout` directly |
 | More than 4-5 panes with complex ordering | Raw commands give more control |

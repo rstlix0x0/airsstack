@@ -22,13 +22,13 @@ bundle it).
 - **cmux-control** (hub) — window/workspace/pane/surface lifecycle, `send`/`read-screen`/
   `capture-pane`/`pipe-pane`, inspection (`tree`/`top`/`identify`), and the coordination
   signal primitives (`events`/`wait-for`/`set-status`/`set-progress`/`notify`/`set-buffer`/
-  `set-hook`). Ships `cmux-preflight`, a health guard to run before automation.
+  `set-hook`). Ships `cmux-preflight.lua`, a health guard to run before automation.
 - **cmux-workspace** — caller-scoped automation, workspace groups, and multi-pane layouts.
-  Ships `cmux-layout` (geometry + optional per-pane command; no agent spawning).
+  Ships `cmux-layout.lua` (geometry + optional per-pane command; no agent spawning).
 - **cmux-browser** — in-cmux browser automation (navigate → wait → snapshot → act →
-  re-snapshot). Ships `cmux-snap`, a snapshot-then-act wrapper.
+  re-snapshot). Ships `cmux-snap.lua`, a snapshot-then-act wrapper.
 - **cmux-config** — `~/.config/cmux/cmux.json`, custom commands/actions, sidebars,
-  shortcuts, and the `config doctor/check/validate` family. Ships `cmux-settings`, a
+  shortcuts, and the `config doctor/check/validate` family. Ships `cmux-settings.lua`, a
   backup→edit→validate safe-edit wrapper.
 
 ## Non-goals
