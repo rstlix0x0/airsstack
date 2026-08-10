@@ -26,7 +26,11 @@ main-thread context.
 2. Resolve the transcript path:
 
    ```sh
-   sh "${CLAUDE_PLUGIN_ROOT}/scripts/transcript-path.sh" "${CLAUDE_SESSION_ID}"
+   HOME_ROOT="${AIRSSTACK_HOME:-$HOME/.airsstack}"
+airsl run --policy confined \
+  --allow-env CLAUDE_CONFIG_DIR --allow-env HOME --allow-env PWD \
+  --allow-read . --allow-read "$HOME/.claude" \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/transcript-path.lua" "${CLAUDE_SESSION_ID}"
    ```
 
    Capture stdout as `tpath`. An empty result (non-zero exit) means no
@@ -35,7 +39,9 @@ main-thread context.
 3. Resolve the project floor:
 
    ```sh
-   sh "${CLAUDE_PLUGIN_ROOT}/scripts/project-key.sh"
+   airsl run --policy confined \
+  --allow-read . --allow-exec git \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/project-key.lua"
    ```
 
    Capture stdout as `project`.
@@ -43,7 +49,10 @@ main-thread context.
 4. Provision the vault (idempotent, cheap):
 
    ```sh
-   sh "${CLAUDE_PLUGIN_ROOT}/scripts/provision.sh"
+   HOME_ROOT="${AIRSSTACK_HOME:-$HOME/.airsstack}"
+airsl run --policy confined \
+  --allow-env AIRSSTACK_HOME --allow-env HOME --allow-write "$HOME_ROOT" \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/provision.lua"
    ```
 
 5. Spawn the `journal-capture` subagent (Task / Agent tool,

@@ -2,7 +2,7 @@
 name: journal-helped
 description: >
   Confirm that a recalled journal note actually aided the work — increments its
-  helped: counter and refreshes the index via bump-helped.sh. Deterministic, no
+  helped: counter and refreshes the index via bump-helped.lua. Deterministic, no
   subagent. Use AFTER a note returned by /journal-recall helped solve the task,
   or when the user says "that note helped" / "/journal-helped <stem>".
 ---
@@ -21,7 +21,11 @@ aided a solution — not mere retrieval.
 2. Run the deterministic write-back:
 
    ```sh
-   sh "${CLAUDE_PLUGIN_ROOT}/scripts/bump-helped.sh" "<stem>"
+   HOME_ROOT="${AIRSSTACK_HOME:-$HOME/.airsstack}"
+airsl run --policy confined \
+  --allow-env AIRSSTACK_HOME --allow-env HOME \
+  --allow-read "$HOME_ROOT" --allow-write "$HOME_ROOT" \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/bump-helped.lua" "<stem>"
    ```
 
 3. Relay the script's one-line receipt (e.g. `bumped helped to 3 in
@@ -31,4 +35,4 @@ aided a solution — not mere retrieval.
 ## Notes
 
 - This skill writes nothing itself and spawns no subagent — it only invokes
-  `bump-helped.sh`, which increments the counter and rebuilds the index.
+  `bump-helped.lua`, which increments the counter and rebuilds the index.

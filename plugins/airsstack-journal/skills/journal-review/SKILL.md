@@ -24,7 +24,9 @@ whole vault across projects.
 1. Resolve the project floor (unless the argument is `all`):
 
    ```sh
-   sh "${CLAUDE_PLUGIN_ROOT}/scripts/project-key.sh"
+   airsl run --policy confined \
+  --allow-read . --allow-exec git \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/project-key.lua"
    ```
 
    Capture stdout as `scope` (or use `all` when that argument was given).
@@ -32,7 +34,11 @@ whole vault across projects.
 2. **Back up first — abort on failure (no review without a restore point):**
 
    ```sh
-   sh "${CLAUDE_PLUGIN_ROOT}/scripts/journal-backup.sh"
+   HOME_ROOT="${AIRSSTACK_HOME:-$HOME/.airsstack}"
+airsl run --policy confined \
+  --allow-env AIRSSTACK_HOME --allow-env HOME --allow-env AIRSSTACK_JOURNAL_BACKUP_KEEP \
+  --allow-read "$HOME_ROOT" --allow-write "$HOME_ROOT" --allow-exec tar \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/journal-backup.lua"
    ```
 
    Capture stdout as the backup archive path. If this exits non-zero, **abort
@@ -42,7 +48,11 @@ whole vault across projects.
    to the curator:
 
    ```sh
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/graph-health.py" > "${TMPDIR:-/tmp}/journal-health.md"
+   HOME_ROOT="${AIRSSTACK_HOME:-$HOME/.airsstack}"
+airsl run --policy confined \
+  --allow-env AIRSSTACK_HOME --allow-env HOME --allow-env AIRSSTACK_JOURNAL_HUB_DEGREE \
+  --allow-read "$HOME_ROOT" \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/graph-health.lua" > "${TMPDIR:-/tmp}/journal-health.md"
    ```
 
 4. Open a Context Handoff session and compute the curator's write-path:
@@ -63,7 +73,11 @@ whole vault across projects.
 6. Rebuild the derived index so MOCs, typed edges, and new links take effect:
 
    ```sh
-   python3 "${CLAUDE_PLUGIN_ROOT}/scripts/build-index.py" --force
+   HOME_ROOT="${AIRSSTACK_HOME:-$HOME/.airsstack}"
+airsl run --policy confined \
+  --allow-env AIRSSTACK_HOME --allow-env HOME \
+  --allow-read "$HOME_ROOT" --allow-write "$HOME_ROOT" \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/build-index.lua"
    ```
 
    If `python3` is absent, report that the next SessionStart staleness check

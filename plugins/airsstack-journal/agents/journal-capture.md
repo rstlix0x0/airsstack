@@ -20,8 +20,8 @@ you return only a one-line receipt, never the transcript or the full story.
 - `id8` — first eight characters of `session_id`.
 - `stem` — `session-<id8>` (or a timestamp stem if the session id was absent).
 - `tpath` — absolute path to the transcript JSONL (resolved by the skill via
-  `transcript-path.sh`), or empty if none was found.
-- `project` — the human-readable project floor (from `project-key.sh`).
+  `transcript-path.lua`), or empty if none was found.
+- `project` — the human-readable project floor (from `project-key.lua`).
 
 ## Procedure
 
@@ -42,9 +42,23 @@ you return only a one-line receipt, never the transcript or the full story.
    already exists, else now), `updated` (now), `summary` (one-line distilled
    top), `helped: 0`. Body = the skeleton above. Use plain
    Obsidian-compatible Markdown only — no HTML-comment regions.
-6. Run `sh "${CLAUDE_PLUGIN_ROOT}/scripts/daily-link.sh" <today> <stem>` to
+6. Run the daily-link script:
+
+   ```sh
+   HOME_ROOT="${AIRSSTACK_HOME:-$HOME/.airsstack}"
+   airsl run --policy confined \
+     --allow-env AIRSSTACK_HOME --allow-env HOME \
+     --allow-read "$HOME_ROOT" --allow-write "$HOME_ROOT" \
+     "${CLAUDE_PLUGIN_ROOT}/scripts/daily-link.lua" <today> <stem>
+   ```
+
+   to to
    link the session into today's daily note (`<today>` = `date +%F`).
-7. Run `python3 "${CLAUDE_PLUGIN_ROOT}/scripts/build-index.py" --force` to
+7. Run `HOME_ROOT="${AIRSSTACK_HOME:-$HOME/.airsstack}"
+airsl run --policy confined \
+  --allow-env AIRSSTACK_HOME --allow-env HOME \
+  --allow-read "$HOME_ROOT" --allow-write "$HOME_ROOT" \
+  "${CLAUDE_PLUGIN_ROOT}/scripts/build-index.lua"` to
    refresh the derived index.
 8. Return a one-line receipt, e.g.
    `wrote sessions/<stem>.md (<n> decisions, <m> notes linked)`.

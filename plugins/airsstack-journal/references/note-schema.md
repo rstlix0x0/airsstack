@@ -1,7 +1,7 @@
 # airsstack-journal note schema
 
 The single source of truth for the journal note contract. The index builder
-(`scripts/build-index.py`) and every later phase that authors notes both
+(`scripts/build-index.lua`) and every later phase that authors notes both
 conform to this file. Notes are Obsidian-compatible Markdown: a YAML-style
 frontmatter fence followed by a Markdown body.
 
@@ -119,7 +119,7 @@ and the atomic note remains fully standalone.
 ## The enriched index (`index.json`)
 
 Phase 3 adds `.index/index.json`, a consolidated graph the recall subagent
-reads. It is fully derived from the corpus and rebuilt by `build-index.py`
+reads. It is fully derived from the corpus and rebuilt by `build-index.lua`
 alongside the unchanged `graph.json`, `tags.json`, and `summaries.tsv`.
 
 - `nodes` — keyed by kebab stem: `type`, `title`, `summary`, `project`,
@@ -146,7 +146,7 @@ depends-on: ["[[graceful-shutdown]]"]   # this note builds on those
 supersedes: ["[[auth-v1]]"]             # this note replaces those (they are stale)
 ```
 
-`build-index.py` resolves their targets exactly like `links:`/inline wikilinks
+`build-index.lua` resolves their targets exactly like `links:`/inline wikilinks
 (case-insensitive stem match, alias/heading stripped) and emits `index.json`
 edges typed `depends-on` / `supersedes`. When a `(from, to)` pair is reachable
 by more than one route, the most specific type wins:

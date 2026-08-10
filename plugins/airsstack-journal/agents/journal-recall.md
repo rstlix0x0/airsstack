@@ -21,7 +21,7 @@ file, and NEVER commit.
 
 - `query` — free text describing what to recall (or, in link mode, the subject
   note's title/summary/tags assembled into a query).
-- `project` — the human-readable project floor (from `project-key.sh`).
+- `project` — the human-readable project floor (from `project-key.lua`).
 - `mode` — `recall` (default) or `link`.
 - `subject_stem` — link mode only: the stem to exclude from candidates.
 
