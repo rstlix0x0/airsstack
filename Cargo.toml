@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members  = ["crates/airs-transport", "crates/airsl", "crates/airsl-cli", "crates/clauders", "crates/openrouter-rs"]
+members  = ["crates/airs-transport", "crates/airsl", "crates/airsl-cli", "crates/claudevs", "crates/claudevs-cli", "crates/clauders", "crates/openrouter-rs"]
 
 [workspace.package]
 edition       = "2024"
@@ -66,11 +66,18 @@ insta              = "1.47.2"
 trybuild           = "1"
 base64             = "0.22.1"
 ratatui            = "0.29.0"
+# YAML front-end for claudevs cases. serde_yaml is archived; serde_yml is
+# self-described deprecated; serde_yaml_ng is the maintained fork (spec §11).
+serde_yaml_ng      = "0.10"
+# claudevs.toml (declared native test suites).
+toml               = "1.1"
 # Internal workspace members — path for local builds, version for publish-readiness.
 # Members inherit these with `{ workspace = true }`. Paths are relative to the workspace root.
 # (clauders has no entry: nothing else depends on it.)
 airs-transport     = { version = "0.1.0", path = "crates/airs-transport" }
 airsl              = { version = "0.1.0", path = "crates/airsl" }
+# Claude Code plugin lifecycle CLI — engine crate; claudevs-cli inherits it.
+claudevs           = { version = "0.1.0", path = "crates/claudevs" }
 openrouter-rs      = { version = "0.1.0", path = "crates/openrouter-rs" }
 
 [workspace.lints.rust]
