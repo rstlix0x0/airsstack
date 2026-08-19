@@ -1,0 +1,5 @@
+event: PreToolUse
+payload_raw: "{not json"
+expect:
+  exit: 1
+  output: none

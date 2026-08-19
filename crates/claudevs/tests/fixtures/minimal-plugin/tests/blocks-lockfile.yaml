@@ -1,0 +1,7 @@
+event: PreToolUse
+payload:
+  tool_input:
+    file_path: Cargo.lock
+expect:
+  decision: deny
+  stderr_contains: lockfile

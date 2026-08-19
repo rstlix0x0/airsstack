@@ -1,0 +1,3 @@
+event: SessionStart
+expect:
+  context_contains: snapshot
