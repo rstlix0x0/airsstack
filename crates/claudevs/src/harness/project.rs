@@ -99,7 +99,11 @@ pub fn overlay_into(fixtures_root: &Path, name: &str, into: &Path) -> Result<()>
 }
 
 /// Recursively copies `from` into the existing directory `to`.
-fn copy_tree(from: &Path, to: &Path) -> Result<()> {
+#[expect(
+    clippy::redundant_pub_crate,
+    reason = "explicit pub(crate) documents that the installed layout shares this copier"
+)]
+pub(crate) fn copy_tree(from: &Path, to: &Path) -> Result<()> {
     for entry in walkdir::WalkDir::new(from).sort_by_file_name() {
         let entry = entry.map_err(|e| Error::Io {
             operation: "walk fixture",

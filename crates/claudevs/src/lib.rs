@@ -12,6 +12,7 @@ mod suite;
 
 pub mod case;
 pub mod harness;
+pub mod layout;
 pub mod types;
 pub mod wiring;
 

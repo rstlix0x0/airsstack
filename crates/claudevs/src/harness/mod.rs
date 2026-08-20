@@ -18,6 +18,7 @@ mod verdict;
 pub use environment::base_env;
 pub use hooks_file::{commands_for, resolve as resolve_hook};
 pub use payload::{default_payload, merge, substitute_project};
+pub(crate) use project::copy_tree;
 pub use project::{Project, overlay_into};
 pub use semantics::{Observed, observe};
 pub use spawn::{Captured, DEFAULT_TIMEOUT, run, run_shell};
