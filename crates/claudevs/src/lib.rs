@@ -14,10 +14,12 @@ pub mod case;
 pub mod harness;
 pub mod layout;
 pub mod types;
+pub mod validate;
 pub mod wiring;
 
 pub use error::{Error, Result};
 pub use native::NativeOutcome;
 pub use report::{exit_code, render_human, render_json};
 pub use suite::{CaseOutcome, SuiteOptions, SuiteReport, run_case, run_suite};
+pub use validate::Validation;
 pub use wiring::{Finding, Severity, WiringReport};
