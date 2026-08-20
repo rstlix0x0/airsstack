@@ -7,6 +7,41 @@ use std::fmt::Write as _;
 
 use crate::harness::Verdict;
 use crate::suite::SuiteReport;
+use crate::wiring::{Severity, WiringReport};
+
+/// The human rendering of a wiring report: one line per finding, then counts.
+#[must_use]
+pub fn render_wiring_human(report: &WiringReport) -> String {
+    let mut out = String::new();
+    for finding in &report.findings {
+        let mark = match finding.severity {
+            Severity::Error => "error",
+            Severity::Warning => "warn ",
+        };
+        let location = finding.line.map_or_else(
+            || finding.file.clone(),
+            |line| format!("{}:{line}", finding.file),
+        );
+        let _ = writeln!(
+            out,
+            "  {mark}  {}  {location}  {}",
+            finding.checker, finding.message
+        );
+    }
+    let (errors, warnings) = report.counts();
+    let _ = write!(
+        out,
+        "\n{errors} error{}, {warnings} warning{}\n",
+        plural(errors),
+        plural(warnings)
+    );
+    out
+}
+
+/// `s` unless the count is one.
+const fn plural(count: usize) -> &'static str {
+    if count == 1 { "" } else { "s" }
+}
 
 /// The human rendering: one line per case, mismatches indented, a summary.
 #[must_use]
@@ -73,7 +108,7 @@ pub fn exit_code(report: &SuiteReport) -> i32 {
 mod tests {
     #![expect(clippy::unwrap_used, reason = "tests unwrap known-valid fixtures")]
 
-    use super::{exit_code, render_human, render_json};
+    use super::{exit_code, render_human, render_json, render_wiring_human};
     use crate::harness::Verdict;
     use crate::native::NativeOutcome;
     use crate::suite::{CaseOutcome, SuiteReport};
@@ -150,6 +185,41 @@ mod tests {
             native: vec![],
         };
         assert_eq!(exit_code(&green), 0);
+    }
+
+    #[test]
+    fn the_wiring_rendering_names_the_checker_the_file_and_the_line() {
+        let report = crate::wiring::WiringReport {
+            findings: vec![
+                crate::wiring::Finding {
+                    severity: crate::wiring::Severity::Error,
+                    checker: "refs",
+                    file: String::from("hooks/hooks.json"),
+                    line: Some(7),
+                    message: String::from("`${CLAUDE_PLUGIN_ROOT}/hooks/absent.sh` does not exist"),
+                },
+                crate::wiring::Finding {
+                    severity: crate::wiring::Severity::Warning,
+                    checker: "invocations",
+                    file: String::from("hooks/orphan.sh"),
+                    line: None,
+                    message: String::from("`orphan.sh` is referenced by nothing in this plugin"),
+                },
+            ],
+        };
+        let text = render_wiring_human(&report);
+        assert!(text.contains("error  refs  hooks/hooks.json:7"), "{text}");
+        assert!(
+            text.contains("warn   invocations  hooks/orphan.sh"),
+            "{text}"
+        );
+        assert!(text.contains("1 error, 1 warning"), "{text}");
+    }
+
+    #[test]
+    fn a_clean_wiring_report_says_so_rather_than_printing_nothing() {
+        let text = render_wiring_human(&crate::wiring::WiringReport::default());
+        assert!(text.contains("0 errors, 0 warnings"), "{text}");
     }
 
     #[test]

@@ -11,15 +11,17 @@ mod report;
 mod suite;
 
 pub mod case;
+pub mod check;
 pub mod harness;
 pub mod layout;
 pub mod types;
 pub mod validate;
 pub mod wiring;
 
+pub use check::{CheckReport, Stage, StageStatus};
 pub use error::{Error, Result};
 pub use native::NativeOutcome;
-pub use report::{exit_code, render_human, render_json};
+pub use report::{exit_code, render_human, render_json, render_wiring_human};
 pub use suite::{CaseOutcome, SuiteOptions, SuiteReport, run_case, run_suite, run_suite_installed};
 pub use validate::Validation;
 pub use wiring::{Finding, Severity, WiringReport};
