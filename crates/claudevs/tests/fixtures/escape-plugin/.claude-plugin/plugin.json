@@ -1,0 +1,6 @@
+{
+  "name": "escape-plugin",
+  "version": "0.1.0",
+  "description": "claudevs negative fixture: a reference that leaves the plugin root",
+  "author": { "name": "rstlix0x0" }
+}

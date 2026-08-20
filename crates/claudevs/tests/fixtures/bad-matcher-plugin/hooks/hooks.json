@@ -1,0 +1,12 @@
+{
+  "hooks": {
+    "PreToolUseX": [
+      {
+        "matcher": "Edit(",
+        "hooks": [
+          { "type": "command", "command": "true" }
+        ]
+      }
+    ]
+  }
+}

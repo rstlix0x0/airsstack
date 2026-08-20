@@ -19,3 +19,4 @@ pub use error::{Error, Result};
 pub use native::NativeOutcome;
 pub use report::{exit_code, render_human, render_json};
 pub use suite::{CaseOutcome, SuiteOptions, SuiteReport, run_case, run_suite};
+pub use wiring::{Finding, Severity, WiringReport};

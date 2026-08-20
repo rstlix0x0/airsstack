@@ -1,0 +1,6 @@
+{
+  "name": "bad-matcher-plugin",
+  "version": "0.1.0",
+  "description": "claudevs negative fixture: an unknown event and an uncompilable matcher",
+  "author": { "name": "rstlix0x0" }
+}

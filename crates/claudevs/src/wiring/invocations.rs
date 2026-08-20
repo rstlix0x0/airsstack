@@ -13,9 +13,16 @@
 //! Commands are kept as text, never split into argv: spec §6 requires a
 //! referenced fenced command to run *verbatim* — flags and grants included —
 //! and the harness already spawns command strings through `sh -c`.
+//!
+//! [`check`]'s dead-file report exempts case files: [`crate::case::discover`]
+//! finds `tests/**` entries by naming convention rather than by any other
+//! file pointing at them, so they are entry points the harness runs, not
+//! scripts that must be named to count as used.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use crate::case;
 use crate::error::{Error, Result};
 use crate::wiring::{Finding, Severity, refs};
 
@@ -108,11 +115,17 @@ const SCRIPT_EXTENSIONS: [&str; 4] = ["sh", "lua", "py", "js"];
 /// skill, a sibling script. Existence of a *referenced* path is the `refs`
 /// checker's job, not this one.
 ///
+/// A file `case::discover` classifies as a case file is exempt even when
+/// nothing names it: the claudevs harness finds it by glob under
+/// `tests/**` and runs it directly, so "referenced by nothing" is false for
+/// it — it just has no name to be referenced by.
+///
 /// # Errors
 ///
 /// [`Error::Io`] when the plugin directory cannot be walked.
 pub fn check(plugin_dir: &Path) -> Result<Vec<Finding>> {
     let files = readable_files(plugin_dir)?;
+    let case_files = discovered_case_files(plugin_dir)?;
     let mut findings = Vec::new();
 
     for (path, relative, _) in &files {
@@ -120,7 +133,7 @@ pub fn check(plugin_dir: &Path) -> Result<Vec<Finding>> {
             .extension()
             .and_then(|e| e.to_str())
             .is_some_and(|e| SCRIPT_EXTENSIONS.contains(&e));
-        if !is_script {
+        if !is_script || case_files.contains(path) {
             continue;
         }
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
@@ -140,6 +153,24 @@ pub fn check(plugin_dir: &Path) -> Result<Vec<Finding>> {
         }
     }
     Ok(findings)
+}
+
+/// The paths `case::discover` classifies as case files under `plugin_dir`.
+///
+/// A plugin with no cases at all is normal for a plugin this checker is
+/// asked about, so [`Error::NoCases`] collapses to an empty set rather than
+/// propagating — a caseless plugin must still get its dead-file report.
+fn discovered_case_files(plugin_dir: &Path) -> Result<HashSet<PathBuf>> {
+    match case::discover(plugin_dir) {
+        Ok(files) => Ok(files
+            .into_iter()
+            .map(|file| match file {
+                case::CaseFile::Yaml(path) | case::CaseFile::Lua(path) => path,
+            })
+            .collect()),
+        Err(Error::NoCases { .. }) => Ok(HashSet::new()),
+        Err(other) => Err(other),
+    }
 }
 
 /// Whether any fenced command or plugin-root reference in `text` names `name`.
@@ -294,5 +325,34 @@ echo two
         )
         .unwrap();
         assert!(check(dir.path()).unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_discovered_case_file_is_not_reported_dead() {
+        // `tests/foo_test.lua` matches the case-file naming convention that
+        // `case::discover` implements — it is an entry point the harness finds
+        // by glob and runs, not a script some other file must name for it to
+        // count as referenced.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("tests")).unwrap();
+        std::fs::write(dir.path().join("tests/foo_test.lua"), "return {}\n").unwrap();
+
+        let findings = check(dir.path()).unwrap();
+        assert!(findings.is_empty(), "{findings:?}");
+    }
+
+    #[test]
+    fn a_non_case_file_under_tests_named_by_nothing_is_still_reported() {
+        // `tests/helper.lua` sits under tests/ but does not match the
+        // case-file naming convention (`_test.lua` / `test_*.lua`), so
+        // `case::discover` does not classify it as a case file. The exemption
+        // must not widen to "anything under tests/" — this keeps it honest.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("tests")).unwrap();
+        std::fs::write(dir.path().join("tests/helper.lua"), "return {}\n").unwrap();
+
+        let findings = check(dir.path()).unwrap();
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert_eq!(findings[0].file, "tests/helper.lua");
     }
 }
