@@ -13,6 +13,7 @@ mod suite;
 pub mod case;
 pub mod harness;
 pub mod types;
+pub mod wiring;
 
 pub use error::{Error, Result};
 pub use native::NativeOutcome;
