@@ -340,6 +340,7 @@ name = "claudevs"
 version = "0.1.0"
 dependencies = [
  "airsl",
+ "regex",
  "serde",
  "serde_json",
  "serde_yaml_ng",
