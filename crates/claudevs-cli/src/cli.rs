@@ -26,6 +26,9 @@ pub(crate) enum Command {
         /// Only run cases whose name contains this substring.
         #[arg(long)]
         case: Option<String>,
+        /// Run against a throwaway copy in the installed cache layout.
+        #[arg(long)]
+        installed: bool,
         /// Emit the machine-readable report instead of the human one.
         #[arg(long)]
         json: bool,
@@ -46,9 +49,19 @@ pub(crate) enum Command {
 /// Runs the parsed command; returns the process exit code.
 pub(crate) fn run(cli: Cli) -> i32 {
     match cli.command {
-        Command::Test { case, json, path } => {
+        Command::Test {
+            case,
+            installed,
+            json,
+            path,
+        } => {
             let options = claudevs::SuiteOptions { case_filter: case };
-            match claudevs::run_suite(&path, &options) {
+            let outcome = if installed {
+                claudevs::run_suite_installed(&path, &options)
+            } else {
+                claudevs::run_suite(&path, &options)
+            };
+            match outcome {
                 Ok(report) => {
                     if json {
                         match claudevs::render_json(&report) {
@@ -119,10 +132,38 @@ mod tests {
     #[test]
     fn test_defaults_to_the_current_directory() {
         let Cli { command } = Cli::try_parse_from(["claudevs", "test"]).unwrap();
-        let Command::Test { path, case, json } = command else {
+        let Command::Test {
+            path,
+            case,
+            installed,
+            json,
+        } = command
+        else {
             panic!("expected test");
         };
         assert_eq!(path, std::path::Path::new("."));
+        assert!(case.is_none());
+        assert!(!installed);
+        assert!(!json);
+    }
+
+    #[test]
+    fn the_installed_flag_parses_and_reaches_the_command() {
+        // Without this the flag is only ever asserted absent, so swapping the
+        // two dispatch arms — or renaming the flag — leaves the suite green.
+        let Cli { command } =
+            Cli::try_parse_from(["claudevs", "test", "--installed", "some/plugin"]).unwrap();
+        let Command::Test {
+            path,
+            case,
+            installed,
+            json,
+        } = command
+        else {
+            panic!("expected test");
+        };
+        assert!(installed);
+        assert_eq!(path, std::path::Path::new("some/plugin"));
         assert!(case.is_none());
         assert!(!json);
     }

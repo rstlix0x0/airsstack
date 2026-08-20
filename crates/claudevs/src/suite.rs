@@ -97,6 +97,24 @@ pub fn run_suite(plugin_dir: &Path, options: &SuiteOptions) -> Result<SuiteRepor
     Ok(SuiteReport { outcomes, native })
 }
 
+/// Runs the whole suite against a throwaway copy of the plugin in the shape it
+/// has once installed (`--installed`, spec §7).
+///
+/// The cases are the same ones [`run_suite`] runs; only the context differs —
+/// `CLAUDE_PLUGIN_ROOT` points at the cache copy, so a path that resolves only
+/// in the source checkout comes apart here.
+///
+/// # Errors
+///
+/// [`Error::Manifest`] or [`Error::Layout`] when the copy cannot be built, and
+/// then the same conditions as [`run_suite`].
+pub fn run_suite_installed(plugin_dir: &Path, options: &SuiteOptions) -> Result<SuiteReport> {
+    // The layout owns a temp dir; holding it until the run finishes is what
+    // keeps the copy on disk for the children the harness spawns.
+    let installed = crate::layout::Installed::materialize(plugin_dir)?;
+    run_suite(installed.plugin_root(), options)
+}
+
 /// Whether `name` passes the filter.
 pub(crate) fn selected(options: &SuiteOptions, name: &str) -> bool {
     options
