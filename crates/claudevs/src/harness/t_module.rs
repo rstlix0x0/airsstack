@@ -8,7 +8,9 @@
 //! - `t.apply_fixture(name, dir)` → overlay a fixture into a directory
 //! - `t.hook(ref, payload?)` → run a hook: `{exit, stdout, stderr, decision?, context?, emitted}`
 //!   (`ref` is an event name, or a command substring unique across all events)
-//! - `t.script(argv, opts?)` → run argv (`opts.env`, `opts.cwd`): `{exit, stdout, stderr}`
+//! - `t.script(argv, opts?)` → run argv (`opts.env`, `opts.cwd`, `opts.stdin`): `{exit, stdout, stderr}`
+//! - `t.skill_command(skill, n)` → the text of the n-th fenced command in
+//!   `skills/<skill>/SKILL.md`, 1-based, for running verbatim
 //! - `t.json(path)` → decode a JSON file
 //!
 //! Only the Lua *itself* is sandboxed: the airsl policy is `confined` with
@@ -24,8 +26,12 @@
 //! `t.json`'s path (a read) and `t.script`'s `opts.cwd` (a spawn's working
 //! directory, unsandboxed regardless) are checked against the plugin
 //! directory *or* the temp projects this module has created
-//! ([`ensure_contained`]) before they are touched. `t.apply_fixture`'s `dir`
-//! is a write, and is checked more narrowly ([`ensure_write_contained`]):
+//! ([`ensure_contained`]) before they are touched. `t.skill_command`'s
+//! resolved `SKILL.md` path is checked more narrowly still
+//! ([`ensure_contained_in_plugin`]): only the plugin directory, never a temp
+//! project — a skill always lives under `plugin_dir/skills`, so admitting a
+//! temp-project root would never be a legitimate resolution. `t.apply_fixture`'s
+//! `dir` is a write, and is checked more narrowly ([`ensure_write_contained`]):
 //! only a temp project this module created, never the plugin directory —
 //! the plugin's own files are never a legitimate overlay target. Every one
 //! of these checks guards against an accident — a fixture argument
@@ -217,6 +223,9 @@ fn install_script(
                     .unwrap_or_else(|| plugin_dir.display().to_string());
                 let checked_cwd =
                     ensure_contained(std::path::Path::new(&cwd), &plugin_dir, &projects)?;
+                let stdin: Option<String> = opts
+                    .as_ref()
+                    .and_then(|o| o.get::<Option<String>>("stdin").ok().flatten());
                 let mut env = base_env(&plugin_dir, &checked_cwd);
                 if let Some(extra) =
                     opts.and_then(|o| o.get::<Option<mlua::Table>>("env").ok().flatten())
@@ -226,8 +235,8 @@ fn install_script(
                         env.insert(key, value);
                     }
                 }
-                let captured =
-                    run(&argv, &checked_cwd, &env, None, DEFAULT_TIMEOUT).map_err(lua_err)?;
+                let captured = run(&argv, &checked_cwd, &env, stdin.as_deref(), DEFAULT_TIMEOUT)
+                    .map_err(lua_err)?;
                 let result = lua.create_table()?;
                 result.set("exit", captured.exit)?;
                 result.set("stdout", captured.stdout)?;
@@ -237,6 +246,65 @@ fn install_script(
         )
         .map_err(|e| install_err(&e))?;
     table.set("script", script).map_err(|e| install_err(&e))
+}
+
+/// Resolves `t.skill_command(skill, index)`: reads
+/// `plugin_dir/skills/<skill>/SKILL.md` (contained to the plugin directory,
+/// [`ensure_contained_in_plugin`]), parses its fenced commands
+/// ([`crate::wiring::parse_fenced`]), and returns the 1-based `index`-th
+/// command's text, in document order.
+///
+/// Kept separate from `install_skill_command` so the path/index resolution
+/// — a containment check, a read, and index arithmetic — is directly
+/// testable without going through the Lua engine.
+///
+/// # Errors
+///
+/// An [`mlua::Error`] when `skill`'s resolved path escapes the plugin
+/// directory, `SKILL.md` cannot be read, `index` is `0`, or `index` is past
+/// the number of fenced commands the skill documents.
+fn skill_command(
+    plugin_dir: &std::path::Path,
+    skill: &str,
+    index: usize,
+) -> std::result::Result<String, mlua::Error> {
+    let raw = plugin_dir.join("skills").join(skill).join("SKILL.md");
+    let path = ensure_contained_in_plugin(&raw, plugin_dir)?;
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| mlua::Error::external(format!("{}: {e}", path.display())))?;
+    let commands = crate::wiring::parse_fenced(&text);
+    let position = index
+        .checked_sub(1)
+        .ok_or_else(|| mlua::Error::external("t.skill_command indexes from 1"))?;
+    commands
+        .get(position)
+        .map(|command| command.command.clone())
+        .ok_or_else(|| {
+            mlua::Error::external(format!(
+                "skill `{skill}` documents {} fenced command(s); {index} was asked for",
+                commands.len()
+            ))
+        })
+}
+
+/// Installs `t.skill_command(skill, n)`.
+///
+/// `n` is 1-based over the fenced commands of `skills/<skill>/SKILL.md`, in
+/// document order. See [`skill_command`] for the resolution behaviour.
+fn install_skill_command(
+    lua: &mlua::Lua,
+    table: &mlua::Table,
+    plugin_dir: &std::path::Path,
+) -> airsl::Result<()> {
+    let plugin_dir = plugin_dir.to_path_buf();
+    let skill_command_fn = lua
+        .create_function(move |_, (skill, index): (String, usize)| {
+            skill_command(&plugin_dir, &skill, index)
+        })
+        .map_err(|e| install_err(&e))?;
+    table
+        .set("skill_command", skill_command_fn)
+        .map_err(|e| install_err(&e))
 }
 
 /// Installs `t.json(path)`.
@@ -275,6 +343,7 @@ impl HostModule for TModule {
         install_apply_fixture(lua, table, &self.fixtures_root, &self.projects)?;
         install_hook(lua, table, &self.plugin_dir)?;
         install_script(lua, table, &self.plugin_dir, &self.projects)?;
+        install_skill_command(lua, table, &self.plugin_dir)?;
         install_json(lua, table, &self.plugin_dir, &self.projects)
     }
 }
@@ -435,13 +504,46 @@ fn ensure_write_contained(
     )))
 }
 
+/// Refuses a host-side path outside the plugin directory. Narrower than
+/// [`ensure_contained`]: `t.skill_command`'s `skill` argument always names a
+/// skill under `plugin_dir/skills`, never a scratch temp project, so unlike
+/// `t.json`'s free-form path or `t.script`'s `opts.cwd` there is no
+/// legitimate reason for this check to admit a temp-project root.
+///
+/// # Errors
+///
+/// An [`mlua::Error`] naming `path` and the plugin directory when `path`'s
+/// nearest existing ancestor is not inside it, or when `plugin_dir` does not
+/// resolve to an existing filesystem entry.
+fn ensure_contained_in_plugin(
+    path: &std::path::Path,
+    plugin_dir: &std::path::Path,
+) -> std::result::Result<PathBuf, mlua::Error> {
+    let (ancestor, tail) = nearest_existing_ancestor(path)
+        .map_err(|e| mlua::Error::external(format!("`{}`: {e}", path.display())))?;
+    let plugin_canonical = std::fs::canonicalize(plugin_dir)
+        .map_err(|e| mlua::Error::external(format!("`{}`: {e}", plugin_dir.display())))?;
+
+    if ancestor.starts_with(&plugin_canonical) {
+        return Ok(rejoin(ancestor, tail));
+    }
+
+    Err(mlua::Error::external(format!(
+        "`{}` is outside the plugin directory (`{}`)",
+        path.display(),
+        plugin_dir.display()
+    )))
+}
+
 #[cfg(test)]
 mod tests {
     #![expect(clippy::unwrap_used, reason = "tests unwrap known-valid fixtures")]
 
     use std::sync::{Arc, Mutex};
 
-    use super::{decision_name, ensure_contained, resolve_ref};
+    use super::{
+        decision_name, ensure_contained, ensure_contained_in_plugin, resolve_ref, skill_command,
+    };
     use crate::case::Decision;
     use crate::harness::Project;
     use crate::types::HookEvent;
@@ -577,5 +679,92 @@ mod tests {
             error.contains(&plugin_dir.path().display().to_string()),
             "{error}"
         );
+    }
+
+    #[test]
+    fn ensure_contained_in_plugin_allows_a_path_under_the_plugin_directory() {
+        let plugin_dir = tempfile::tempdir().unwrap();
+        let file = plugin_dir.path().join("skills/demo/SKILL.md");
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, "").unwrap();
+        assert!(ensure_contained_in_plugin(&file, plugin_dir.path()).is_ok());
+    }
+
+    #[test]
+    fn ensure_contained_in_plugin_refuses_a_path_outside_the_plugin_directory() {
+        let plugin_dir = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let target = outside.path().join("skills/demo/SKILL.md");
+
+        let error = ensure_contained_in_plugin(&target, plugin_dir.path())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains(&target.display().to_string()), "{error}");
+        assert!(
+            error.contains(&plugin_dir.path().display().to_string()),
+            "{error}"
+        );
+    }
+
+    const DEMO_SKILL: &str = "# Demo\n\n```sh\necho hello\n```\n\n```sh\necho world\n```\n";
+
+    /// A plugin dir with `skills/demo/SKILL.md` containing `skill_md`.
+    fn skill_plugin(skill_md: &str) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("skills/demo")).unwrap();
+        std::fs::write(dir.path().join("skills/demo/SKILL.md"), skill_md).unwrap();
+        dir
+    }
+
+    #[test]
+    fn skill_command_index_zero_reports_it_indexes_from_1() {
+        let dir = skill_plugin(DEMO_SKILL);
+        let error = skill_command(dir.path(), "demo", 0)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("indexes from 1"), "{error}");
+    }
+
+    #[test]
+    fn skill_command_past_the_end_reports_the_count_and_the_index_asked_for() {
+        let dir = skill_plugin(DEMO_SKILL);
+        let error = skill_command(dir.path(), "demo", 3)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("documents 2 fenced command(s)"), "{error}");
+        assert!(error.contains("3 was asked for"), "{error}");
+    }
+
+    #[test]
+    fn skill_command_missing_skill_md_reports_the_read_error_naming_the_path() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("skills")).unwrap();
+        let error = skill_command(dir.path(), "missing", 1)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains(
+                &std::path::Path::new("skills/missing/SKILL.md")
+                    .display()
+                    .to_string()
+            ),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn skill_command_rejects_a_skill_that_escapes_the_plugin_directory() {
+        let dir = skill_plugin(DEMO_SKILL);
+        let error = skill_command(dir.path(), "../../outside", 1)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("outside the plugin directory"), "{error}");
+    }
+
+    #[test]
+    fn skill_command_returns_the_nth_command() {
+        let dir = skill_plugin(DEMO_SKILL);
+        let command = skill_command(dir.path(), "demo", 2).unwrap();
+        assert_eq!(command, "echo world");
     }
 }

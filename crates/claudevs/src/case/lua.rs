@@ -448,6 +448,36 @@ mod tests {
     }
 
     #[test]
+    fn t_script_pipes_opts_stdin_to_the_child() {
+        // `install_script` hardcoded `stdin: None` before `opts.stdin`
+        // existed; without the wiring `cat` reads EOF immediately and this
+        // assertion fails on an empty stdout instead of the fed payload.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("tests/fixtures")).unwrap();
+
+        let path = dir.path().join("tests/script_stdin_test.lua");
+        std::fs::write(
+            &path,
+            r#"return { feeds = function(t)
+                 local result = t.script({ "cat" }, { stdin = "hello" })
+                 assert(result.exit == 0, "cat must exit 0")
+                 assert(
+                   result.stdout == "hello",
+                   "expected stdin to reach the child, got " .. tostring(result.stdout)
+                 )
+               end }"#,
+        )
+        .unwrap();
+        let loaded = load(
+            engine_for(dir.path(), &dir.path().join("tests/fixtures")).unwrap(),
+            &path,
+        )
+        .unwrap();
+        let results = run_scripted(&loaded, &loaded.scripted).unwrap();
+        assert!(results[0].1.is_ok(), "{:?}", results[0].1);
+    }
+
+    #[test]
     fn t_apply_fixture_allows_a_fresh_subdirectory_of_a_temp_project() {
         // Regression (canonicalizing the raw target before the containment
         // check made a subdirectory the overlay is about to create fail
