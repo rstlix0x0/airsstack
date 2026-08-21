@@ -8,7 +8,22 @@
 //! materialized. A gap is reported, never repaired, and never guessed at: the
 //! probe runs the same code the stage would.
 //!
-//! Responsibilities: [`Probe`], [`Diagnosis`], [`run`].
+//! [`ProbeStatus`] has two failing shades, chosen by what the probe is
+//! actually reporting on:
+//!
+//! - **gap** — the *environment* around the plugin is missing something the
+//!   plugin cannot supply for itself: no `claude` binary, no marketplace
+//!   manifest above it, no simulated install layout, or (despite being
+//!   content the plugin owns) no readable plugin manifest — without it
+//!   neither the marketplace nor the install-layout probe can even run, so a
+//!   missing manifest is a placement problem for those probes, not merely
+//!   advisory.
+//! - **warn** — an *observation* about the plugin's own content that does
+//!   not, by itself, stop `check` from gating. Today that is only the cases
+//!   probe: a plugin with no case files yet is incomplete, not broken, and
+//!   `Diagnosis::all_clear` must not fail a plugin for it.
+//!
+//! Responsibilities: [`ProbeStatus`], [`Probe`], [`Diagnosis`], [`run`].
 
 use std::path::Path;
 
@@ -21,7 +36,10 @@ use crate::validate::Validation;
 pub enum ProbeStatus {
     /// What was probed is usable.
     Ok,
-    /// What was probed is missing or unusable.
+    /// An observation about the plugin's own content; does not fail
+    /// [`Diagnosis::all_clear`].
+    Warning,
+    /// The environment is missing something; fails [`Diagnosis::all_clear`].
     Gap,
 }
 
@@ -44,12 +62,16 @@ pub struct Diagnosis {
 }
 
 impl Diagnosis {
-    /// Whether every probe found what it needed.
+    /// Whether no probe reports a gap.
+    ///
+    /// A [`ProbeStatus::Warning`] does not count: it is an observation about
+    /// the plugin's own content, not a reason to fail the environment it runs
+    /// in.
     #[must_use]
     pub fn all_clear(&self) -> bool {
         self.probes
             .iter()
-            .all(|probe| probe.status == ProbeStatus::Ok)
+            .all(|probe| probe.status != ProbeStatus::Gap)
     }
 }
 
@@ -111,6 +133,10 @@ fn manifest_probe(plugin_dir: &Path) -> Probe {
 }
 
 /// Whether any case files can be discovered for the suite stages to run.
+///
+/// A plugin with no cases yet is incomplete, not broken: this probe reports
+/// [`ProbeStatus::Warning`] rather than [`ProbeStatus::Gap`], so it never
+/// fails [`Diagnosis::all_clear`] on its own.
 fn cases_probe(plugin_dir: &Path) -> Probe {
     match crate::case::discover(plugin_dir) {
         Ok(cases) => Probe {
@@ -120,7 +146,7 @@ fn cases_probe(plugin_dir: &Path) -> Probe {
         },
         Err(error) => Probe {
             name: "cases",
-            status: ProbeStatus::Gap,
+            status: ProbeStatus::Warning,
             detail: error.to_string(),
         },
     }
@@ -250,14 +276,51 @@ mod tests {
         assert!(!cases.detail.starts_with('0'), "{cases:?}");
     }
 
+    /// A plugin with a manifest and a marketplace above it, but no
+    /// `tests/`: every probe but `cases` finds what it needs, so this proves
+    /// the warning tier in isolation rather than alongside an unrelated gap.
+    fn plugin_with_no_cases() -> tempfile::TempDir {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join(".claude-plugin")).unwrap();
+        std::fs::write(
+            root.path().join(".claude-plugin/marketplace.json"),
+            r#"{"name":"doctor-fixtures"}"#,
+        )
+        .unwrap();
+        let plugin = root.path().join("plugin");
+        std::fs::create_dir_all(plugin.join(".claude-plugin")).unwrap();
+        std::fs::write(
+            plugin.join(".claude-plugin/plugin.json"),
+            r#"{"name":"no-cases-plugin","version":"0.1.0"}"#,
+        )
+        .unwrap();
+        root
+    }
+
     #[test]
-    fn a_plugin_with_no_case_files_reports_that_gap_and_is_not_clear() {
-        let dir = tempfile::tempdir().unwrap();
-        let diagnosis = run_with(dir.path(), delegate_present);
+    fn a_plugin_with_no_case_files_is_a_warning_not_a_gap() {
+        let root = plugin_with_no_cases();
+        let diagnosis = run_with(&root.path().join("plugin"), delegate_present);
         let cases = diagnosis.probes.iter().find(|p| p.name == "cases").unwrap();
-        assert_eq!(cases.status, ProbeStatus::Gap, "{cases:?}");
+        assert_eq!(cases.status, ProbeStatus::Warning, "{cases:?}");
         assert!(cases.detail.contains("no case files found"), "{cases:?}");
-        assert!(!diagnosis.all_clear());
+    }
+
+    #[test]
+    fn the_cases_warning_does_not_make_all_clear_false() {
+        let root = plugin_with_no_cases();
+        let diagnosis = run_with(&root.path().join("plugin"), delegate_present);
+        for probe in diagnosis
+            .probes
+            .iter()
+            .filter(|p| p.name != "claude binary" && p.name != "cases")
+        {
+            assert_eq!(probe.status, ProbeStatus::Ok, "{probe:?}");
+        }
+        assert!(
+            diagnosis.all_clear(),
+            "a cases warning alone must not fail all_clear: {diagnosis:?}"
+        );
     }
 
     #[test]

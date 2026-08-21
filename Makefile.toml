@@ -195,8 +195,15 @@ root="crates/claudevs/tests/fixtures"
 # `cargo run -q -p claudevs-cli --` in place of a hardcoded `target/debug/claudevs`
 # path: cargo resolves the target directory itself, so the lane still works under
 # CARGO_TARGET_DIR or a --target-dir override. `-q` suppresses cargo's own build
-# output, so `$out` below is exactly what `claudevs check` printed.
-run() {
+# output, so the captured output below is exactly what `claudevs check` printed.
+#
+# `_run` captures output and exit code and asserts the exit code, but is
+# private (leading underscore, never called from the fixture list below) so
+# that the stage assertion always runs in the same breath as the capture —
+# there is no exposed "run" step whose output an assertion could read stale
+# after a previous fixture, because there is no way to call one without the
+# other.
+_run() {
     plugin="$1"; want_exit="$2"
     set +e
     out="$(cargo run -q -p claudevs-cli -- check "$root/$plugin" 2>&1)"
@@ -218,8 +225,14 @@ run() {
 # `claudevs check` indents every top-level stage line by two spaces (`  ok
 # validate`, `  FAIL  wiring`), so the assertions below match on that exact
 # prefix rather than column zero.
-assert_no_fail() {
-    plugin="$1"
+#
+# Each fixture calls exactly one of the three functions below, and each one
+# runs `_run` itself before reading `$out`/`$got` — the two can no longer be
+# invoked separately, so there is no way to assert against a previous
+# fixture's stale output.
+expect_no_fail() {
+    plugin="$1"; want_exit="$2"
+    _run "$plugin" "$want_exit"
     if echo "$out" | grep -q "^  FAIL  "; then
         echo "claudevs check $plugin: expected every stage to pass, but a stage reported FAIL:" >&2
         echo "$out" >&2
@@ -240,8 +253,9 @@ assert_no_fail() {
     echo "ok  $plugin (exit $got, no stage failed)"
 }
 
-assert_stage_fail() {
-    plugin="$1"; stage="$2"
+expect_stage_fail() {
+    plugin="$1"; want_exit="$2"; stage="$3"
+    _run "$plugin" "$want_exit"
     if ! echo "$out" | grep -q "^  FAIL  $stage\$"; then
         echo "claudevs check $plugin: expected \"FAIL  $stage\", got:" >&2
         echo "$out" >&2
@@ -250,28 +264,27 @@ assert_stage_fail() {
     echo "ok  $plugin (FAIL $stage)"
 }
 
-run minimal-plugin 0
-assert_no_fail minimal-plugin
-
-run dead-script-plugin 0
-assert_no_fail dead-script-plugin
-
-run escape-plugin 1
-assert_stage_fail escape-plugin wiring
-
 # bad-matcher-plugin is the one fixture whose failing stage depends on the
 # machine, per the comment above: `claude` present (this machine) catches it at
 # validate before wiring ever runs; `claude` absent (CI) means the
 # deterministic wiring matcher checker catches the same defect instead. Accept
 # either stage here rather than asserting one, so this lane is not
 # machine-dependent while every other assertion still pins an exact stage.
-run bad-matcher-plugin 1
-if ! echo "$out" | grep -Eq "^  FAIL  (validate|wiring)\$"; then
-    echo "claudevs check bad-matcher-plugin: expected FAIL at validate or wiring, got:" >&2
-    echo "$out" >&2
-    exit 1
-fi
-echo "ok  bad-matcher-plugin (FAIL validate or wiring)"
+expect_stage_fail_either() {
+    plugin="$1"; want_exit="$2"; stage_pattern="$3"; label="$4"
+    _run "$plugin" "$want_exit"
+    if ! echo "$out" | grep -Eq "^  FAIL  ($stage_pattern)\$"; then
+        echo "claudevs check $plugin: expected FAIL at $label, got:" >&2
+        echo "$out" >&2
+        exit 1
+    fi
+    echo "ok  $plugin (FAIL $label)"
+}
+
+expect_no_fail minimal-plugin 0
+expect_no_fail dead-script-plugin 0
+expect_stage_fail escape-plugin 1 wiring
+expect_stage_fail_either bad-matcher-plugin 1 "validate|wiring" "validate or wiring"
 '''
 
 [tasks.install-airsl]

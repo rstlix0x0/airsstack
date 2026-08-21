@@ -11,9 +11,10 @@
 //! command. Every other body line is one command, in document order.
 //!
 //! Commands are kept as text, never split into argv: a referenced fenced
-//! command must run *verbatim* — flags and grants included — because the point
-//! of citing one is to prove the documented command is the command that runs,
-//! and the harness already spawns command strings through `sh -c`.
+//! command must run *verbatim* — flags and grants included — because the
+//! point of citing one is to prove the documented command is the command
+//! that runs. The harness also already spawns command strings through
+//! `sh -c`, so there is no argv to split into.
 //!
 //! [`check`]'s dead-file report exempts case files: [`crate::case::discover`]
 //! finds `tests/**` entries by naming convention rather than by any other

@@ -101,4 +101,15 @@ pub enum Error {
         /// Why it could not run.
         reason: String,
     },
+
+    /// A report could not be serialized to JSON.
+    ///
+    /// The report types this crate emits are all plain, serializable data, so
+    /// this is unreachable in practice; it exists so `render_json` returns the
+    /// crate's own [`Result`] rather than leaking `serde_json`'s.
+    #[error("render report as json: {source}")]
+    Render {
+        /// The underlying serialization failure.
+        source: serde_json::Error,
+    },
 }

@@ -122,7 +122,10 @@ fn check_exits_one_when_wiring_fails() {
     let output = claudevs().args(["check"]).arg(dir.path()).output().unwrap();
     assert_eq!(output.status.code(), Some(1), "{output:?}");
     let text = String::from_utf8_lossy(&output.stdout);
-    assert!(text.contains("FAIL  wiring"), "{text}");
+    // Anchored to the exact two-space indent `render_check_human` emits, so an
+    // indentation regression fails here too rather than only in the render
+    // unit test and the Makefile lane.
+    assert!(text.contains("  FAIL  wiring\n"), "{text}");
 }
 
 #[test]
@@ -177,6 +180,6 @@ fn doctor_json_emits_a_machine_readable_probe_list() {
     let first = &probes[0];
     assert!(first["name"].is_string(), "{value}");
     let status = first["status"].as_str().expect(&context);
-    assert!(matches!(status, "ok" | "gap"), "{value}");
+    assert!(matches!(status, "ok" | "warning" | "gap"), "{value}");
     assert!(first["detail"].is_string(), "{value}");
 }

@@ -24,10 +24,11 @@ pub mod validate;
 pub mod wiring;
 
 pub use check::{CheckReport, Stage, StageStatus};
+pub use doctor::{Diagnosis, Probe, ProbeStatus};
 pub use error::{Error, Result};
 pub use native::NativeOutcome;
 pub use report::{
-    check_exit_code, doctor_exit_code, exit_code, render_check_human, render_doctor_human,
+    Report, check_exit_code, doctor_exit_code, exit_code, render_check_human, render_doctor_human,
     render_human, render_json, render_wiring_human,
 };
 pub use suite::{CaseOutcome, SuiteOptions, SuiteReport, run_case, run_suite, run_suite_installed};

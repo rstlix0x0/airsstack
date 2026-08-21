@@ -8,9 +8,34 @@ use std::fmt::Write as _;
 
 use crate::check::{CheckReport, StageStatus};
 use crate::doctor::{Diagnosis, ProbeStatus};
+use crate::error::{Error, Result};
 use crate::harness::Verdict;
 use crate::suite::SuiteReport;
 use crate::wiring::{Severity, WiringReport};
+
+/// Blocks anything outside this crate from implementing [`Report`].
+mod sealed {
+    pub trait Sealed {}
+
+    impl Sealed for super::SuiteReport {}
+    impl Sealed for super::CheckReport {}
+    impl Sealed for super::WiringReport {}
+    impl Sealed for super::Diagnosis {}
+}
+
+/// A report type [`render_json`] can serialize.
+///
+/// Sealed against a private marker trait: implemented only for the four
+/// report types the crate emits ([`SuiteReport`], [`CheckReport`],
+/// [`WiringReport`], [`Diagnosis`]), so the bound on `render_json` enforces
+/// what its rustdoc says — "any report type" — rather than accepting
+/// anything serializable.
+pub trait Report: serde::Serialize + sealed::Sealed {}
+
+impl Report for SuiteReport {}
+impl Report for CheckReport {}
+impl Report for WiringReport {}
+impl Report for Diagnosis {}
 
 /// The human rendering of a wiring report: one line per finding, then counts.
 #[must_use]
@@ -96,9 +121,19 @@ pub fn render_human(report: &SuiteReport) -> String {
 ///
 /// # Errors
 ///
-/// Never in practice; the report types serialize infallibly.
-pub fn render_json<T: serde::Serialize>(report: &T) -> serde_json::Result<String> {
-    serde_json::to_string_pretty(report)
+/// [`Error::Render`] on a serialization failure; never in practice, since the
+/// report types this crate emits serialize infallibly.
+///
+/// The [`Report`] bound is sealed to this crate's own report types, so an
+/// arbitrary `Serialize` value is rejected at compile time rather than
+/// silently accepted:
+///
+/// ```compile_fail
+/// // "hello" is `Serialize` but not `claudevs::Report`, so this must not compile.
+/// let _ = claudevs::render_json(&"hello");
+/// ```
+pub fn render_json<R: Report>(report: &R) -> Result<String> {
+    serde_json::to_string_pretty(report).map_err(|source| Error::Render { source })
 }
 
 /// The process exit code a report maps to.
@@ -156,6 +191,7 @@ pub fn render_doctor_human(diagnosis: &Diagnosis) -> String {
     for probe in &diagnosis.probes {
         let mark = match probe.status {
             ProbeStatus::Ok => "ok  ",
+            ProbeStatus::Warning => "warn",
             ProbeStatus::Gap => "gap ",
         };
         let _ = writeln!(out, "  {mark}  {}: {}", probe.name, probe.detail);
@@ -165,7 +201,17 @@ pub fn render_doctor_human(diagnosis: &Diagnosis) -> String {
         .iter()
         .filter(|probe| probe.status == ProbeStatus::Gap)
         .count();
-    let _ = write!(out, "\n{gaps} gap{}\n", plural(gaps));
+    let warnings = diagnosis
+        .probes
+        .iter()
+        .filter(|probe| probe.status == ProbeStatus::Warning)
+        .count();
+    let _ = write!(
+        out,
+        "\n{gaps} gap{}, {warnings} warning{}\n",
+        plural(gaps),
+        plural(warnings)
+    );
     out
 }
 
@@ -401,7 +447,29 @@ mod tests {
             text.contains("gap   plugin manifest: manifest `<plugin>/.claude-plugin/plugin.json`: no `name` field"),
             "{text}"
         );
-        assert!(text.contains("2 gaps\n"), "{text}");
+        assert!(text.contains("2 gaps, 0 warnings\n"), "{text}");
         assert_eq!(doctor_exit_code(&diagnosis), 1);
+    }
+
+    #[test]
+    fn the_doctor_rendering_marks_a_warning_and_does_not_count_it_as_a_gap() {
+        let diagnosis = Diagnosis {
+            probes: vec![
+                Probe {
+                    name: "claude binary",
+                    status: ProbeStatus::Ok,
+                    detail: String::from("present; `check` delegates its validate stage"),
+                },
+                Probe {
+                    name: "cases",
+                    status: ProbeStatus::Warning,
+                    detail: String::from("no case files found under `<plugin>/tests`"),
+                },
+            ],
+        };
+        let text = render_doctor_human(&diagnosis);
+        assert!(text.contains("warn  cases: no case files found"), "{text}");
+        assert!(text.contains("0 gaps, 1 warning\n"), "{text}");
+        assert_eq!(doctor_exit_code(&diagnosis), 0);
     }
 }

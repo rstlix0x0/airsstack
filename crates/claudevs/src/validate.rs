@@ -57,12 +57,13 @@ fn run_program(program: &str, plugin_dir: &Path) -> Validation {
     //
     // `absolute` never touches the filesystem, so this is not an existence
     // check: a missing directory still resolves, and the spawn below is what
-    // turns it into the existing `Unavailable` outcome. The only input it
-    // rejects is the empty path, which falls back to the path as given for the
-    // same reason — a hard error here would defeat this stage's contract of
-    // degrading rather than failing the run. It also does not normalise `..`
-    // on Unix, so `check ../plugin` reaches the delegate as `<cwd>/../plugin`;
-    // that is still absolute, which is all the doubling fix needs.
+    // turns it into the existing `Unavailable` outcome. std documents the
+    // empty path as a rejection case, not the only one, so any error here
+    // falls back to the path as given for the same reason — a hard error
+    // would defeat this stage's contract of degrading rather than failing
+    // the run. It also does not normalise `..` on Unix, so `check
+    // ../plugin` reaches the delegate as `<cwd>/../plugin`; that is still
+    // absolute, which is all the doubling fix needs.
     let resolved = std::path::absolute(plugin_dir).unwrap_or_else(|_| plugin_dir.to_path_buf());
     let argv = [
         String::from(program),
