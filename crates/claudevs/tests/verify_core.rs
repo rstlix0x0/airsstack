@@ -14,8 +14,8 @@ fn fixture_plugin() -> PathBuf {
 fn the_exemplar_plugin_runs_fully_green() {
     let report = run_suite(&fixture_plugin(), &SuiteOptions::default()).unwrap();
     let rendered = render_human(&report);
-    // 3 YAML + 2 generated + 1 scripted = 6 cases, plus 1 native suite.
-    assert_eq!(report.outcomes.len(), 6, "{rendered}");
+    // 3 YAML + 2 generated + 1 scripted + 1 skill-command = 7 cases, plus 1 native suite.
+    assert_eq!(report.outcomes.len(), 7, "{rendered}");
     assert_eq!(report.native.len(), 1, "{rendered}");
     assert!(report.all_green(), "{rendered}");
     assert_eq!(exit_code(&report), 0);

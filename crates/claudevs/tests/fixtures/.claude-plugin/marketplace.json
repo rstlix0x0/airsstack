@@ -1,0 +1,9 @@
+{
+  "name": "claudevs-fixtures",
+  "owner": {
+    "name": "rstlix0x0",
+    "email": "rstlix.dev@gmail.com"
+  },
+  "description": "Fixture corpus for claudevs's own test suite; not a real marketplace.",
+  "plugins": []
+}

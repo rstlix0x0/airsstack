@@ -40,7 +40,9 @@ pub enum Decision {
     Defer,
 }
 
-/// What a case asserts about an observed run (spec §5.1: meaning, not mechanics).
+/// What a case asserts about an observed run — meaning, not mechanics: a case
+/// says `decision: deny`, never an exit code, and the harness owns the
+/// translation from an observed run into that meaning.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Expectations {

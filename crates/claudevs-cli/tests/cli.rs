@@ -1,6 +1,10 @@
-//! Binary smoke tests: the spec §3 exit-code contract.
+//! Binary smoke tests: the exit-code contract, asserted through the real binary.
 
 #![expect(clippy::unwrap_used, reason = "tests unwrap known-valid fixtures")]
+#![expect(
+    clippy::expect_used,
+    reason = "tests expect() known-valid subprocess output"
+)]
 
 use std::process::Command;
 
@@ -21,6 +25,15 @@ fn green_plugin() -> tempfile::TempDir {
     std::fs::write(
         dir.path().join("tests/banner.yaml"),
         "event: SessionStart\nexpect:\n  context_contains: hello-banner\n",
+    )
+    .unwrap();
+    // `check`'s first stage delegates to `claude plugin validate`, which
+    // rejects a directory with no manifest at all; without one, the
+    // pipeline never reaches wiring on a machine that has the binary.
+    std::fs::create_dir_all(dir.path().join(".claude-plugin")).unwrap();
+    std::fs::write(
+        dir.path().join(".claude-plugin/plugin.json"),
+        r#"{"name":"green-plugin","version":"0.1.0","description":"claudevs cli test fixture","author":{"name":"rstlix0x0"}}"#,
     )
     .unwrap();
     dir
@@ -96,4 +109,77 @@ fn migrate_prints_lua_and_exits_zero() {
         .unwrap();
     assert_eq!(output.status.code(), Some(0));
     assert!(String::from_utf8_lossy(&output.stdout).starts_with("return {"));
+}
+
+#[test]
+fn check_exits_one_when_wiring_fails() {
+    let dir = green_plugin();
+    std::fs::write(
+        dir.path().join("hooks/hooks.json"),
+        r#"{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"sh \"${CLAUDE_PLUGIN_ROOT}/../escape.sh\""}]}]}}"#,
+    )
+    .unwrap();
+    let output = claudevs().args(["check"]).arg(dir.path()).output().unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let text = String::from_utf8_lossy(&output.stdout);
+    // Anchored to the exact two-space indent `render_check_human` emits, so an
+    // indentation regression fails here too rather than only in the render
+    // unit test and the Makefile lane.
+    assert!(text.contains("  FAIL  wiring\n"), "{text}");
+}
+
+#[test]
+fn check_emits_machine_readable_stages_under_json() {
+    let dir = green_plugin();
+    let output = claudevs()
+        .args(["check", "--json"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(0), "{output:?}");
+    let value: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("check --json must emit JSON");
+    let context = format!("{value}");
+    let stages = value["stages"].as_array().expect(&context);
+    assert!(!stages.is_empty(), "{value}");
+    let first = &stages[0];
+    assert!(first["name"].is_string(), "{value}");
+    let status = first["status"].as_str().expect(&context);
+    assert!(matches!(status, "passed" | "failed" | "skipped"), "{value}");
+    assert!(first["detail"].is_string(), "{value}");
+}
+
+#[test]
+fn doctor_reports_gaps_as_human_text_and_exits_one_when_a_probe_fails() {
+    // `green_plugin()` builds a tempdir with no marketplace above it, so the
+    // marketplace and install-layout probes report gaps.
+    let dir = green_plugin();
+    let output = claudevs()
+        .args(["doctor"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{output:?}");
+    let text = String::from_utf8_lossy(&output.stdout);
+    assert!(text.contains("gap"), "{text}");
+}
+
+#[test]
+fn doctor_json_emits_a_machine_readable_probe_list() {
+    let dir = green_plugin();
+    let output = claudevs()
+        .args(["doctor", "--json"])
+        .arg(dir.path())
+        .output()
+        .unwrap();
+    let value: serde_json::Value =
+        serde_json::from_slice(&output.stdout).expect("doctor --json must emit JSON");
+    let context = format!("{value}");
+    let probes = value["probes"].as_array().expect(&context);
+    assert!(!probes.is_empty(), "{value}");
+    let first = &probes[0];
+    assert!(first["name"].is_string(), "{value}");
+    let status = first["status"].as_str().expect(&context);
+    assert!(matches!(status, "ok" | "warning" | "gap"), "{value}");
+    assert!(first["detail"].is_string(), "{value}");
 }

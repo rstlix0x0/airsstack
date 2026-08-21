@@ -41,8 +41,15 @@ jobs:
           cargo clippy --version
           cargo fmt --version
 
+      # `shared-key` pins both this job and `claudevs-check` to the same cache
+      # slot instead of rust-cache's default per-job key, so whichever of the
+      # two finishes first primes the registry and target dir for the other —
+      # they build the same workspace from the same Cargo.lock, so there is
+      # nothing job-specific to keep separate.
       - name: Cache cargo registry and target dir
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: workspace
 
       - name: Install cargo-make
         uses: taiki-e/install-action@v2
@@ -53,6 +60,35 @@ jobs:
       # rustdoc, tests, doctests — each with warnings as errors.
       - name: cargo make dod
         run: cargo make dod
+
+  claudevs-check:
+    name: claudevs fixture corpus
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install the pinned Rust toolchain
+        run: |
+          rustup show
+          cargo --version
+
+      # Same shared cache slot as the `dod` job — see the comment there. Same
+      # workspace, same Cargo.lock, nothing here is job-specific to isolate.
+      - name: Cache cargo registry and target dir
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: workspace
+
+      - name: Install cargo-make
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-make
+
+      # No `claude` binary on the runner: the validate stage reports itself
+      # skipped and the deterministic stages gate.
+      - name: cargo make claudevs-check
+        run: cargo make claudevs-check
 
   deny:
     name: Supply chain

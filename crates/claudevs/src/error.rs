@@ -1,7 +1,7 @@
 //! The crate's error type.
 //!
 //! One operation-tagged enum: a failing case is a *verdict*, never an `Error` —
-//! only the inability to produce a verdict lands here (spec §10.1).
+//! only the inability to produce a verdict lands here.
 //!
 //! Responsibilities: [`Error`] and [`Result`].
 
@@ -57,6 +57,35 @@ pub enum Error {
         source: std::io::Error,
     },
 
+    /// A manifest is missing, unreadable, or lacks a field the layout needs.
+    #[error("manifest `{path}`: {reason}")]
+    Manifest {
+        /// The file that was read, or looked for.
+        path: String,
+        /// What was wrong with it.
+        reason: String,
+    },
+
+    /// No ancestor of the plugin hosts a marketplace manifest.
+    ///
+    /// Distinct from [`Error::Manifest`] on purpose: this is a property of
+    /// *where* the plugin sits, not a defect in the plugin, so the check
+    /// pipeline may skip a stage for it. A malformed manifest is never this.
+    #[error("marketplace `{path}`: {reason}")]
+    Marketplace {
+        /// The file that was looked for.
+        path: String,
+        /// Why the lookup came up empty.
+        reason: String,
+    },
+
+    /// The simulated install layout could not be built.
+    #[error("installed layout: {reason}")]
+    Layout {
+        /// What stopped it.
+        reason: String,
+    },
+
     /// The embedded Lua engine failed outside any single case.
     #[error("lua engine: {reason}")]
     Engine {
@@ -71,5 +100,16 @@ pub enum Error {
         command: String,
         /// Why it could not run.
         reason: String,
+    },
+
+    /// A report could not be serialized to JSON.
+    ///
+    /// The report types this crate emits are all plain, serializable data, so
+    /// this is unreachable in practice; it exists so `render_json` returns the
+    /// crate's own [`Result`] rather than leaking `serde_json`'s.
+    #[error("render report as json: {source}")]
+    Render {
+        /// The underlying serialization failure.
+        source: serde_json::Error,
     },
 }
