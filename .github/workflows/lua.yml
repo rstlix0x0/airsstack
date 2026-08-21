@@ -1,0 +1,105 @@
+name: Lua plugin suite
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "plugins/**"
+      - "crates/airsl/**"
+      - "crates/airsl-cli/**"
+      # The workflow and its cargo-make tasks are the gate itself: a change to
+      # either must re-run to prove the new gate still works.
+      - ".github/workflows/lua.yml"
+      - "Makefile.toml"
+  pull_request:
+    paths:
+      - "plugins/**"
+      - "crates/airsl/**"
+      - "crates/airsl-cli/**"
+      - ".github/workflows/lua.yml"
+      - "Makefile.toml"
+  workflow_dispatch:
+
+# A new push to the same ref supersedes whatever is still running for it.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Incremental artifacts are dead weight in a fresh runner and only bloat the cache.
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  RUSTUP_MAX_RETRIES: 10
+  RUST_BACKTRACE: 1
+
+jobs:
+  plugins-check:
+    name: airsl check
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install the pinned Rust toolchain
+        run: |
+          rustup show
+          cargo --version
+
+      # Own shared-key, not ci.yml's: airsl-cli's dependency graph barely
+      # overlaps with the rest of the workspace (no tokio, reqwest, mockall,
+      # wiremock, insta, trybuild — the crates that make dod's/claudevs-check's
+      # cache heavy), so joining that cache would only add restore/save cost
+      # here for no reuse. This key lets `plugins-check` prime the airsl-cli
+      # build for `plugins-test` instead.
+      - name: Cache cargo registry and target dir
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: airsl
+
+      - name: Install cargo-make
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-make
+
+      - name: Install the airsl binary
+        run: cargo make install-airsl
+
+      # Compiles every Lua file, including the drivers no test loads — the
+      # check `airsl test` cannot give, since it only compiles what a test
+      # file actually requires.
+      - name: cargo make plugins-check
+        run: cargo make plugins-check
+
+  plugins-test:
+    name: airsl test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install the pinned Rust toolchain
+        run: |
+          rustup show
+          cargo --version
+
+      # Same shared cache slot as `plugins-check` — see the comment there.
+      - name: Cache cargo registry and target dir
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: airsl
+
+      - name: Install cargo-make
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-make
+
+      - name: Install the airsl binary
+        run: cargo make install-airsl
+
+      # Runs the assertions under plugins/.
+      - name: cargo make plugins-test
+        run: cargo make plugins-test
