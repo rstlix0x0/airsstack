@@ -1,7 +1,7 @@
 //! The crate's error type.
 //!
 //! One operation-tagged enum: a failing case is a *verdict*, never an `Error` —
-//! only the inability to produce a verdict lands here (spec §10.1).
+//! only the inability to produce a verdict lands here.
 //!
 //! Responsibilities: [`Error`] and [`Result`].
 

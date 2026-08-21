@@ -10,8 +10,9 @@
 //! ending in `\` continues onto the next; a blank line or a `#` comment ends a
 //! command. Every other body line is one command, in document order.
 //!
-//! Commands are kept as text, never split into argv: spec §6 requires a
-//! referenced fenced command to run *verbatim* — flags and grants included —
+//! Commands are kept as text, never split into argv: a referenced fenced
+//! command must run *verbatim* — flags and grants included — because the point
+//! of citing one is to prove the documented command is the command that runs,
 //! and the harness already spawns command strings through `sh -c`.
 //!
 //! [`check`]'s dead-file report exempts case files: [`crate::case::discover`]

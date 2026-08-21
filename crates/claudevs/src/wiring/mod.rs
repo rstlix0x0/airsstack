@@ -1,4 +1,4 @@
-//! Static wiring checks: no execution, one [`Finding`] list (spec §7).
+//! Static wiring checks: no execution, one [`Finding`] list.
 //!
 //! Three checkers, each answering one question about a plugin that never
 //! requires running it:

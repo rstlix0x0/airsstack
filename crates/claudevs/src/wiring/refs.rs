@@ -1,6 +1,6 @@
 //! The `refs` checker: every `${CLAUDE_PLUGIN_ROOT}/…` occurrence anywhere in
 //! the plugin must resolve to a file that exists, and no occurrence may leave
-//! the plugin root (spec §7).
+//! the plugin root.
 //!
 //! The scan is textual and covers every UTF-8 file under the plugin — hooks.json
 //! command strings and skill, agent and command markdown alike — because a
@@ -148,8 +148,9 @@ mod tests {
     #[test]
     fn a_traversal_is_a_finding_even_when_the_path_it_names_exists() {
         // The escape is the defect; that it happens to resolve today is not a
-        // defence (spec §7: "any `..` segment escaping the plugin root is a
-        // finding unconditionally").
+        // defence. Any `..` segment leaving the plugin root is a finding
+        // unconditionally, because the file it reaches is not shipped with the
+        // plugin and will not be there once it is installed.
         let dir = plugin("see ${CLAUDE_PLUGIN_ROOT}/../outside.txt\n");
         let outside = dir.path().parent().unwrap().join("outside.txt");
         std::fs::write(&outside, "reachable").unwrap();

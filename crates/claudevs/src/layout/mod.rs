@@ -1,4 +1,4 @@
-//! Simulating the shape a plugin has once installed (spec §7).
+//! Simulating the shape a plugin has once installed.
 
 mod installed;
 mod manifest;

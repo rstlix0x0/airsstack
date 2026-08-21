@@ -98,7 +98,7 @@ pub fn run_suite(plugin_dir: &Path, options: &SuiteOptions) -> Result<SuiteRepor
 }
 
 /// Runs the whole suite against a throwaway copy of the plugin in the shape it
-/// has once installed (`--installed`, spec §7).
+/// has once installed (`--installed`).
 ///
 /// The cases are the same ones [`run_suite`] runs; only the context differs —
 /// `CLAUDE_PLUGIN_ROOT` points at the cache copy, so a path that resolves only
@@ -271,7 +271,7 @@ fn run_flow(
     // A flow with no run steps at all (fixture overlays only) has nothing to
     // observe. `files_exist` still holds — it only inspects the project tree
     // — but any expectation that needs an actual run cannot pass vacuously
-    // against a fabricated `Observed::default()` (spec §5.1).
+    // against a fabricated `Observed::default()`.
     match last_observed {
         Some(observed) => Ok(judge(expect, &observed, project_path)),
         None if expect.expects_a_run() => Ok(Verdict::Fail(vec![String::from(

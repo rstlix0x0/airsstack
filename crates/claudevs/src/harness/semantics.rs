@@ -1,6 +1,6 @@
 //! What an observed run *means*, per hook event.
 //!
-//! The one place the exit-code and envelope knowledge lives (spec §5.1): cases
+//! The one place the exit-code and envelope knowledge lives: cases
 //! state meaning (`decision: deny`) and this module translates observation into
 //! it. Grounded rules, each carried by a test:
 //!

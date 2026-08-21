@@ -1,6 +1,6 @@
 //! Hook payloads: built-in defaults, case overlay, `{project}` substitution.
 //!
-//! The defaults are provisional (spec §6): hand-written against the shapes
+//! The defaults are provisional: hand-written against the shapes
 //! this repository's own hooks parse today, replaced as a base layer by
 //! captured payloads once capture exists. The overlay mechanism is the same
 //! either way, so swapping the base touches no case.

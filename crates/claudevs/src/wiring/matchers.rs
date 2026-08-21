@@ -1,5 +1,5 @@
 //! The `matchers` checker: hooks.json declares known events and compiling
-//! matcher regexes (spec §7).
+//! matcher regexes.
 //!
 //! The matcher is compiled with the `regex` crate, which has no lookaround and
 //! no backreferences. Whether the Claude Code runtime accepts a wider flavour

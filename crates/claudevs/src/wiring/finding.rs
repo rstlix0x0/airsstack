@@ -3,7 +3,7 @@
 //! Responsibilities: [`Severity`], [`Finding`], [`WiringReport`]. A finding is
 //! a *result*, never an [`crate::Error`]: the checkers error only when they
 //! cannot read the plugin at all, exactly as a failing case is a verdict
-//! rather than an error (spec §10.1).
+//! rather than an error.
 
 /// How serious a wiring observation is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]

@@ -1,4 +1,4 @@
-//! `claudevs check`: the one gate a plugin passes or fails (spec §7).
+//! `claudevs check`: the one gate a plugin passes or fails.
 //!
 //! Four stages in order — delegated manifest validation, static wiring, the case
 //! suite, the case suite again from the simulated install layout — stopping at

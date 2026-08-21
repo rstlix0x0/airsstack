@@ -1,4 +1,4 @@
-//! A throwaway copy of a plugin in the shape it has once installed (spec §7).
+//! A throwaway copy of a plugin in the shape it has once installed.
 //!
 //! The runtime installs a plugin at `cache/<marketplace>/<plugin>/<version>/`
 //! and records it in `installed_plugins.json` under the key

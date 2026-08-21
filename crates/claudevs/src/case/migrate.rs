@@ -1,7 +1,8 @@
 //! `migrate`: mechanical YAML → data-Lua conversion.
 //!
 //! Emits the Lua table literal whose parse is byte-identical (as a [`Case`])
-//! to the YAML's — the §5.2 equivalence, pinned by the round-trip test.
+//! to the YAML's. That equivalence is what makes the conversion mechanical
+//! rather than a re-authoring, and it is pinned by the round-trip test.
 
 use std::fmt::Write as _;
 use std::path::Path;

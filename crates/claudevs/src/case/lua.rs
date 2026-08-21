@@ -218,7 +218,8 @@ mod tests {
 
     #[test]
     fn yaml_and_lua_forms_of_one_case_are_identical() {
-        // The invariant migrate depends on (spec §5.2).
+        // The invariant `migrate` depends on: both front-ends parse into the
+        // identical `Case`, which is what makes the conversion mechanical.
         let dir = tempfile::tempdir().unwrap();
         let y = dir.path().join("same.yaml");
         std::fs::write(
