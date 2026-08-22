@@ -1,16 +1,41 @@
 # airsstack-plugin-dev
 
 Plugin-development toolkit for the airsstack suite. This is the workshop the other
-four plugins are built in.
+six plugins are built in.
+
+## Install
+
+Every hook in this plugin runs on the `airsl` binary; install it first with
+`cargo install --git https://github.com/rstlix0x0/airsstack --locked airsl-cli`, then:
+
+```
+/plugin marketplace add rstlix0x0/airsstack
+/plugin install airsstack-plugin-dev@airsstack
+```
 
 ## v1 — cache-sync
 
 The suite is developed in-tree under `plugins/<plugin>/` but executed from a
 per-version cache at `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/`.
-All plugins are pinned at `0.1.0` (in-development; no version bumps), so
-`/plugin install` short-circuits at the same version and never re-copies the cache —
-edits to a plugin file would otherwise require a manual `cp` or an uninstall/reinstall
-dance.
+Editing a plugin file in place does not, by itself, reach that cache. What is
+directly observable here is that a cache directory can sit arbitrarily far behind
+the repository at the *same* version string: `~/.claude/plugins/cache/airsstack/`
+`airsstack-sdd/0.1.2/hooks/ensure-layout.sh` still holds the pre-Lua, full-shell
+implementation, though commit `99021fe` rewrote that file into a thin Lua launcher
+with `0.1.2` left untouched.
+
+That is not evidence about `/plugin install`, and it should not be read as any.
+`airsstack-sdd@airsstack` has no entry in `~/.claude/plugins/installed_plugins.json`
+at all — the directory is an orphan from an install predating `99021fe`, and "never
+reinstalled since" accounts for the staleness on its own. Whether `/plugin install`
+short-circuits on an unchanged version is a claim about closed-source CLI internals
+that nothing here confirms.
+
+The version discipline does not rest on that claim. The cache path is keyed by
+version, so a bump lands the plugin in a directory that cannot already exist,
+whatever the installer does with an unchanged one. That is why a shipped fix needs
+a version bump — or this cache-sync hook — to reach the cache; without one of those
+it needs a manual `cp` or an uninstall/reinstall dance instead.
 
 This plugin installs a `PostToolUse` hook (on `Edit`, `Write`) that, when
 you edit a file under `plugins/<plugin>/`, mirrors just that file into the matching

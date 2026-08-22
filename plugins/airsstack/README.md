@@ -51,10 +51,25 @@ The session hooks **nudge only** — you (the model) keep the selection and dura
 
 ### Concise hook runtime
 
-The `UserPromptSubmit` hook runs on [`airsl`](../../crates/airsl), the embedded Lua runtime, and
-its launcher exits silently when the `airsl` binary is not installed — so a machine without it
-loses the hook rather than seeing an error on every prompt. `cargo install --path
-crates/airsl-cli` is the one prerequisite.
+The `UserPromptSubmit` hook — like every other airsl-backed hook in the suite (`enforce.lua`,
+`rearm.lua`, SDD layout provisioning, the journal orientation card) — runs on
+[`airsl`](../../crates/airsl), the embedded Lua runtime, and its launcher exits silently when the
+`airsl` binary is not installed, so that hook's own effect disappears with no error at the point it
+fires. That per-hook silence is no longer the whole story: `hooks/preflight.sh` runs on every
+`SessionStart` (startup, resume, and clear) precisely to break it. It re-resolves `airsl` the same
+way the other hook wrappers do and, if that resolution fails, prints a `STATUS:` / `Disabled:` /
+`FIX:` block plus the install command — so a machine without it still gets one signal per session
+start, even though every individual hook stays quiet. The `Disabled:` line names the four hooks
+with a user-visible effect (rule enforcement, the concise tracker, SDD layout provisioning, the
+journal orientation card); `rearm.lua` and the two `airsstack-plugin-dev` hooks are equally inert
+without `airsl` and are left off deliberately, because naming every hook would bury the ones that
+change what a session does.
+
+Install `airsl` with `cargo install --git https://github.com/rstlix0x0/airsstack --locked airsl-cli`,
+or run `plugins/airsstack/scripts/install-airsl.sh` from the repo root (`scripts/install-airsl.sh`
+from inside this directory) for the same thing in one command — it also detects an
+already-installed binary and reports its location. If `airsl` is installed but a hook still can't
+find it, its directory is likely off the hook's PATH — set `AIRSL_BIN` to the binary's full path.
 
 ## Project snapshots
 
@@ -105,9 +120,19 @@ the `airsl` runtime under `--policy confined`) reads `~/.claude/plugins/installe
 airsstack-marketplace plugins (keys ending `@airsstack`), and loads each one's
 root `enforcement.json`. For the file being read or written it surfaces the
 matching guideline skill — once per `stack:phase` per session **per agent
-context** — by injecting `additionalContext` with `permissionDecision:"defer"`
-(it never blocks a tool call). Firing on `Read` puts the rule in context before
-the design decision, not at the moment of writing.
+context** — by injecting `additionalContext` alone; it carries no
+`permissionDecision` field, so it never blocks or defers a tool call. That
+field matters because a hook returning `permissionDecision: defer` was watched
+returning with no `tool_result` at all — swallowing the tool call the hook
+fired on — when the session is non-interactive, the tool batch is solo, and
+the abort signal is not already set. Other cases still produced a result: an
+interactive session or a multi-tool batch just warned and let the tool run
+normally, and an already-aborted signal still produced a `tool_result`
+carrying a `cancelled` denial. That was observed directly against an
+installed CLI rather than read out of any build's source or documentation —
+no version is claimed, and the exact conditions may shift release to release
+(see the `airsl::modules::hook` module doc). Firing on `Read` puts the rule in context before the
+design decision, not at the moment of writing.
 
 Three gates must all pass:
 

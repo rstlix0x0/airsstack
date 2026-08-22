@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "echo 'Reminder: run /airsstack:snapshot-load for the current git branch to rehydrate relevant project memory before starting work.'"
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/hooks/preflight.sh\""
           }
         ]
       },
