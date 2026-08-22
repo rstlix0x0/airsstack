@@ -1,6 +1,6 @@
 {
   "name": "airsstack-okf",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Open Knowledge Format (OKF) v0.1 producer+consumer toolkit: provision a repo-local bundle, author and batch-enrich concept documents, recall with progressive disclosure, and lint conformance deterministically.",
   "author": { "name": "rstlix0x0", "email": "rstlix.dev@gmail.com" },
   "license": "Apache-2.0",
