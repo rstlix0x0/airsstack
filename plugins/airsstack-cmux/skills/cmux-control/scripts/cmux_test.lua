@@ -28,4 +28,23 @@ return {
     assert(cmux.first_line("trailing   \n") == "trailing")
     assert(cmux.first_line("") == "")
   end,
+
+  -- The suite runs without `--allow-exec cmux`, so `proc.run` refuses and this exercises the
+  -- unreachable-binary branch on every machine, cmux installed or not. Returning a result rather
+  -- than throwing is the contract every caller relies on: they branch on `status`, and a raised
+  -- error would abort the script instead of reporting that cmux could not be reached.
+  an_unreachable_cmux_is_reported_as_a_result_and_not_raised = function()
+    local result = cmux.run({ "--version" })
+    assert(type(result) == "table", "run must return a result table")
+    assert(result.status == 127, "got status " .. tostring(result.status))
+    assert(result.stdout == "", string.format("%q", tostring(result.stdout)))
+    assert(#result.stderr > 0, "the refusal must reach the caller as stderr text")
+  end,
+
+  the_quiet_flag_never_takes_the_call_down_with_it = function()
+    -- `env.set` needs an authority the test grants do not include; swallowing that is what lets a
+    -- quiet call still run under a policy that withholds it.
+    local result = cmux.run({ "--version" }, true)
+    assert(result.status == 127, "got status " .. tostring(result.status))
+  end,
 }
