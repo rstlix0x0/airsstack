@@ -26,6 +26,6 @@ airsl run --policy confined \
   "${CLAUDE_PLUGIN_ROOT}/scripts/build-index.lua"
    ```
 
-If `python3` is unavailable, report that the index could not be rebuilt; the
+If that exits non-zero, report that the index could not be rebuilt; the
 vault is still provisioned and usable. Report the resolved vault path
 (`${AIRSSTACK_HOME:-~/.airsstack}/journal/`) and which index files were written.

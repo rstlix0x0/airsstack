@@ -55,23 +55,23 @@ airsl run --policy confined \
   "${CLAUDE_PLUGIN_ROOT}/scripts/graph-health.lua" > "${TMPDIR:-/tmp}/journal-health.md"
    ```
 
-4. Open a Context Handoff session and compute the curator's write-path:
+4. The curator's write-path is one literal temp file — no Context Handoff session:
 
-   ```sh
-   airsl run --policy confined \
-  --allow-env AIRSSTACK_HANDOFF_KEEP --allow-env AIRSSTACK_HANDOFF_GRACE \
-  --allow-read . --allow-write . --allow-exec git \
-  "${CLAUDE_PLUGIN_ROOT}/../airsstack/scripts/handoff.lua" init
-   ```
+   `${TMPDIR:-/tmp}/journal-curator-review.md`
 
-   Assign `NN=01`, `agent=journal-curator`, `slug=review`; the curator's
-   handoff file is `<session-dir>/01-journal-curator-review.md`. Call
-   `handoff.lua beat <session-dir>` on spawn.
+   The handoff session tree's lease, heartbeat and pruning exist to stop
+   concurrent multi-agent pipelines from colliding over one directory; this
+   review spawns exactly one subagent and has nothing to collide with. Minting
+   a session would also mean running the sibling `airsstack` plugin's
+   `handoff.lua`, whose install path carries that plugin's version — a value no
+   environment variable exposes, so any path spelled here would be wrong the
+   moment either plugin is bumped.
 
 5. Spawn the `journal-curator` subagent (Task / Agent tool,
    `subagent_type: journal-curator`), passing `scope`, the `vault` root, the
-   `health_report` temp path, and the `handoff_path`. The curator applies its
-   additive edits and returns a one-line summary plus its handoff path.
+   `health_report` temp path, and the literal `${TMPDIR:-/tmp}/journal-curator-review.md`
+   from step 4 as the `handoff_path`. The curator applies its additive edits and
+   returns a one-line summary plus its handoff path.
 
 6. Rebuild the derived index so MOCs, typed edges, and new links take effect:
 
@@ -83,17 +83,10 @@ airsl run --policy confined \
   "${CLAUDE_PLUGIN_ROOT}/scripts/build-index.lua"
    ```
 
-   If `python3` is absent, report that the next SessionStart staleness check
+   If this exits non-zero, report that the next SessionStart staleness check
    will rebuild — do not fail the review (the curator's edits persist).
 
-7. Close the handoff session and report:
-
-   ```sh
-   airsl run --policy confined \
-  --allow-env AIRSSTACK_HANDOFF_KEEP --allow-env AIRSSTACK_HANDOFF_GRACE \
-  --allow-read . --allow-write . --allow-exec git \
-  "${CLAUDE_PLUGIN_ROOT}/../airsstack/scripts/handoff.lua" end <session-dir>
-   ```
+7. Report.
 
    Relay the curator's summary, then the one-line **restore** hint naming the
    backup from step 2: `restore with: tar xzf <archive> -C <vault>`. If the
