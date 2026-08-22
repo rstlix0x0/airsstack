@@ -10,6 +10,17 @@ and recall it later instead of re-deriving it.
 This plugin is a member of the in-repository `airsstack` marketplace and
 depends on the `airsstack` plugin.
 
+## Install
+
+Every hook and skill script in this plugin runs on the `airsl` binary; install it first with
+`cargo install --git https://github.com/rstlix0x0/airsstack --locked airsl-cli`, then:
+
+```
+/plugin marketplace add rstlix0x0/airsstack
+/plugin install airsstack@airsstack        # dependency
+/plugin install airsstack-journal@airsstack
+```
+
 ## Phase 1 — Foundation (this release)
 
 Phase 1 ships the storage substrate and provisioning machinery only. It writes

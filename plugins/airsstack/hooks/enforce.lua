@@ -140,13 +140,11 @@ local function main()
     return
   end
 
-  airsstack.hook.emit({
-    hookSpecificOutput = {
-      hookEventName = "PreToolUse",
-      additionalContext = table.concat(pointers, "\n"),
-      permissionDecision = "defer",
-    },
-  })
+  -- Uses `hook.context`, not a hand-built `hook.emit` envelope carrying `permissionDecision`:
+  -- that field swallows the tool call outright when the session is non-interactive, the tool
+  -- batch is solo, and the abort signal is not already set (see the `airsl::modules::hook`
+  -- module doc for the CLI behaviour this avoids).
+  airsstack.hook.context("PreToolUse", table.concat(pointers, "\n"))
 end
 
 if arg[1] == "--explain" then

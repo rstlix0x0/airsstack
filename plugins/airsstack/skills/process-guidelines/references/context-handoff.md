@@ -48,12 +48,25 @@ or the main thread would need to operate on this work. Omitted when the report i
 `<summary>` is always written; `<detail>` is gated — omit it when the summary already
 says everything.
 
+### Exception: single-subagent flows may skip the session tree
+
+A skill that spawns exactly one subagent and mints no session may point that subagent
+at a literal, non-session temp path (for example `${TMPDIR:-/tmp}/<skill>-review.md`)
+instead of a path under the session tree above. The session tree's lease, heartbeat and
+pruning exist to stop concurrent multi-agent pipelines from colliding over one shared
+directory; a flow with a single spawn has nothing to collide with, so paying for a
+session buys nothing. The `<summary>`/`<detail>` file schema and the return contract
+below still apply unchanged — only the *path* the report lands at differs. A pipeline
+that spawns more than one subagent, or spawns them across turns, still MUST use the
+session tree; this exception does not extend to those cases.
+
 ## Return & routing contract
 
 - **Main → subagent (on spawn):** the orchestrator assigns `<NN>`/`<agent>`/`<slug>` and
   passes the **full handoff write-path** in the brief. The agent does not compute it.
-- **Subagent → main:** the agent returns its `<summary>` text **plus the relative
-  handoff path**. It does NOT return `<detail>`.
+- **Subagent → main:** the agent returns its `<summary>` text **plus the handoff
+  path** (relative to the worktree root for a session-tree write; the literal temp
+  path under the exception above). It does NOT return `<detail>`.
 - **Main → downstream agent** needing prior detail: the orchestrator passes the upstream
   `handoff:` path **and** a targeted `need:` pointer; the downstream agent reads that
   file itself and pulls only the pointed-at slice into its own context.
@@ -71,6 +84,10 @@ writing the report is a first-class duty, distinct from mutating source, which t
 must never do.
 
 ## Session lifecycle (via handoff.lua)
+
+Applies only when a session is minted. A single-subagent flow taking the exception
+above calls none of `init`/`beat`/`end` and mints no session dir — there is no lease to
+refresh or drop.
 
 - `handoff.lua init` — mint a session, write its `.active` lease, prune old sessions,
   print the session dir + id. The orchestrator runs this once at pipeline start.

@@ -82,4 +82,50 @@ return {
     local rows = vault.sort_rows({ { "a", "b" }, { "a" } })
     assert(#rows[1] == 1, "the shorter row must come first")
   end,
+
+  unquote_strips_one_surrounding_pair_and_the_space_around_it = function()
+    assert(vault.unquote('  "spaced"  ') == "spaced")
+    assert(vault.unquote("'single'") == "single")
+    assert(vault.unquote("bare") == "bare")
+  end,
+
+  an_unpaired_quote_is_left_alone = function()
+    assert(vault.unquote('"opened') == '"opened', vault.unquote('"opened'))
+    assert(vault.unquote("closed'") == "closed'")
+    assert(vault.unquote("\"mixed'") == "\"mixed'")
+  end,
+
+  only_the_outermost_quote_pair_comes_off = function()
+    assert(vault.unquote('""nested""') == '"nested"', vault.unquote('""nested""'))
+  end,
+
+  parse_value_returns_a_scalar_when_there_is_no_flow_list = function()
+    assert(vault.parse_value(' "concept" ') == "concept")
+    assert(vault.parse_value("plain") == "plain")
+  end,
+
+  parse_value_splits_a_flow_list_and_unquotes_each_item = function()
+    assert(json.encode(vault.parse_value('[rust, "async", \'tokio\']')) == '["rust","async","tokio"]')
+    assert(json.encode(vault.parse_value("[one]")) == '["one"]')
+  end,
+
+  an_empty_or_blank_flow_list_is_a_list_and_not_a_scalar = function()
+    -- Both spellings must reach the `{}` branch: falling through to `unquote` would hand a
+    -- consumer the string "[]" where it expects something it can iterate.
+    assert(json.encode(vault.array(vault.parse_value("[]"))) == "[]")
+    assert(json.encode(vault.array(vault.parse_value("[   ]"))) == "[]")
+  end,
+
+  array_encodes_as_a_json_array_even_when_it_is_empty = function()
+    -- The whole reason the helper exists: a bare `{}` encodes as an object, so an empty
+    -- `orphans` field would ship as `{}` and break every consumer expecting a list.
+    assert(json.encode(vault.array({})) == "[]", json.encode(vault.array({})))
+    assert(json.encode(vault.array(nil)) == "[]")
+    assert(json.encode(vault.array({ "a", "b" })) == '["a","b"]')
+  end,
+
+  sorted_keys_orders_the_keys_and_survives_an_empty_map = function()
+    assert(json.encode(vault.sorted_keys({ b = 1, a = 2, c = 3 })) == '["a","b","c"]')
+    assert(#vault.sorted_keys({}) == 0)
+  end,
 }

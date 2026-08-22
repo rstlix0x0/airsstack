@@ -66,7 +66,14 @@ The plugins are language-agnostic except for the guideline plugin: the agents ob
 
 Working inside this repository, the suite loads automatically — `.claude/settings.json` registers the in-repo marketplace and enables all seven plugins (restart Claude Code once to activate).
 
-To use it in another project, install from the GitHub marketplace:
+To use it in another project, first install the `airsl` binary that every plugin hook runs on —
+installing the plugins without it leaves every hook silently disabled, with no error anywhere:
+
+```
+cargo install --git https://github.com/rstlix0x0/airsstack --locked airsl-cli
+```
+
+Then install from the GitHub marketplace:
 
 ```
 /plugin marketplace add rstlix0x0/airsstack

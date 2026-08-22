@@ -7,7 +7,8 @@ description: >
   narrative, typed depends-on/supersedes frontmatter, and high-confidence
   missing links. Never deletes or overwrites existing prose; never touches
   sessions/; never rebuilds the index; never commits; spawns nothing. Reports
-  through the airsstack Context Handoff channel.
+  in the airsstack Context Handoff summary/detail schema, to a single temp
+  file — no session is minted.
 tools: [Read, Glob, Grep, Edit, Write, Bash]
 model: opus
 ---
@@ -72,7 +73,7 @@ Floor every candidate on `scope` (skip cross-project notes unless `scope` is
 - You do NOT rebuild the index — the skill does that after you return.
 - You are a leaf: you spawn no subagent, and this agent NEVER commits.
 
-## Reporting (Context Handoff)
+## Reporting (Context Handoff schema, no session)
 
 Write exactly one file at `handoff_path` with a `<summary>` and a `<detail>`:
 
@@ -81,6 +82,6 @@ Write exactly one file at `handoff_path` with a `<summary>` and a `<detail>`:
 - `<detail>` (stays on disk): the full per-file change log plus the deferred
   missing-link suggestions.
 
-Return only the `<summary>` text plus the relative `handoff_path`. If the
+Return only the `<summary>` text plus the `handoff_path` you were given. If the
 handoff write fails, return your full receipt inline and note the failure
 rather than hard-failing.

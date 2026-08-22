@@ -5,12 +5,10 @@
 //! it. Grounded rules, each carried by a test:
 //!
 //! - A JSON envelope on stdout may carry `hookSpecificOutput.permissionDecision`
-//!   and `hookSpecificOutput.additionalContext` (the shape this repo's
-//!   enforce.lua emits and airsl's hook module builds).
-//! - `PreToolUse` exit 2 blocks the tool call (documented in
-//!   plugins/airsstack/hooks/enforce.sh) — observed as `Decision::Deny`.
-//! - A `SessionStart` hook's bare stdout (no envelope) is injected context
-//!   (the echo-reminder hooks in this repo rely on it).
+//!   (one of allow/deny/ask/defer) and `hookSpecificOutput.additionalContext`,
+//!   independently of one another — either field may be present without the other.
+//! - `PreToolUse` exit 2 blocks the tool call — observed as `Decision::Deny`.
+//! - A `SessionStart` hook's bare stdout (no envelope) is injected context.
 
 use crate::case::Decision;
 use crate::harness::Captured;
@@ -98,6 +96,48 @@ mod tests {
         let observed = observe(HookEvent::PreToolUse, &captured(0, json, ""));
         assert_eq!(observed.decision, Some(Decision::Defer));
         assert_eq!(observed.context.as_deref(), Some("read the guideline"));
+        assert!(observed.emitted);
+    }
+
+    #[test]
+    fn an_envelope_decision_allow_is_extracted() {
+        let json =
+            r#"{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}"#;
+        let observed = observe(HookEvent::PreToolUse, &captured(0, json, ""));
+        assert_eq!(observed.decision, Some(Decision::Allow));
+    }
+
+    #[test]
+    fn an_envelope_decision_deny_is_extracted() {
+        let json =
+            r#"{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"}}"#;
+        let observed = observe(HookEvent::PreToolUse, &captured(0, json, ""));
+        assert_eq!(observed.decision, Some(Decision::Deny));
+    }
+
+    #[test]
+    fn an_envelope_decision_ask_is_extracted() {
+        let json =
+            r#"{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask"}}"#;
+        let observed = observe(HookEvent::PreToolUse, &captured(0, json, ""));
+        assert_eq!(observed.decision, Some(Decision::Ask));
+    }
+
+    #[test]
+    fn an_unrecognised_permission_decision_string_leaves_decision_none() {
+        let json =
+            r#"{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"maybe"}}"#;
+        let observed = observe(HookEvent::PreToolUse, &captured(0, json, ""));
+        assert_eq!(observed.decision, None);
+        assert!(observed.emitted);
+    }
+
+    #[test]
+    fn an_envelope_with_context_and_no_decision_leaves_decision_none() {
+        let json = r#"{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"rust-guidelines apply"}}"#;
+        let observed = observe(HookEvent::PreToolUse, &captured(0, json, ""));
+        assert_eq!(observed.decision, None);
+        assert_eq!(observed.context.as_deref(), Some("rust-guidelines apply"));
         assert!(observed.emitted);
     }
 

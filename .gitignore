@@ -31,3 +31,8 @@ coding-agent-workspace/
 # Claude Code scheduled-task lock (per-session runtime mutex). Ephemeral, machine-local.
 .claude/scheduled_tasks.lock
 .airsstack/
+
+# Python bytecode. The plugin suite ran on Python before it moved to airsl; nothing
+# generates these now, but an old checkout still can.
+__pycache__/
+*.pyc

@@ -113,6 +113,6 @@ conversion, per-subdirectory index generation, hooks.
 ## Dependencies
 
 Requires the `airsstack` plugin (agent conventions), and the `airsl` binary
-(`cargo install --path crates/airsl-cli`), which the scripts run on. No
-Python, no jq/yq; agents use only harness built-ins (Read/Glob/Grep, with
+(`cargo install --git https://github.com/rstlix0x0/airsstack --locked airsl-cli`), which the
+scripts run on. No Python, no jq/yq; agents use only harness built-ins (Read/Glob/Grep, with
 Grep backed by Claude Code's bundled ripgrep).
