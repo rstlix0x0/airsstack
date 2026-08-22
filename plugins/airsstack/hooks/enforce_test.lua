@@ -1,6 +1,10 @@
 -- Tests for lib/enforce — the resolution pipeline and its gates.
 --
---   airsl test --allow-read /tmp --allow-write /tmp --allow-exec git plugins/airsstack/hooks
+--   airsl test --policy confined --allow-read / --allow-write "${TMPDIR:-/tmp}" \
+--     --allow-exec git plugins/airsstack/hooks
+--
+-- The read grant is `/`, not `/tmp`: fixtures live under `fs.tempdir()`, but the guard below
+-- also reads real source files anywhere under the repository's `plugins/` tree.
 
 local enforce = require("lib.enforce")
 local fs = airsstack.fs
@@ -56,6 +60,156 @@ local function resolve(overrides)
     context[key] = value
   end
   return enforce.resolve(context)
+end
+
+-- Splits `text` into lines. Every driver under `plugins/` (`enforce.lua`, `concise-tracker.lua`,
+-- `session-start.lua`, ...) is not `require`-able as a module — each reads stdin/its payload and
+-- runs at load time — so a driver's own emission call cannot be exercised directly from here.
+-- Reading its source and asserting on it is the crude but honest alternative: the property being
+-- guarded ("no driver may emit `permissionDecision`") is a textual one.
+local function lines_of(text)
+  local result = {}
+  for line in (text .. "\n"):gmatch("(.-)\n") do
+    result[#result + 1] = line
+  end
+  return result
+end
+
+-- The directory this test file was loaded from — `arg[0]` is the path the harness read to find
+-- it, Lua's own convention for a standalone script (see `airsl::engine::set_arguments`), so
+-- resolving it through `path.absolute` needs neither `git` nor any assumption about the caller's
+-- cwd or which repository it sits in: it is arithmetic over the one path already known to be
+-- correct, since it is the path this very file was just read from.
+-- Anchored on a marker file, not on the directory's name. `plugins` is far too common a name to
+-- match on: this file is copied verbatim into the plugin install cache, where it sits at
+-- `~/.claude/plugins/cache/<marketplace>/<plugin>/<version>/hooks/`, and the first ancestor there
+-- called `plugins` is `~/.claude/plugins` itself. Matching that would point the sweep at every
+-- plugin of every marketplace on the machine and fail on a third party's hook, which is entitled
+-- to emit whatever it likes. Requiring the suite's own manifest underneath keeps the walk inside
+-- a checkout of this repository.
+local function plugins_root()
+  local dir = path.dirname(path.absolute(arg[0]))
+  for _ = 1, 10 do
+    if fs.is_file(path.join(dir, "airsstack", ".claude-plugin", "plugin.json")) then
+      return dir
+    end
+    local parent = path.dirname(dir)
+    if parent == dir then
+      return nil
+    end
+    dir = parent
+  end
+  return nil
+end
+
+-- Every `.lua` file under `root`, relative-to-root paths, sorted.
+local function all_lua_files(root)
+  local ok, entries = pcall(fs.walk, root)
+  assert(ok, "could not walk " .. root .. ": " .. tostring(entries))
+  local found = {}
+  for _, rel in ipairs(entries) do
+    if rel:match("%.lua$") and fs.is_file(path.join(root, rel)) then
+      found[#found + 1] = rel
+    end
+  end
+  table.sort(found)
+  return found
+end
+
+-- The code lines of `source`, one entry per source line, with every comment removed: both a `--`
+-- line comment and a `--[[ ... ]]` block comment (which may open and close on the same line, or
+-- span several). Aware of `'` and `"` string literals so a `--` embedded in one — this very file
+-- uses exactly that construct, e.g. `enforce.lua`'s `"--show-toplevel"` — is not mistaken for a
+-- comment opener, which is how the previous version of this guard missed code written after such
+-- a string on the same line. Long bracket strings are tracked for the same reason, and they are
+-- not hypothetical: `lib/concise.lua` builds its patterns with them (`regex.compile([[\bnormal
+-- mode\b]])` and seven more), so a `--` inside one would truncate a real line of this suite.
+--
+-- Long brackets are tracked at their own level (`[[`, `[=[`, `[==[` … each closed only by a `]`
+-- with the same run of `=`), in both forms Lua gives them: `--[==[ … ]==]` is a block comment and
+-- drops out, while a bare `[==[ … ]==]` is a string literal whose text is KEPT. Keeping it is
+-- deliberate and matches how `'`/`"` strings are treated here — a field name reaching the CLI
+-- inside a string literal is still a field reaching the CLI, so a payload like
+-- `json.decode([[{"permissionDecision":"defer"}]])` must not be able to hide in one.
+--
+-- One construct still slips through, accepted rather than chased: a key built by concatenation,
+-- e.g. `s["permission" .. "Decision"] = "defer"`, never puts the substring "permissionDecision"
+-- in a single token for a text scan to find.
+local function strip_comments(source)
+  local out = {}
+  -- While inside a multi-line long bracket: its `=` count, and whether it is a comment.
+  local long_level, long_is_comment = nil, false
+  for _, line in ipairs(lines_of(source)) do
+    local code = {}
+    local i, n = 1, #line
+    local quote = nil
+
+    if long_level then
+      local closer = "]" .. string.rep("=", long_level) .. "]"
+      local close = line:find(closer, 1, true)
+      if close then
+        if not long_is_comment then
+          code[#code + 1] = line:sub(1, close - 1)
+        end
+        i = close + #closer
+        long_level, long_is_comment = nil, false
+      else
+        if not long_is_comment then
+          code[#code + 1] = line
+        end
+        i = n + 1
+      end
+    end
+
+    while i <= n do
+      local ch = line:sub(i, i)
+      local comment_eq = line:match("^%-%-%[(=*)%[", i)
+      local string_eq = line:match("^%[(=*)%[", i)
+      if quote then
+        code[#code + 1] = ch
+        if ch == "\\" then
+          code[#code + 1] = line:sub(i + 1, i + 1)
+          i = i + 2
+        else
+          if ch == quote then
+            quote = nil
+          end
+          i = i + 1
+        end
+      elseif ch == '"' or ch == "'" then
+        quote = ch
+        code[#code + 1] = ch
+        i = i + 1
+      elseif comment_eq then
+        local closer = "]" .. comment_eq .. "]"
+        local close = line:find(closer, i + 4 + #comment_eq, true)
+        if close then
+          i = close + #closer
+        else
+          long_level, long_is_comment = #comment_eq, true
+          i = n + 1
+        end
+      elseif line:sub(i, i + 1) == "--" then
+        i = n + 1
+      elseif string_eq then
+        local closer = "]" .. string_eq .. "]"
+        local close = line:find(closer, i + 2 + #string_eq, true)
+        if close then
+          code[#code + 1] = line:sub(i, close + #closer - 1)
+          i = close + #closer
+        else
+          long_level, long_is_comment = #string_eq, false
+          code[#code + 1] = line:sub(i)
+          i = n + 1
+        end
+      else
+        code[#code + 1] = ch
+        i = i + 1
+      end
+    end
+    out[#out + 1] = table.concat(code)
+  end
+  return out
 end
 
 return {
@@ -324,5 +478,50 @@ return {
     assert(#trace > 0, "the doctor needs a trace to explain silence")
     assert(table.concat(trace, "\n"):find("no @airsstack plugins", 1, true),
       table.concat(trace, "\n"))
+  end,
+
+  no_plugin_driver_ever_emits_a_permission_decision = function()
+    -- Any hook that returns `permissionDecision` on PreToolUse can have the CLI swallow the tool
+    -- call it fired on outright — no `tool_result` at all — when the session is non-interactive,
+    -- the tool batch is solo, and the abort signal is not already set: a subagent's run ends
+    -- reported `completed` having done nothing. That is the defect `hook.context` (see
+    -- `enforce.lua`'s own comment above its emission call) exists to avoid, and it is not unique
+    -- to `enforce.lua` — every hook driver under `plugins/` fires on some Claude Code event and
+    -- so carries the same risk. This sweeps all of them rather than the one path a previous
+    -- version of this test named.
+    local root = plugins_root()
+    assert(root, "could not resolve the plugin suite root from this test file's own path "
+      .. "(arg[0] = " .. tostring(arg[0]) .. "): no ancestor directory holds "
+      .. "`airsstack/.claude-plugin/plugin.json`. This guard sweeps a checkout of this "
+      .. "repository; running it from the install cache has no suite source to check, and it "
+      .. "refuses rather than sweeping whatever `plugins/` directory it happens to sit under")
+
+    -- A named file, not a count: a threshold drifts with the suite's size, failing the day a
+    -- plugin is removed rather than the day the root is wrong.
+    assert(fs.is_file(path.join(root, "airsstack", "hooks", "enforce.lua")),
+      "resolved the suite root to " .. root .. ", which holds no airsstack/hooks/enforce.lua")
+    local files = all_lua_files(root)
+
+    -- This test file itself is excluded: it names `permissionDecision` in code, in its own
+    -- assertion messages and in the string literal every other file's source is searched for,
+    -- and that is talking *about* the field, not emitting it. Guarding this file's own vocabulary
+    -- is not the property under test.
+    local self_path = path.absolute(arg[0])
+
+    for _, rel in ipairs(files) do
+      local file = path.join(root, rel)
+      if file ~= self_path then
+        local source = fs.read(file)
+        for lineno, code in ipairs(strip_comments(source)) do
+          assert(not code:find("permissionDecision", 1, true), file .. ":" .. lineno
+            .. ": emits `permissionDecision` — a hook driver firing on PreToolUse (or any event) "
+            .. "that returns this field can have the CLI swallow the tool call outright (no "
+            .. "tool_result at all) in a non-interactive subagent session, stranding whatever the "
+            .. "tool call was meant to do with the run still reported `completed`. Emit through "
+            .. "`airsstack.hook.context`, never a hand-built `hook.emit` envelope carrying this "
+            .. "field.")
+        end
+      end
+    end
   end,
 }
